@@ -20,7 +20,7 @@ namespace
     constexpr std::size_t c_CountLimit = 999;
     constexpr const char* c_ClearOptionsPopup = "##ClearOptions";
 
-    // Whether the windows are drawn light, as ui.theme's light theme draws them, by how bright their background is
+    // Whether the windows are drawn light, by how bright their background is
     bool IsLightTheme()
     {
         const ImVec4 l_Background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
@@ -64,7 +64,7 @@ namespace
         return std::nullopt;
     }
 
-    // A .NET stack frame that names its source, as an English runtime writes it, such as "   at Game.Player.OnUpdate() in C:\Game\Scripts\Player.cs:line 42"
+    // A .NET stack frame that names its source, as an English runtime writes it: "at X in file:line N"
     std::optional<std::pair<std::string_view, std::uint32_t>> FindFrameLocation(std::string_view line)
     {
         constexpr std::string_view c_At = "at ";
@@ -90,7 +90,7 @@ namespace
         return std::pair(line.substr(l_Path, l_LineAt - l_Path), l_Number);
     }
 
-    // Held down while its setting is on, as Unity's Console toggles are, and saved in imgui.ini when clicked. True as it is clicked
+    // Held down while its setting is on, as Unity's Console toggles. True as it is clicked
     bool ToggleButton(const char* label, bool& value, const char* tooltip)
     {
         const bool l_On = value;
@@ -293,7 +293,7 @@ void ConsolePanel::OnImGuiRender()
     }
 }
 
-// Laid out as Unity's Console: its toolbar, the list, and the line selected in full under it, with a bar between the two to drag. The levels show last frame's counts, since the history is read after Clear, which cannot run while it is held. Nothing in here may log: the history stays locked while it is drawn, and this thread would wait on itself
+// Nothing in here may log: the history stays locked while it is drawn, and this thread would wait
 void ConsolePanel::DrawLog(float footerHeight)
 {
     const bool l_Clear = ImGui::Button("Clear");
@@ -371,7 +371,7 @@ void ConsolePanel::DrawLog(float footerHeight)
     ImGui::SameLine();
     const bool l_Copy = ImGui::Button("Copy");
 
-    // The log files, as Unity's Console menu opens Editor.log: this run's, and the last run's, which is what a crash leaves
+    // The log files, as Unity's Console menu opens Editor.log: this run's, and the last run's
     ImGui::SameLine();
     if (ImGui::Button(std::format("{} Log Files", Trinity::Icons::c_File).c_str()))
     {
@@ -421,7 +421,7 @@ void ConsolePanel::DrawLog(float footerHeight)
 
     DrawLines(l_History, std::max(l_Height - l_DetailHeight, 1.0f));
 
-    // The bar between the list and the pane, dragged to size the pane, which imgui.ini keeps once it is let go
+    // The bar between the list and the pane, dragged to size the pane, which imgui.ini keeps
     const ImVec2 l_SplitterStart = ImGui::GetCursorScreenPos();
     const float l_SplitterWidth = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
     ImGui::InvisibleButton("##DetailSplitter", ImVec2(l_SplitterWidth, l_SplitterHeight));
@@ -451,7 +451,7 @@ void ConsolePanel::DrawLog(float footerHeight)
     DrawDetail(l_History, -footerHeight);
 }
 
-// A row a line of text, as Unity's Console shows them, so every row is as high as the next and the clipper skips those out of view: the first line of the text, "..." when more follow, and while collapsed how many times it was logged at the right. A click, or Up and Down, selects a row to be shown in full under the list, and a double-click opens the file and line it names
+// A row is one line of text, so every row is as high as the next and the clipper skips unseen ones
 void ConsolePanel::DrawLines(const Trinity::LogHistory::Reader& history, float height)
 {
     if (ImGui::BeginChild("##Lines", ImVec2(0.0f, height)))
@@ -474,7 +474,7 @@ void ConsolePanel::DrawLines(const Trinity::LogHistory::Reader& history, float h
                 const float l_Left = ImGui::GetCursorPosX();
                 const float l_Right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
 
-                // Sequences rather than rows name the rows, so keyboard focus stays on its line as lines come and go
+                // Sequences rather than rows name the rows, so keyboard focus stays on its line as lines come
                 ImGui::PushID(static_cast<int>(l_Sequence));
                 if (ImGui::Selectable("##Row", m_Selected == l_Sequence, ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_SelectOnNav))
                 {
@@ -553,7 +553,7 @@ void ConsolePanel::DrawLines(const Trinity::LogHistory::Reader& history, float h
             }
         }
 
-        // A build's errors start from the first. Otherwise new lines are followed only while already at the bottom, so scrolling up to read stays put
+        // A build's errors start from the first. Else new lines are followed only while at the bottom
         if (std::exchange(m_ScrollToTop, false))
         {
             ImGui::SetScrollY(0.0f);
@@ -569,7 +569,7 @@ void ConsolePanel::DrawLines(const Trinity::LogHistory::Reader& history, float h
     ImGui::EndChild();
 }
 
-// The line selected in full, as Unity's Console shows it under the list. Each line of it naming a file and its line, such as a build's error or a frame of a C# stack trace, is a link that opens there
+// The line selected in full. Each line of it naming a file and line is a link that opens there
 void ConsolePanel::DrawDetail(const Trinity::LogHistory::Reader& history, float height)
 {
     if (ImGui::BeginChild("##Detail", ImVec2(0.0f, height)))
@@ -627,7 +627,7 @@ void ConsolePanel::DrawDetail(const Trinity::LogHistory::Reader& history, float 
     ImGui::EndChild();
 }
 
-// Only lines added since the last frame are filtered, unless a filter changed. Sequences are contiguous within the history, so a sequence finds its line. Lines dropping out of the full history leave the front of the list, except while collapsed, where the counts they were in are found again from the start
+// Only lines added since the last frame are filtered, unless a filter changed
 void ConsolePanel::UpdateVisibleLines(const Trinity::LogHistory::Reader& history)
 {
     if (history.GetCount() == 0)
@@ -647,7 +647,7 @@ void ConsolePanel::UpdateVisibleLines(const Trinity::LogHistory::Reader& history
     const std::uint64_t l_End = history[history.GetCount() - 1].Sequence + 1;
     const bool l_Dropped = l_First != std::exchange(m_FirstSequence, l_First);
 
-    // A build's errors are shown alone only while some of its lines are left, as Clear on Build leaves none
+    // A build's errors are shown alone only while some of its lines are left
     if (m_BuildLines && l_First >= m_BuildLines->second)
     {
         m_BuildLines.reset();
@@ -714,14 +714,14 @@ void ConsolePanel::UpdateVisibleLines(const Trinity::LogHistory::Reader& history
 
     m_ScannedSequence = l_End;
 
-    // The selection goes with its row, as a filter hides it or it drops out of the history. Rows stay in the order they were logged, collapsed or not
+    // The selection goes with its row, as a filter hides it or it drops out of the history
     if (m_Selected && !std::ranges::binary_search(m_VisibleLines, *m_Selected))
     {
         m_Selected.reset();
     }
 }
 
-// What the filters show, as the log file writes it, with how many times each line was logged while collapsed
+// What the filters show, as the log file writes it, with each line's count while collapsed
 void ConsolePanel::CopyVisibleLines(const Trinity::LogHistory::Reader& history) const
 {
     if (history.GetCount() == 0)
@@ -748,7 +748,7 @@ void ConsolePanel::CopyVisibleLines(const Trinity::LogHistory::Reader& history) 
     ImGui::SetClipboardText(l_Text.c_str());
 }
 
-// Each change goes through ConsoleVariables::Set, which logs it. Read-only variables can only be set on the command line Trinity starts with
+// Each change goes through ConsoleVariables::Set, which logs it. Read-only ones are greyed
 void ConsolePanel::DrawVariables(float footerHeight)
 {
     m_Variables.clear();
@@ -859,7 +859,7 @@ void ConsolePanel::DrawVariables(float footerHeight)
     ImGui::EndChild();
 }
 
-// Enter runs the line through ConsoleVariables::Execute, and Up and Down walk back through earlier lines
+// Enter runs the line through ConsoleVariables::Execute. Up and Down walk through earlier lines
 void ConsolePanel::DrawCommandLine()
 {
     const ImGuiInputTextFlags l_Flags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_EscapeClearsAll | ImGuiInputTextFlags_CallbackHistory;

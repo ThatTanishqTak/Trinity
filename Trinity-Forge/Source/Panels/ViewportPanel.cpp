@@ -43,7 +43,7 @@ namespace
     constexpr std::array<const char*, 3> c_GizmoFields{ "Position", "Rotation", "Scale" };
     constexpr std::array<std::string_view, 3> c_GizmoOperationNames{ "Translate", "Rotate", "Scale" };
 
-    // In 3D: a model or sprite dropped where the mouse's ray misses the ground, or meets it further away than the maximum, lands this far ahead of the camera
+    // In 3D: what is dropped where the mouse's ray misses the ground lands this far ahead of the camera
     constexpr float c_DropDistance = 10.0f;
     constexpr float c_MaximumDropDistance = 1000.0f;
     // A light's marker is this many pixels across, and a click this near its centre picks it
@@ -51,14 +51,14 @@ namespace
     constexpr float c_LightPickPixels = 8.0f;
     // Segments in each circle drawn for a light's reach
     constexpr int c_CircleSegments = 48;
-    // A selected AudioSource's maximum distance, and its minimum and cone fainter, and every other's fainter still while the Audio toggle shows them
+    // A selected AudioSource's maximum distance, its minimum and cone fainter, others fainter still
     constexpr ImU32 c_AudioRangeColor = IM_COL32(110, 175, 255, 230);
     constexpr ImU32 c_AudioInnerColor = IM_COL32(110, 175, 255, 130);
     constexpr ImU32 c_AudioRangeFaintColor = IM_COL32(110, 175, 255, 120);
     constexpr ImU32 c_AudioInnerFaintColor = IM_COL32(110, 175, 255, 60);
-    // An AudioSource's or an AudioListener's icon is a disc this many fonts across its radius, which a click inside picks
+    // An AudioSource's or AudioListener's icon is a disc of this radius in fonts, which a click picks
     constexpr float c_AudioIconRadiusInFonts = 0.8f;
-    // A playing source's last occlusion ray: clear, stopped as far as what stopped it, and fainter beyond it, with a dot of this radius where it was stopped
+    // A playing source's last occlusion ray: clear, then fainter beyond a dot where it was stopped
     constexpr ImU32 c_OcclusionClearColor = IM_COL32(110, 220, 130, 230);
     constexpr ImU32 c_OcclusionBlockedColor = IM_COL32(255, 90, 80, 230);
     constexpr ImU32 c_OcclusionBehindColor = IM_COL32(255, 90, 80, 90);
@@ -67,23 +67,23 @@ namespace
     constexpr float c_FrustumDistance = 5.0f;
     // Flying never jumps further than a frame of this long, however long the frame took
     constexpr float c_MaximumFlyStep = 0.1f;
-    // Framing's glide closes this much of what is left each second, as a rate, so it is there in about a quarter of a second, and it is there once within this fraction of the distance
+    // Framing's glide closes this much of what is left each second, so it takes about a quarter second
     constexpr float c_GlideRate = 18.0f;
     constexpr float c_GlideTolerance = 0.001f;
     // A turn is there once within this many degrees of the yaw and pitch it turns to
     constexpr float c_GlideAngleTolerance = 0.01f;
 
-    // The orientation gizmo's cones reach this many fonts from its centre, round a cube this share of that across, with a cone's base this share of it from the centre and this share of it wide
+    // The orientation gizmo's cones reach this many fonts from its centre, round a cube
     constexpr float c_OrientationRadiusInFonts = 2.4f;
     constexpr float c_OrientationCube = 0.2f;
     constexpr float c_OrientationConeBase = 0.42f;
     constexpr float c_OrientationConeWidth = 0.23f;
-    // Unity's handle colours for X, Y and Z, its grey for the negative axes, and its yellow for what the mouse is over
+    // Unity's handle colours for X, Y and Z, its grey for negative axes, and its yellow for hover
     constexpr std::array<ImU32, 3> c_AxisColors{ IM_COL32(219, 62, 29, 255), IM_COL32(154, 243, 72, 255), IM_COL32(58, 122, 248, 255) };
     constexpr ImU32 c_NegativeAxisColor = IM_COL32(170, 170, 170, 255);
     constexpr ImU32 c_HoveredAxisColor = IM_COL32(246, 242, 50, 255);
 
-    // A view down one of the world's axes, as the orientation gizmo's cone towards it and its menu turn to it: looking back along the axis from its side, at a yaw and pitch, with Top keeping -Z up the screen as Front looks down -Z. Forge's front looks down -Z, where Unity's looks down +Z, so Front and Back trade cones with Unity's
+    // Forge's front looks down -Z, where Unity's looks down +Z, so Front and Back trade cones
     struct SideView
     {
         const char* Name;
@@ -116,7 +116,7 @@ namespace
         return std::round(value / step) * step;
     }
 
-    // The editor camera as ImGuizmo takes it, a view and a projection apart, with depth the usual way round
+    // The editor camera as ImGuizmo takes it, a view and a projection apart, with depth the usual way
     glm::mat4 GetGizmoView(const EditorCamera& camera)
     {
         return glm::translate(glm::mat4(1.0f), glm::vec3(-camera.GetPosition(), -c_GizmoDistance));
@@ -129,7 +129,7 @@ namespace
         return glm::ortho(-l_HalfExtent.x, l_HalfExtent.x, -l_HalfExtent.y, l_HalfExtent.y, 1.0f, c_GizmoDistance * 2.0f);
     }
 
-    // The angle of the X axis about Z. A negative X scale turns it round, but by the same amount before and after a rotation, so differences stay true
+    // The angle of the X axis about Z. A negative X scale turns it round, but differences stay true
     float GetAngleZ(const glm::mat4& matrix)
     {
         return std::atan2(matrix[0][1], matrix[0][0]);
@@ -149,7 +149,7 @@ namespace
         }
     }
 
-    // The actions each player in use performed this frame, by their paths, the player named for any but player 0, as WasPerformed reads them outside a fixed step, or what keeps them from being read
+    // The actions each player performed this frame, by path, or what keeps them from being read
     std::string DescribeFiredActions()
     {
         const Trinity::InputActionsData* l_Data = Trinity::InputActions::GetData();
@@ -185,7 +185,7 @@ namespace
         return l_Count == 0 ? std::string("Actions: none fired this frame") : std::format("Actions: {} fired this frame: {}", l_Count, l_Fired);
     }
 
-    // The prefab instances placed in the scene, each once however deep it is placed, as those nested in a prefab are its own and not the scene's, with how many prefabs they are of and how many of those are missing
+    // The prefab instances placed in the scene, each once, with how many prefabs and how many missing
     std::string DescribePrefabInstances(Trinity::Scene& scene)
     {
         std::vector<Trinity::UUID> l_Prefabs;
@@ -271,7 +271,7 @@ namespace
         return height > 0.0f;
     }
 
-    // The second line, which views saved before 3D editing are without: 2D or 3D, as the scene was last edited, then the 3D camera's focus, yaw, pitch, distance and flying speed
+    // The second line, which older views lack: 2D or 3D, then the 3D camera's focus, turn and speed
     bool ParseCamera3D(std::string_view text, bool& mode3D, EditorCamera3D& camera)
     {
         const std::size_t l_LineEnd = text.find('\n');
@@ -353,7 +353,7 @@ namespace
         return glm::vec2((l_Clip.x / l_Clip.w + 1.0f) * 0.5f * viewportSize.x, (1.0f - l_Clip.y / l_Clip.w) * 0.5f * viewportSize.y);
     }
 
-    // A speaker on each AudioSource and headphones on each AudioListener, as Unity's gizmo icons show them, at the pixel project gives its entity's place in the world, none for one behind the eye, in a dark disc ringed in the selection's colour for the selection and lit under the mouse. Each is kept with its entity for a click to pick, an entity with both taking the speaker
+    // A speaker on each AudioSource and headphones on each AudioListener, kept for a click to pick
     template<typename F>
     void DrawAudioIcons(ImDrawList& drawList, glm::vec2 imageMin, Trinity::Scene& scene, Trinity::UUID selected, const F& project, std::vector<std::pair<Trinity::UUID, glm::vec2>>& icons)
     {
@@ -400,14 +400,14 @@ namespace
     }
 }
 
-// The Scene panel, which imgui.ini still knows by the Viewport's ID, so a saved layout keeps it where it was
+// The Scene panel, which imgui.ini still knows by the Viewport's ID, so a saved layout keeps it
 ViewportPanel::ViewportPanel(Trinity::ImGuiLayer& imGui, EditorSession& session) : Panel("Scene", Trinity::Icons::c_Monitor, DockSlot::Centre, "Viewport"), m_ImGui(imGui), m_Session(session)
 {
     SetBorderless(true);
     m_CloseListener = m_Session.AddCloseListener([this] { m_Colliders.Release(); });
 }
 
-// The session is still open here, so a camera moved in the last moments is saved. The Viewport is ImGuizmo's only user, so it lets go of ImGuizmo's memory too
+// The session is still open here, so the camera is saved. ImGuizmo's memory is let go too
 ViewportPanel::~ViewportPanel()
 {
     if (m_CameraDirty)
@@ -419,7 +419,7 @@ ViewportPanel::~ViewportPanel()
     m_Session.RemoveCloseListener(m_CloseListener);
 }
 
-// The Viewport's own lines in imgui.ini: the stats overlay, the gizmo's operation and axes, the snap toggle, the light heatmap and the physics drawing. The snap steps, which the preferences keep now, are read from an imgui.ini written before them into preferences not saved yet
+// The Viewport's own lines in imgui.ini. Snap steps from before the preferences are read into them
 bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
 {
     const auto a_ReadStep = [this, value](glm::length_t axis)
@@ -468,7 +468,7 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
     }
     else if (key == "ViewCamera")
     {
-        // Written while this panel could show the scene's camera, which the Game panel now does, so it is read and dropped
+        // Written while this panel could show the scene's camera, so it is read and dropped
     }
     else if (key == "LightHeatmap")
     {
@@ -506,7 +506,7 @@ void ViewportPanel::SetShowingStats(bool show)
     }
 }
 
-// The scene's world UI documents, drawn in place as the Game panel draws them, without its screen documents. That is the Game panel's scene but in prefab mode, so the two share its documents, and the prefab's in prefab mode
+// The scene's world UI documents, drawn in place as the Game panel draws them
 void ViewportPanel::ShowUI()
 {
     if (Trinity::GameUI* l_UI = Trinity::Application::Get().GetGameUI(); l_UI != nullptr)
@@ -515,7 +515,7 @@ void ViewportPanel::ShowUI()
     }
 }
 
-// The scene's meshes, submitted to the main view before the frame graph is built, through the editor camera, which looks down -Z in 2D and is a perspective or an orthographic camera in 3D, with the 3D grid drawn over the meshes and hidden by them. Every entity is drawn into ID targets too, for a click to pick from and the selection's outline, and the frame's debug lines over the image, among them the selection's colliders and characters, or with Physics on every collider, character and joint, and where a playing copy's bodies touch, which the copy is asked to keep only then, and how its characters stand and move. After the transform pass
+// Submitted to the main view through the editor camera, with ID targets for picking and outlines
 void ViewportPanel::PrepareScene()
 {
     const glm::vec2 l_ViewportSize = GetViewportSize();
@@ -582,7 +582,7 @@ void ViewportPanel::PrepareScene()
     Trinity::Application::Get().GetRenderer().SubmitScene(l_Scene, l_View, l_Options);
 }
 
-// Into the main view's scene target, which the Scene panel shows, over the scene's meshes: through the 2D editor camera the grid, then the scene's sprites, and through the 3D editor camera the sprites alone, since the 3D grid was drawn with the meshes
+// Into the main view's scene target: the 2D grid then the sprites, or in 3D the sprites alone
 void ViewportPanel::RenderScene(Trinity::RHI::CommandList& commands)
 {
     const glm::vec2 l_ViewportSize = GetViewportSize();
@@ -598,7 +598,7 @@ void ViewportPanel::RenderScene(Trinity::RHI::CommandList& commands)
     Trinity::Application::Get().GetRenderer().GetRenderer2D().DrawScene(commands, m_Session.GetScene(), m_Camera.GetViewProjection(l_ViewportSize), l_Renderer.GetSceneFormat(), l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight());
 }
 
-// The tone mapped image, the display target, is drawn at the scene target's own size, which only catches up with the panel once its size settles, so it is cropped or bordered meanwhile but never stretched. Overlays follow the image, so they line up with what it shows
+// Drawn at the scene target's own size, so it is cropped or bordered while resizing, not stretched
 void ViewportPanel::OnImGuiRender()
 {
     FollowScene();
@@ -622,7 +622,7 @@ void ViewportPanel::OnImGuiRender()
         AcceptAssetDrop(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
     }
 
-    // The scene has input over the whole panel. Picking, panning and zooming are only for the image itself, not the toolbar over it
+    // The scene has input over the whole panel. Picking, panning and zooming are the image's only
     const bool l_Hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
     const bool l_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
     m_ImGui.SetSceneInput(l_Hovered, l_Focused);
@@ -685,7 +685,7 @@ void ViewportPanel::OnImGuiRender()
     }
 }
 
-// A size is taken once it has held for c_SettleSeconds, so dragging a splitter rebuilds the target once rather than every frame, and the sizes a panel passes through as the layout is built are skipped
+// A size is taken once it has held for c_SettleSeconds, so a splitter drag rebuilds the target once
 void ViewportPanel::FollowPanelSize(std::uint32_t width, std::uint32_t height)
 {
     const double l_Now = ImGui::GetTime();
@@ -704,7 +704,7 @@ void ViewportPanel::FollowPanelSize(std::uint32_t width, std::uint32_t height)
     }
 }
 
-// Each saved scene keeps its cameras, and whether it was last edited in 2D or 3D. A scene saved for the first time keeps the view it had while untitled, one without a saved camera starts at the origin, and one saved before 3D editing opens in 2D. In prefab mode the open prefab keeps cameras of its own, and one without them yet is framed, with its root selected, as Unity frames a prefab it opens
+// Each saved scene keeps its cameras and its 2D or 3D mode. An open prefab keeps its own
 void ViewportPanel::FollowScene()
 {
     const Trinity::UUID l_Prefab = m_Session.GetOpenPrefab();
@@ -768,7 +768,7 @@ void ViewportPanel::FollowScene()
     }
 }
 
-// Per user and per project, so it lives in Cache beside the cooked assets. An untitled scene's camera is not kept
+// Per user and per project, so it lives in Cache. An untitled scene's camera is not kept
 void ViewportPanel::SaveCamera()
 {
     m_CameraDirty = false;
@@ -793,7 +793,7 @@ void ViewportPanel::MarkCameraChanged()
     m_CameraChangeTime = ImGui::GetTime();
 }
 
-// Middle drag pans, the wheel zooms towards the cursor, F frames the selection and Shift+F follows it, and a left click picks the top-most sprite or clears the selection. A pan begun in the Viewport carries on outside it
+// Middle drag pans, the wheel zooms to the cursor, F frames, Shift+F follows, a left click picks
 void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered, bool focused)
 {
     const ImGuiIO& l_IO = ImGui::GetIO();
@@ -809,7 +809,7 @@ void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool
         m_Panning = false;
     }
 
-    // Panning takes the camera off what it follows. Zooming only ends a glide, so a followed entity stays in the middle at the new zoom
+    // Panning takes the camera off what it follows. Zooming only ends a glide
     if (m_Panning && (l_IO.MouseDelta.x != 0.0f || l_IO.MouseDelta.y != 0.0f))
     {
         StopGlide();
@@ -835,7 +835,7 @@ void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool
         HandleGizmoKeys();
     }
 
-    // A click on the gizmo is the gizmo's, not a pick. An audio icon is picked at once, and anything else through the entity IDs
+    // A click on the gizmo is the gizmo's, not a pick. An audio icon is picked at once
     if (hovered && !m_GizmoHovered && !m_GizmoDragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
         if (const Trinity::UUID l_Icon = PickAudioIcon(l_Mouse))
@@ -849,7 +849,7 @@ void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool
     }
 }
 
-// The right mouse button looks around, and while it is held W, A, S and D fly, Q and E go down and up, Shift flies faster and the wheel changes the speed. Alt with the left button orbits the focus, a middle drag pans, the wheel moves towards the focus, F frames the selection and a left click picks. A drag begun in the Viewport carries on outside it, and the gizmo's keys wait while flying, since W and E are flying keys then
+// Right button looks and W, A, S, D fly. Alt+left orbits, middle pans. Gizmo keys wait while flying
 void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered, bool focused)
 {
     const ImGuiIO& l_IO = ImGui::GetIO();
@@ -877,7 +877,7 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
     m_Orbiting = m_Orbiting && ImGui::IsMouseDown(ImGuiMouseButton_Left);
     m_Panning = m_Panning && ImGui::IsMouseDown(ImGuiMouseButton_Middle);
 
-    // Looking, panning and flying take the camera off what it follows. Orbiting keeps the focus, so it goes on, but not a turn on its way, and moving in only ends a glide, keeping the distance it is moved to. Looking and orbiting turn an Iso side view back to perspective, as in Unity
+    // Looking, panning and flying take the camera off what it follows. Orbiting keeps the focus
     if ((l_Delta.x != 0.0f || l_Delta.y != 0.0f) && (m_Flying || m_Orbiting))
     {
         if (m_Glide)
@@ -951,7 +951,7 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
         HandleGizmoKeys();
     }
 
-    // A click on the gizmo is the gizmo's, and one with Alt held begins an orbit, so neither is a pick. A light's marker and an audio icon are picked at once, and anything else through the entity IDs
+    // A click on the gizmo, or with Alt held, is no pick. Light markers and audio icons pick at once
     if (hovered && !l_IO.KeyAlt && !m_GizmoHovered && !m_GizmoDragging && !m_OrientationHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
         if (const Trinity::Entity l_Light = PickLight(l_Mouse, viewportSize))
@@ -969,7 +969,7 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
     }
 }
 
-// W, E and R pick the gizmo's operation, X its axes, and Ctrl+\ turns snapping on and off, as in Unity
+// W, E and R pick the gizmo's operation, X its axes, and Ctrl+\ toggles snapping, as in Unity
 void ViewportPanel::HandleGizmoKeys()
 {
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Backslash))
@@ -995,7 +995,7 @@ void ViewportPanel::HandleGizmoKeys()
     }
 }
 
-// The light whose marker is nearest the mouse, within a few pixels. A light has no surface to draw an ID on, so it is picked here rather than through the entity IDs
+// The light whose marker is nearest the mouse. A light has no surface to draw an ID on
 Trinity::Entity ViewportPanel::PickLight(glm::vec2 mouse, glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1034,7 +1034,7 @@ Trinity::UUID ViewportPanel::PickAudioIcon(glm::vec2 mouse) const
     return l_Hit;
 }
 
-// The pixel under the mouse, read from the entity IDs the next frame draws. The answer comes back a frame or two later, and selects whatever was drawn there, a sprite over a mesh as they are seen
+// Read from the entity IDs the next frame draws. The answer comes back a frame or two later
 void ViewportPanel::RequestPick(glm::vec2 mouse, glm::vec2 viewportSize)
 {
     if (mouse.x < 0.0f || mouse.y < 0.0f || mouse.x >= viewportSize.x || mouse.y >= viewportSize.y)
@@ -1046,7 +1046,7 @@ void ViewportPanel::RequestPick(glm::vec2 mouse, glm::vec2 viewportSize)
     ++m_PicksPending;
 }
 
-// Each pick that comes back selects its entity, or nothing where nothing was drawn or the entity has gone since, in the order the clicks were made. One no longer awaited, since the scene changed, is dropped
+// Each pick that comes back selects its entity, in click order. One no longer awaited is dropped
 void ViewportPanel::ApplyPick()
 {
     const std::optional<Trinity::PickResult> l_Result = Trinity::Application::Get().GetRenderer().TakePickResult();
@@ -1061,7 +1061,7 @@ void ViewportPanel::ApplyPick()
     m_Session.SetSelection(l_Valid ? Trinity::Entity(l_Result->Entity, &l_Scene).GetUUID() : Trinity::UUID());
 }
 
-// The selected entity and everything under it, so selecting a model's root outlines the whole model, and what the Hierarchy's search matches, as Unity's Scene view shows what its search finds
+// The selected entity and everything under it, and what the Hierarchy's search matches
 std::vector<std::uint32_t> ViewportPanel::GetOutlined()
 {
     std::vector<std::uint32_t> l_Outlined;
@@ -1098,7 +1098,7 @@ std::vector<std::uint32_t> ViewportPanel::GetOutlined()
     return l_Outlined;
 }
 
-// Where F puts the 2D camera: around the sprites of the selected entity and everything under it, at the entity's own position with the zoom kept when it has none, or with nothing selected around every sprite in the scene. An empty scene frames the origin
+// Where F puts the 2D camera: around the selection's sprites, or every sprite with none selected
 EditorCamera ViewportPanel::GetFramed(glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1161,7 +1161,7 @@ EditorCamera ViewportPanel::GetFramed(glm::vec2 viewportSize)
     return l_Camera;
 }
 
-// Where F puts the 3D camera: around the selected entity and everything under it, or with nothing selected the scene's meshes and sprites: meshes by their bounds, sprites by their quads, and anything else by where it is. A scene with none of them frames its entities, and an empty one the origin. The camera keeps the way it faces
+// Where F puts the 3D camera: around the selection, or the whole scene. It keeps the way it faces
 EditorCamera3D ViewportPanel::GetFramed3D(glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1262,7 +1262,7 @@ ViewportPanel::Glide ViewportPanel::GetFramedGlide(glm::vec2 viewportSize)
     return { .Focus = glm::vec3(l_Framed.GetPosition(), 0.0f), .Distance = l_Framed.GetHeight(), .Mode3D = false, .Angles = std::nullopt };
 }
 
-// F glides to the selection, or with nothing selected to the whole scene, as Unity's Frame Selected does. Shift+F glides there too and then follows the selection as it moves, as Unity's Lock View to Selected does, until it is pressed again
+// F glides to the selection, as Unity's Frame Selected. Shift+F then follows it, as Lock View
 void ViewportPanel::Frame(glm::vec2 viewportSize, bool follow)
 {
     const Trinity::UUID l_Selection = m_Session.GetSelection();
@@ -1277,7 +1277,7 @@ void ViewportPanel::Frame(glm::vec2 viewportSize, bool follow)
     m_Glide = GetFramedGlide(viewportSize);
 }
 
-// Each frame closes the same share of what is left by the time it took, so the glide slows as it arrives and takes as long at any frame rate. Distances go by their ratio, so a long way in or out moves as evenly as a short one, and a turn takes the short way round. While following, the focus is the entity's again each frame, at the distance the first glide was going to, or once it is over, the camera's own. The camera holds still while the gizmo drags, so what it drags stays under the mouse
+// Each frame closes the same share of what is left for its time, so it is frame-rate independent
 void ViewportPanel::UpdateGlide(glm::vec2 viewportSize)
 {
     if (m_GizmoDragging)
@@ -1358,7 +1358,7 @@ void ViewportPanel::StopGlide()
     m_Followed = {};
 }
 
-// A glide about the focus to the yaw and pitch, keeping the focus and distance any glide on its way has, so a frame or a follow goes on. Iso turned to on the way is automatic, as a side view's is, and goes back to perspective once the view is turned by hand
+// A glide about the focus to the yaw and pitch, keeping the focus and distance of one on its way
 void ViewportPanel::TurnView(float yaw, float pitch, bool orthographic, bool automatic)
 {
     const bool l_Gliding = m_Glide && m_Glide->Mode3D;
@@ -1382,7 +1382,7 @@ bool ViewportPanel::IsSnapping() const
     return m_Snap != ImGui::GetIO().KeyCtrl;
 }
 
-// Where a dropped asset lands: under the mouse on Z = 0 in 2D, and in 3D where the mouse's ray meets the ground, Y = 0, or a little way ahead of the camera when it meets the ground nowhere near
+// Under the mouse on Z = 0 in 2D. In 3D where the ray meets Y = 0, or a little ahead of the camera
 glm::vec3 ViewportPanel::GetDropPoint(glm::vec2 imageMin, glm::vec2 viewportSize) const
 {
     const ImVec2 l_Mouse = ImGui::GetMousePos();
@@ -1399,7 +1399,7 @@ glm::vec3 ViewportPanel::GetDropPoint(glm::vec2 imageMin, glm::vec2 viewportSize
     return l_Origin + l_Direction * (l_Distance > 0.0f && l_Distance <= c_MaximumDropDistance ? l_Distance : c_DropDistance);
 }
 
-// Dropped from the Content Browser, a texture becomes a sprite where it lands, at its pixel size, and a prefab or a model an instance whose root is there, each in one command. Nothing is taken while a copy plays
+// A texture becomes a sprite and a prefab or model an instance, in one command. Not while playing
 void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     if (m_Session.IsPlaying() || !ImGui::BeginDragDropTarget())
@@ -1426,7 +1426,7 @@ void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
         }
         else if (l_Record == nullptr || l_Record->Importer != Trinity::TextureAsset::c_AssetType)
         {
-            TR_WARN("Forge: only a texture, a model, a prefab, an audio clip or a sound event dropped into the Viewport makes entities");
+            TR_WARN("Forge: the Viewport takes only textures, models, prefabs, clips or sound events");
         }
         else
         {
@@ -1457,7 +1457,7 @@ void ViewportPanel::AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize)
     ImGui::EndDragDropTarget();
 }
 
-// The primary camera's bounds, at the Viewport's aspect ratio as a game drawn here would show them, an icon on every AudioSource and AudioListener, and a selected AudioSource's reach, or every one's while the Audio toggle is on, with its occlusion ray while the scene plays. Corners snap to pixel centres so one-pixel lines stay sharp. The selection is outlined from the entity IDs
+// The primary camera's bounds, audio icons and reaches. Corners snap to pixel centres to stay sharp
 void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1491,7 +1491,7 @@ void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::
         break;
     }
 
-    // A source heard in 3D, its minimum and maximum distances as circles round it in the plane of the 2D view, then its last occlusion ray: the selection's, and every other one's, fainter, while the Audio toggle is on
+    // A source heard in 3D: its distances as circles in the 2D view's plane, then its occlusion ray
     const Trinity::UUID l_SelectedID = m_Session.GetSelection();
     Trinity::SceneRuntime* l_Runtime = m_Session.IsPlaying() ? m_Session.GetRuntime() : nullptr;
     for (const auto [it_Entity, it_Source, it_World] : l_Registry.view<Trinity::AudioSourceComponent, Trinity::WorldTransformComponent>().each())
@@ -1531,7 +1531,7 @@ void ViewportPanel::DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::
     DrawAudioIcons(drawList, imageMin, l_Scene, l_SelectedID, [&](const glm::vec3& world) { return std::optional<glm::vec2>(m_Camera.WorldToScreen(glm::vec2(world), viewportSize)); }, m_AudioIcons);
 }
 
-// Through the 3D camera: the primary camera's frustum a little way out, a marker on every light and an icon on every AudioSource and AudioListener, since nothing else shows where one is, for a selected light its reach: a point light's range as three circles, a spot light's cones and the way a directional light shines, and for a selected AudioSource heard in 3D, or every one while the Audio toggle is on, its distances, its cone and while the scene plays its occlusion ray. Lines are cut where they pass behind the eye. The selection itself is outlined from the entity IDs
+// Through the 3D camera: the camera's frustum, light markers, audio icons and the selection's reach
 void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1545,7 +1545,7 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
         return ImVec2(imageMin.x + (l_Clip.x / l_Clip.w + 1.0f) * 0.5f * viewportSize.x, imageMin.y + (1.0f - l_Clip.y / l_Clip.w) * 0.5f * viewportSize.y);
     };
 
-    // Each end in view space, where the eye looks down -Z, and the part nearer than the near plane cut off
+    // Each end in view space, where the eye looks down -Z, cut where nearer than the near plane
     const auto a_Line = [&](const glm::vec3& from, const glm::vec3& to, ImU32 color, float thickness)
     {
         glm::vec3 l_From(l_View * glm::vec4(from, 1.0f));
@@ -1588,7 +1588,7 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
             continue;
         }
 
-        // Reversed depth: 1 is the near plane, and the far end is the frustum distance for a perspective camera and the far plane for an orthographic one
+        // Reversed depth: 1 is the near plane. The far end is the frustum distance, or ortho's far plane
         const float l_AspectRatio = viewportSize.y > 0.0f ? viewportSize.x / viewportSize.y : 1.0f;
         const glm::mat4 l_Inverse = glm::inverse(Trinity::RenderView::FromCamera(*l_Camera, l_Registry.get<Trinity::WorldTransformComponent>(it_Entity.GetHandle()).Matrix, l_AspectRatio).ViewProjection);
         const float l_FarDepth = l_Camera->Projection == Trinity::CameraProjection::Perspective ? l_Camera->PerspectiveNear / c_FrustumDistance : 0.0f;
@@ -1617,7 +1617,7 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
         }
     }
 
-    // A source heard in 3D: its minimum and maximum distances as spheres of three circles each, and its cone, each angle's edge out to the maximum distance, as a spot light's cone is drawn, then its last occlusion ray: the selection's, and every other one's, fainter, while the Audio toggle is on. A source heard as it is has no reach to draw
+    // A source heard in 3D: its distances as spheres of three circles, its cone, then its occlusion ray
     const Trinity::UUID l_SelectedID = m_Session.GetSelection();
     Trinity::SceneRuntime* l_Runtime = m_Session.IsPlaying() ? m_Session.GetRuntime() : nullptr;
     for (const auto [it_Entity, it_Source, it_World] : l_Registry.view<Trinity::AudioSourceComponent, Trinity::WorldTransformComponent>().each())
@@ -1745,7 +1745,7 @@ void ViewportPanel::DrawOverlays3D(ImDrawList& drawList, glm::vec2 imageMin, glm
     }
 }
 
-// Over the image's top-left corner. The overlay takes no input, so the scene under it keeps the mouse
+// Over the image's top-left corner. The overlay takes no input, so the scene keeps the mouse
 void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
 {
     const ImGuiIO& l_IO = ImGui::GetIO();
@@ -1765,7 +1765,7 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
         TextLine(std::format("{:.0f} fps, {:.2f} ms", l_IO.Framerate, l_IO.Framerate > 0.0f ? 1000.0f / l_IO.Framerate : 0.0f));
         TextLine(std::format("{} on {}", Trinity::ToString(l_Device.API), l_Device.AdapterName.empty() ? "no adapter" : l_Device.AdapterName));
         TextLine(std::format("Scene {}x{}, {} sprite(s) in {} draw call(s)", l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight(), l_Sprites.Sprites, l_Sprites.DrawCalls));
-        // The counts are the main view's own, since the Game panel's view is collected and drawn in the same frame. The cluster statistics are the first view's, which is the main view
+        // The counts are the main view's own. The cluster statistics are the first view's, the main view
         const Trinity::Renderer3D::Statistics& l_Meshes = l_Renderer.GetRenderer3D().GetStatistics();
         const Trinity::SceneDrawList& l_Draws = l_Renderer.GetSceneDraws();
         TextLine(std::format("{} of {} submesh(es) drawn, {} of them blended, {} mesh(es) loading", l_Draws.Submeshes - l_Draws.Culled, l_Draws.Submeshes, l_Draws.Transparent.size(), l_Draws.Pending));
@@ -1809,7 +1809,7 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
 
         TextLine(DescribePrefabInstances(m_Session.GetScene()));
 
-        // While a copy plays: the last frame's fixed steps and their time, each world's bodies and characters as it counts them, and after the scripts the actions the frame performed
+        // While a copy plays: the last frame's fixed steps, each world's bodies, and the actions performed
         if (Trinity::SceneRuntime* l_Runtime = m_Session.GetRuntime())
         {
             const Trinity::SceneRuntime::Statistics l_Physics = l_Runtime->GetStatistics();
@@ -1826,7 +1826,7 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
                 CharacterLine("2D", l_Physics.Characters2D);
             }
 
-            // The last frame's time in the project's language's scripts, and what they have running, as the runtime counts them. Those of the other language are among the scripts without loaded code
+            // The last frame's time in the project's language's scripts, and what they have running
             const Trinity::ScriptRuntime::Statistics l_Scripts = l_Runtime->GetScripts().GetStatistics();
             const bool l_CSharp = m_Session.GetProject() == nullptr || m_Session.GetProject()->GetLanguage() == Trinity::ScriptLanguage::CSharp;
             const Trinity::ScriptRuntime::LanguageStatistics& l_Language = l_CSharp ? l_Scripts.CSharp : l_Scripts.Cpp;
@@ -1854,7 +1854,7 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
     ImGui::PopStyleColor();
 }
 
-// On the selected entity, editing its transform relative to its parent, so its children follow. ImGuizmo drags a matrix of its own, and the entity takes from it the part the operation changes. The drag is one command, and holds ImGui's active item while it lasts, so nothing else closes the command or takes the mouse
+// Edits the transform relative to its parent, so children follow. The drag is one command
 void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     ImGuizmo::BeginFrame();
@@ -1868,7 +1868,7 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
         EndGizmoDrag();
     }
 
-    // A playing copy cannot be edited, so it shows no gizmo, and neither does an entity standing in for a missing prefab, whose instance keeps the transforms its scene file has
+    // A playing copy shows no gizmo, and neither does an entity standing in for a missing prefab
     if (!l_Entity || viewportSize.x <= 0.0f || viewportSize.y <= 0.0f || m_Session.IsPlaying() || IsMissingPrefab(l_Entity))
     {
         return;
@@ -1887,7 +1887,7 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
     ImGuizmo::SetRect(imageMin.x, imageMin.y, viewportSize.x, viewportSize.y);
     if (m_Mode3D)
     {
-        // A full 3D gizmo, which snaps as it drags while snapping is on, or off with Ctrl held: along the axis dragged, by the angle turned, and by the ratio scaled. It lets go of the mouse while the camera is being moved, or Alt is held to start orbiting, or the mouse is over the orientation gizmo
+        // A full 3D gizmo, which snaps while snapping is on, or off with Ctrl held
         const std::array<ImGuizmo::OPERATION, 3> l_Operations{ ImGuizmo::TRANSLATE, ImGuizmo::ROTATE, ImGuizmo::SCALE };
         l_Operation = l_Operations[static_cast<std::size_t>(m_GizmoOperation)];
         const float l_Step = m_Session.GetPreferences().SnapSteps[static_cast<glm::length_t>(m_GizmoOperation)];
@@ -1902,7 +1902,7 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
     }
     else
     {
-        // A 2D gizmo: moving in X and Y, turning about Z, and scaling X and Y, unsnapped, since the snapping is done on the entity's values
+        // A 2D gizmo: X and Y, turning about Z, unsnapped, since snapping is done on the entity's values
         const std::array<ImGuizmo::OPERATION, 3> l_Operations{ ImGuizmo::TRANSLATE_X | ImGuizmo::TRANSLATE_Y, ImGuizmo::ROTATE_Z, ImGuizmo::SCALE_X | ImGuizmo::SCALE_Y };
         l_Operation = l_Operations[static_cast<std::size_t>(m_GizmoOperation)];
         const glm::mat4 l_View = GetGizmoView(m_Camera);
@@ -1961,7 +1961,7 @@ void ViewportPanel::EndGizmoDrag()
     }
 }
 
-// Unity's Scene Gizmo, in 3D under the toolbar at the image's top-right corner: the world's axes as the camera sees them, a cone along each in its colour, and in grey along the negative ones, round a cube, with the view's name below, or Persp or Iso. A cone turns the view to look back along its axis, in Iso while the view was in perspective, the cube and the name switch between perspective and Iso, and a right-click lists the views. What is in front is drawn last, and found first under the mouse after the cube
+// Unity's Scene Gizmo, in 3D at the image's top-right corner. What is in front is drawn last
 void ViewportPanel::DrawOrientation(glm::vec2 imageMin, glm::vec2 viewportSize)
 {
     m_OrientationHovered = false;
@@ -1970,7 +1970,7 @@ void ViewportPanel::DrawOrientation(glm::vec2 imageMin, glm::vec2 viewportSize)
         return;
     }
 
-    // Each side view's cone: its axis as the camera sees it, with Y down the screen, and how far it points at the eye
+    // Each side view's cone: its axis as the camera sees it, Y down, and how far it points at the eye
     struct Cone
     {
         std::size_t View = 0;
@@ -2009,7 +2009,7 @@ void ViewportPanel::DrawOrientation(glm::vec2 imageMin, glm::vec2 viewportSize)
     std::optional<std::size_t> l_HoveredCone;
     bool l_HoveredCube = false;
     bool l_HoveredName = false;
-    // The cube is the centre's, even where a cone towards the eye lies over it, so it switches the projection in a side view too
+    // The cube is the centre's, even under a cone towards the eye, so it switches projection there too
     if (ImGui::IsWindowHovered())
     {
         l_HoveredCube = a_OnCube();
@@ -2057,7 +2057,7 @@ void ViewportPanel::DrawOrientation(glm::vec2 imageMin, glm::vec2 viewportSize)
         return ImGui::GetColorU32(ImVec4(l_Color.x * light, l_Color.y * light, l_Color.z * light, l_Color.w));
     };
 
-    // The base faces the eye when the cone points away from it, so it goes over the side, and under it otherwise
+    // The base faces the eye when the cone points away from it, so it goes over the side then
     const auto a_DrawCone = [&](const Cone& cone)
     {
         const SideView& l_View = c_SideViews[cone.View];
@@ -2166,7 +2166,7 @@ void ViewportPanel::DrawOrientation(glm::vec2 imageMin, glm::vec2 viewportSize)
     }
 }
 
-// The change the drag has made so far, in the parent's space, applied to the transform the drag began with. Only the part the operation changes is taken, so the rest keeps its values exactly. Snapping puts the result on the grid of the step, not the change
+// The drag's change so far, applied to the starting transform. Snapping lands on the step's grid
 Trinity::TransformComponent ViewportPanel::ApplyGizmo(const glm::mat4& parentWorld, bool snap) const
 {
     const glm::mat4 l_Local = glm::inverse(parentWorld) * m_GizmoMatrix;
@@ -2196,7 +2196,7 @@ Trinity::TransformComponent ViewportPanel::ApplyGizmo(const glm::mat4& parentWor
         }
         case GizmoOperation::Scale:
         {
-            // As a ratio of each axis' length, which keeps a flip. Snapping never lands on zero, which would flatten the sprite for good
+            // As a ratio of each axis' length, which keeps a flip. Snapping never lands on zero
             for (glm::length_t it_Axis = 0; it_Axis < 2; ++it_Axis)
             {
                 const float l_Before = glm::length(glm::vec3(l_Start[it_Axis]));
@@ -2219,7 +2219,7 @@ Trinity::TransformComponent ViewportPanel::ApplyGizmo(const glm::mat4& parentWor
     return l_Value;
 }
 
-// The change the drag has made so far, in the parent's space, applied to the transform the drag began with, and only the part the operation changes, as in 2D. A turn is the rotation from the start to now, which leaves the scale, flips and all, as it was, and a scale is each axis' length as a ratio of its length at the start, which keeps a flip
+// As in 2D. A turn leaves the scale, flips and all, and a scale is each axis' length as a ratio
 Trinity::TransformComponent ViewportPanel::ApplyGizmo3D(const glm::mat4& parentWorld) const
 {
     const glm::mat4 l_Local = glm::inverse(parentWorld) * m_GizmoMatrix;
@@ -2260,7 +2260,7 @@ Trinity::TransformComponent ViewportPanel::ApplyGizmo3D(const glm::mat4& parentW
     return l_Value;
 }
 
-// Over the image's top-right corner: the operation, the axes, and the steps Ctrl snaps to. Placed by its width last frame, since it sizes itself to what it holds
+// Over the image's top-right corner. Placed by its width last frame, since it sizes itself
 void ViewportPanel::DrawToolbar()
 {
     const ImVec2 l_Start = ImGui::GetCursorStartPos();
@@ -2279,7 +2279,7 @@ void ViewportPanel::DrawToolbar()
             MarkCameraChanged();
         }
 
-        ImGui::SetItemTooltip("The editor's camera: looking down -Z at the sprites in 2D, or in perspective in 3D, where the right mouse button looks and with W, A, S, D, Q and E flies, Alt with the left button orbits, the middle button pans and the wheel moves in. Each scene keeps its own");
+        ImGui::SetItemTooltip("The editor's camera: 2D looks down -Z. In 3D the right button looks, W, A, S, D, Q and E fly, and Alt+left orbits");
         ImGui::SameLine();
 
         const bool l_Heatmap = m_LightHeatmap;
@@ -2299,7 +2299,7 @@ void ViewportPanel::DrawToolbar()
             ImGui::PopStyleColor();
         }
 
-        ImGui::SetItemTooltip("Light heatmap: how many point and spot lights each cluster holds, from blue for none to red at the cap of %u and magenta past it", Trinity::ClusterGrid::c_MaxLights);
+        ImGui::SetItemTooltip("Light heatmap: point and spot lights in each cluster, from blue for none to red at the cap of %u, magenta past it", Trinity::ClusterGrid::c_MaxLights);
         ImGui::SameLine();
 
         const bool l_PhysicsDebug = m_PhysicsDebug;
@@ -2319,7 +2319,7 @@ void ViewportPanel::DrawToolbar()
             ImGui::PopStyleColor();
         }
 
-        ImGui::SetItemTooltip("Physics: every collider and joint in the scene, not only the selection's, and while it plays, where bodies touch, each with its normal");
+        ImGui::SetItemTooltip("Physics: every collider and joint, not only the selection's, and while playing, where bodies touch");
         ImGui::SameLine();
 
         const bool l_AudioGizmos = m_AudioGizmos;
@@ -2339,7 +2339,7 @@ void ViewportPanel::DrawToolbar()
             ImGui::PopStyleColor();
         }
 
-        ImGui::SetItemTooltip("Audio: every source's minimum and maximum distance and cone, not only the selection's, and while the scene plays, the ray from the listener to each occluded source, red as far as what stops it. Every source and listener has an icon, which a click selects");
+        ImGui::SetItemTooltip("Audio: every source's distances and cone, not only the selection's, and while playing, its occlusion ray");
         ImGui::SameLine();
         ImGui::SameLine();
 
@@ -2408,7 +2408,7 @@ void ViewportPanel::DrawToolbar()
             ImGui::PopStyleColor();
         }
 
-        ImGui::SetItemTooltip("Snap (Ctrl+\\): while it is on, every drag goes by these steps. Ctrl held while dragging does the opposite, snapping while it is off and moving freely while it is on");
+        ImGui::SetItemTooltip("Snap (Ctrl+\\): while on, every drag goes by these steps. Holding Ctrl while dragging does the opposite");
         a_Step("##SnapTranslate", 0, "%g", "Move snap, in units");
         a_Step("##SnapRotate", 1, "%g\xC2\xB0", "Rotate snap, in degrees");
         a_Step("##SnapScale", 2, "%g", "Scale snap");
@@ -2421,7 +2421,7 @@ void ViewportPanel::DrawToolbar()
     ImGui::PopStyleColor();
 }
 
-// In prefab mode, as Unity's Scene view heads it: the way back to the scene, by its name, then the prefab's, starred while it has unsaved changes, and Save at the right
+// In prefab mode, as Unity heads it: the way back to the scene, the prefab's name, and Save
 void ViewportPanel::DrawBreadcrumb()
 {
     m_BreadcrumbHeight = 0.0f;

@@ -28,7 +28,7 @@ void Panel::Draw()
         return;
     }
 
-    // A borderless panel fills its window edge to edge and never scrolls, so what it draws can match the window in pixels
+    // A borderless panel fills its window edge to edge and never scrolls, to match it in pixels
     if (m_Borderless)
     {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));

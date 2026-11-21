@@ -28,7 +28,7 @@ namespace
     constexpr std::size_t c_MinimumRows = 3;
     constexpr std::size_t c_MaximumRows = 10;
 
-    // A label on the left and the widget filling the rest of the row, less what is kept for what follows it
+    // A label on the left and the widget filling the rest of the row, less what is kept after it
     void Label(const char* label, float reserve = 0.0f)
     {
         ImGui::AlignTextToFramePadding();
@@ -53,7 +53,7 @@ namespace
         return path.starts_with(c_Assets) ? path.substr(c_Assets.size()) : path;
     }
 
-    // What a scene of the build shows: its path, or in the warning colour, Missing while the project has no such asset, or what it is while it is not a scene
+    // A scene's path, or in the warning colour, Missing, or what it is while it is not a scene
     struct SceneText
     {
         std::string Text;
@@ -107,7 +107,7 @@ namespace
         return l_Row;
     }
 
-    // The scene at the row given, or last, taking that row's place, and when the build has it already, moved there from where it was
+    // The scene at the row given, or last. One the build has already is moved there
     void PlaceScene(Trinity::ExportSettings& settings, Trinity::ExportScene scene, std::size_t row)
     {
         const auto a_Found = std::ranges::find(settings.Scenes, scene.Scene, &Trinity::ExportScene::Scene);
@@ -120,7 +120,7 @@ namespace
         settings.Scenes.insert(settings.Scenes.begin() + static_cast<std::ptrdiff_t>(std::min(row, settings.Scenes.size())), scene);
     }
 
-    // What a platform's row says while hovered: what picking it does, or for one this version of Trinity cannot build, what brings it, and for the project's own such platform, that Build refuses it
+    // What a platform's row says while hovered: what picking it does, or what brings it
     std::string DescribePlatform(const Trinity::TargetPlatform& platform, bool buildable, bool picked)
     {
         const Trinity::TargetPlatform* l_Running = Trinity::TargetPlatforms::Find(Trinity::GetBuildPlatform());
@@ -192,7 +192,7 @@ void BuildPanel::Edit(std::string field, F&& change)
     static_cast<void>(m_Session.EditExportSettings(l_Settings, std::move(field)));
 }
 
-// The text shown is the value's whenever the field is not being typed into, so an undo or another panel's change shows at once. The field is left on the frame it reports so, whichever item takes over first, and what was typed is taken then
+// Shows the value whenever it is not typed into, so an undo shows at once. Taken once left
 bool BuildPanel::TextField(const char* id, TextBuffer& buffer, const std::string& value)
 {
     if (!buffer.Editing)
@@ -233,7 +233,7 @@ void BuildPanel::OnImGuiRender()
     }
 }
 
-// Every platform, as Unity's Build Profiles lists them: one this version of Trinity has players for is picked as one command, and the others are greyed, saying what brings them. A project whose platform this version cannot build, as one made in another version has, shows it so, and Build refuses it
+// As Unity's Build Profiles lists them. Platforms this version cannot build are greyed
 void BuildPanel::DrawPlatforms(const Trinity::ExportSettings& settings)
 {
     if (!m_Platforms)
@@ -264,7 +264,7 @@ void BuildPanel::DrawPlatforms(const Trinity::ExportSettings& settings)
     }
 }
 
-// Each row a box that ticks the scene, its index among the ticked ones, which the game loads it by, its path, which drags it to another row, and a cross that takes it out. A scene dropped from the Content Browser on a row takes that row's place, and dropped below the rows goes last, and one the build has already moves there
+// Each row: a tick, its index among the ticked, its path, which drags it, and a cross to remove it
 void BuildPanel::DrawScenes(const Trinity::ExportSettings& settings)
 {
     ImGui::SeparatorText("Scenes In Build");
@@ -415,7 +415,7 @@ void BuildPanel::DrawPlayer(const Trinity::ExportSettings& settings)
         Edit("product name", [this](Trinity::ExportSettings& changed) { changed.Product = m_Product.Text; });
     }
 
-    Tooltip("The game's name, which its executable is named for, its window's title shows, and its saves and log go under, as Unity's Product Name");
+    Tooltip("The game's name: its executable, window title, saves and log are named for it, as Unity's Product Name");
 
     Label("Company Name");
     if (TextField("##Company", m_Company, settings.Company))
@@ -436,7 +436,7 @@ void BuildPanel::DrawPlayer(const Trinity::ExportSettings& settings)
     DrawIcon(settings);
 }
 
-// A slot for one of the project's textures, as Unity's Default Icon: a button naming it that opens a list of them, which also takes one dragged from the Content Browser, and a cross that clears it
+// A slot for one of the project's textures, as Unity's Default Icon, which also takes a drop
 void BuildPanel::DrawIcon(const Trinity::ExportSettings& settings)
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
@@ -462,7 +462,7 @@ void BuildPanel::DrawIcon(const Trinity::ExportSettings& settings)
         ImGui::PopStyleColor();
     }
 
-    Tooltip("A texture of the project, which the export makes the game's executable and window icon from. Without one the game has Trinity's");
+    Tooltip("A texture of the project, which the export makes the game's icon from. Without one the game has Trinity's");
     if (ImGui::BeginDragDropTarget())
     {
         const ImGuiPayload* l_Payload = ImGui::GetDragDropPayload();
@@ -532,7 +532,7 @@ void BuildPanel::DrawIcon(const Trinity::ExportSettings& settings)
     ImGui::EndPopup();
 }
 
-// The window a player first opens with, until its player chooses otherwise, as Unity's Resolution and Presentation. A drag is one command
+// The window a player first opens with, as Unity's Resolution and Presentation
 void BuildPanel::DrawWindow(const Trinity::ExportSettings& settings)
 {
     ImGui::SeparatorText("Window");
@@ -543,7 +543,7 @@ void BuildPanel::DrawWindow(const Trinity::ExportSettings& settings)
         Edit("fullscreen mode", [l_Mode](Trinity::ExportSettings& changed) { changed.Window.Mode = static_cast<Trinity::FullScreenMode>(l_Mode); });
     }
 
-    Tooltip("Windowed opens in a frame at the width and height below. Fullscreen Window covers the monitor at its own size, without a frame. Alt+Enter switches between them as the game runs");
+    Tooltip("Windowed opens in a frame at the width and height below. Fullscreen Window covers the monitor. Alt+Enter switches");
 
     constexpr int c_MaxSize = static_cast<int>(Trinity::WindowSettings::c_MaxSize);
     Label("Width");
@@ -574,7 +574,7 @@ void BuildPanel::DrawWindow(const Trinity::ExportSettings& settings)
     Tooltip("Each frame waits for the display's refresh, so the game runs at its rate without tearing");
 }
 
-// In the order the player tries them, each the player was built without or the machine cannot run passed over, as Unity's Graphics APIs list, of those the platform has. Each platform keeps its own order, made from its defaults by the first change. One is always left
+// In the order the player tries them. Each platform keeps its own order. One is always left
 void BuildPanel::DrawGraphicsAPIs(const Trinity::ExportSettings& settings)
 {
     const Trinity::TargetPlatform* l_Platform = Trinity::TargetPlatforms::Find(settings.Platform);
@@ -670,7 +670,7 @@ bool BuildPanel::Build(bool run)
     return true;
 }
 
-// Development Build, where the game is exported, Build, which exports it, and Build And Run, which then starts it, or, when the settings stop them, says why in the panel and in the Console until nothing does. While the game Build And Run started runs, Stop Game ends it
+// Development Build, the output folder, Build and Build And Run, or what stops them. Then Stop Game
 void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
 {
     ImGui::SeparatorText("Build");
@@ -681,7 +681,7 @@ void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
         Edit("development build", [l_Development](Trinity::ExportSettings& changed) { changed.Development = l_Development; });
     }
 
-    Tooltip("A Release player with logs, asserts and the profiler, an overlay of the log and the frame and audio stats, and RmlUi's debugger, as Unity's Development Build. Off, the game is built in Distribution, as players get it");
+    Tooltip("A Release player with logs, asserts, the profiler and debug overlays. Off, the game is built in Distribution");
 
     const std::string l_Browse = std::format("{} Browse...", Trinity::Icons::c_FolderOpen);
     const float l_BrowseWidth = ImGui::CalcTextSize(l_Browse.c_str()).x + ImGui::GetStyle().FramePadding.x * 2.0f;
@@ -693,7 +693,7 @@ void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
 
     const Trinity::Project& l_Project = *m_Session.GetProject();
     const std::u8string l_Directory = l_Project.GetExportDirectory().u8string();
-    const std::string l_Where = std::format("Where the game is exported, from the project's folder unless it is a whole path. Each export replaces this folder whole, whatever it holds: {}", std::string_view(reinterpret_cast<const char*>(l_Directory.data()), l_Directory.size()));
+    const std::string l_Where = std::format("Where the game is exported, from the project's folder unless a whole path. Each export replaces this folder: {}", std::string_view(reinterpret_cast<const char*>(l_Directory.data()), l_Directory.size()));
     Tooltip(l_Where.c_str());
     ImGui::SameLine();
     if (ImGui::Button(l_Browse.c_str()))
@@ -711,7 +711,7 @@ void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
         static_cast<void>(Build(false));
     }
 
-    const std::string l_Exports = std::format("Exports the game into the output folder, which it replaces whole: the player named for the product, its pack of what the ticked scenes reach, {} and the runtimes it needs", l_Project.GetLanguage() == Trinity::ScriptLanguage::CSharp ? "its C# scripts compiled ahead of time" : "its C++ module built into it");
+    const std::string l_Exports = std::format("Exports the game into the output folder, replacing it: the player, its pack, {} and the runtimes it needs", l_Project.GetLanguage() == Trinity::ScriptLanguage::CSharp ? "its C# scripts compiled ahead of time" : "its C++ module built into it");
     Tooltip(l_Running ? "Building once the project has imported and its scripts have built. The Console tells how it goes" : l_Exports.c_str());
     ImGui::SameLine();
     if (ImGui::Button(std::format("{} Build And Run###BuildAndRun", Trinity::Icons::c_Play).c_str(), ImVec2(-FLT_MIN, l_Height)))

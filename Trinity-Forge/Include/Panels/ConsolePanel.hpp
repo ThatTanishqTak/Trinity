@@ -17,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-// The engine log with level and text filters, the console variables with an editor for each, and a command line with history. As in Unity's Console, each level shows how many lines it holds, Collapse shows identical lines once with a count, Clear on Play and Clear on Build empty the log as those start, Error Pause pauses a playing scene at an error, and the line selected shows in full under the list. A line naming a file and its line, as a build's warnings and errors and a C# stack trace's frames do, opens there
+// The engine log with filters, the console variables, and a command line, as Unity's Console
 class ConsolePanel final : public Panel
 {
 public:
@@ -25,21 +25,21 @@ public:
 
     ConsolePanel();
 
-    // Brings the log to the front showing only a build's errors, from its first, until the filter is cleared: the lines from first up to end logged at error that are among the build's own, since another build running beside it logs between them
+    // Brings the log forward showing only a build's own errors, until the filter is cleared
     void ShowBuildErrors(std::string label, std::uint64_t firstLine, std::uint64_t endLine, std::vector<std::string> errorLines);
-    // Called with a line's file and line number when it is double-clicked, or a frame of it clicked under the list, once the log is drawn
+    // Called with a line's file and line number when it is double-clicked, once the log is drawn
     void SetOpenLocation(OpenLocation open) { m_OpenLocation = std::move(open); }
 
-    // Collapse, the Clear options, Error Pause and the height of the pane under the list, which imgui.ini keeps for each person
+    // Collapse, the Clear options, Error Pause and the detail pane's height, which imgui.ini keeps
     [[nodiscard]] bool ReadSetting(std::string_view key, std::string_view value);
     void WriteSettings(ImGuiTextBuffer& buffer) const;
     [[nodiscard]] bool IsClearingOnPlay() const { return m_ClearOnPlay; }
     [[nodiscard]] bool IsClearingOnBuild() const { return m_ClearOnBuild; }
     [[nodiscard]] bool IsPausingOnError() const { return m_ErrorPause; }
 
-    // The file and line a line names: a build's, as BuildOutput writes them, such as "Build: Scripts/Player.cs(12,5): error ...", where the first parenthesis holding a line number, and a column or not, ends the path, so a folder such as Program Files (x86) stays in it. Or else the first frame of a .NET stack trace that names its source, such as "   at Game.Player.OnUpdate() in C:\Game\Scripts\Player.cs:line 42", which is where the exception was thrown
+    // A build line's "path(line,column)", or else the first .NET stack frame that names its source
     [[nodiscard]] static std::optional<std::pair<std::string_view, std::uint32_t>> FindLocation(std::string_view text);
-    // A level's colour, as the Console and the status bar show its lines, darker on a light theme so it can still be read
+    // A level's colour, as the Console and the status bar show it, darker on a light theme
     [[nodiscard]] static ImVec4 GetLevelColor(Trinity::LogLevel level);
     // Green, as the menu bar shows a build that worked, darker on a light theme too
     [[nodiscard]] static ImVec4 GetSuccessColor();
@@ -59,10 +59,10 @@ private:
     static int OnCommandLineEdit(ImGuiInputTextCallbackData* data);
 
     std::array<bool, 5> m_ShowLevels{ true, true, true, true, true };
-    // How many lines of each level the whole history holds, as of the last frame, shown beside each level's toggle
+    // How many lines of each level the whole history holds, as of the last frame
     std::array<std::size_t, 5> m_LevelCounts{};
     ImGuiTextFilter m_TextFilter;
-    // The sequence of the line each row shows, and how many identical lines the row stands for while collapsed
+    // The sequence of the line each row shows, and how many identical lines it stands for
     std::vector<std::uint64_t> m_VisibleLines;
     std::vector<std::uint32_t> m_VisibleCounts;
     // Each distinct line's row while collapsed, by its level and its text

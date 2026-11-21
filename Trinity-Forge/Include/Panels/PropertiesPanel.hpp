@@ -25,16 +25,16 @@ public:
     explicit PropertiesPanel(EditorSession& session);
     ~PropertiesPanel() override;
 
-    // The question about import settings not applied, after every panel is drawn, so it is asked whether or not this panel is shown
+    // The question about import settings not applied, after every panel is drawn, shown or not
     void DrawPopups();
-    // Brings the Console forward, as a stopped script's badge does when clicked, to the exception that stopped it
+    // Brings the Console forward, as a stopped script's badge does when clicked
     void SetShowConsole(std::function<void()> showConsole) { m_ShowConsole = std::move(showConsole); }
 
 protected:
     void OnImGuiRender() override;
 
 private:
-    // Import settings edited for an asset and not applied, which Unity asks about before its Inspector moves on, and which are asked about here once the asset is no longer shown, and before Forge closes or another project opens
+    // Import settings edited and not applied, asked about once the asset is no longer shown
     struct UnappliedSettings
     {
         Trinity::UUID Asset;
@@ -42,7 +42,7 @@ private:
         Trinity::AssetSettings Settings;
     };
 
-    // A component as Copy Component took it, as scene text, which Paste Component Values puts into one of its type and Paste Component As New onto an entity without one. Forge's own, as Unity's is, and kept as the scene plays and stops, until the project closes
+    // A component as Copy Component took it, as scene text, kept until the project closes
     struct CopiedComponent
     {
         std::string Name;
@@ -114,14 +114,14 @@ private:
     std::move_only_function<void()> m_AfterUnapplied;
     bool m_OpenUnappliedPopup = false;
     Trinity::AssetRef<Trinity::MaterialAsset> m_Material;
-    // The Audio Mixer panel's group, with its effects, which Properties shows while the panel has one chosen
+    // The Audio Mixer panel's group, with its effects, shown while the panel has one chosen
     AudioMixerInspector m_MixerInspector{ m_Session };
-    // A model's material as imported, read again after each model import, which the fields that differ from are marked against
+    // A model's material as imported, read again after each model import, to mark differing fields
     std::optional<Trinity::MaterialData> m_ImportedMaterial;
     std::uint64_t m_ImportedMaterialImports = UINT64_MAX;
-    // A change from a component's menu, which waits until every section is drawn, since the sections read the components
+    // A change from a component's menu, which waits until every section is drawn, as they read it
     Trinity::Scope<EditorCommand> m_PendingCommand;
-    // The instance Unpack was clicked on, unpacked once the sections are drawn, since they read it as an instance
+    // The instance Unpack was clicked on, unpacked once the sections are drawn, as they read it
     Trinity::UUID m_PendingUnpack;
     std::optional<CopiedComponent> m_CopiedComponent;
     std::string m_NameText;
@@ -129,7 +129,7 @@ private:
     bool m_NameActive = false;
     std::string m_AssetFilter;
     std::string m_ActionFilter;
-    // Add Component's search, the choice Up, Down and the mouse highlight, which Enter adds, and whether the list scrolls to it
+    // Add Component's search, the highlighted choice, which Enter adds, and whether to scroll to it
     std::string m_ComponentFilter;
     int m_ComponentHighlight = 0;
     bool m_ScrollToHighlight = false;
@@ -137,7 +137,7 @@ private:
     Trinity::UUID m_EulerEntity;
     glm::quat m_EulerRotation = glm::identity<glm::quat>();
     glm::vec3 m_EulerDegrees{ 0.0f };
-    // The list, by its ImGui ID, and its element that the last command edited, so an edit of another element, even one reached by Tab, is a command of its own
+    // The list, by its ImGui ID, and the element last edited, so another element is its own command
     std::uint32_t m_EditedList = 0;
     std::size_t m_EditedElement = 0;
 };

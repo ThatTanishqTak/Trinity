@@ -22,29 +22,29 @@ class HierarchyPanel final : public Panel
 public:
     explicit HierarchyPanel(EditorSession& session);
 
-    // Frames the selection in the Scene panel, as a double-click and F do here, and with follow keeps it framed as it moves, as Shift+F does
+    // Frames the selection in the Scene panel, as a double-click and F do. follow is Shift+F
     void SetFrameSelection(std::function<void(bool follow)> frame) { m_FrameSelection = std::move(frame); }
     // Puts the text in the search field, as Find References In Scene does with a ref: term
     void SetSearch(std::string search);
     // The entities the search matches while it holds anything, which the Scene panel outlines, or null
     [[nodiscard]] const std::unordered_set<Trinity::UUID>* GetSearchMatches() const { return m_Search.empty() ? nullptr : &m_Matched; }
-    // Starts typing a new name in the entity's row, as F2 does, which the Entity menu's Create Empty does for the entity it made
+    // Starts typing a new name in the entity's row, as F2 does, and Create Empty for its entity
     void Rename(Trinity::UUID entity);
-    // Unity's blue for a prefab's instance, which Properties marks what an instance changes in, darker on a light theme so it reads there
+    // Unity's blue for a prefab's instance, darker on a light theme so it reads there
     [[nodiscard]] static ImVec4 GetPrefabColor();
 
 protected:
     void OnImGuiRender() override;
 
 private:
-    // What the search's ref: terms name: the assets a slot may hold, and by language the script classes named after a script file
+    // What the search's ref: terms name: assets a slot may hold, and script classes by language
     struct References
     {
         std::unordered_set<Trinity::UUID> Assets;
         std::vector<std::pair<Trinity::ScriptLanguage, std::string>> Scripts;
     };
 
-    // A row as the tree drew it, in the order drawn, whether it has children shown under it and whether they are open, which the keys move through the next frame
+    // A row as the tree drew it, in order, with whether its children show, for the keys next frame
     struct Row
     {
         Trinity::UUID Entity;
@@ -82,22 +82,22 @@ private:
     Trinity::UUID m_Renaming;
     std::string m_RenameText;
     bool m_FocusRename = false;
-    // The entity a second click landed on while it was already selected, and when, which renames it as Unity does once no other click follows
+    // The entity a second click landed on while selected, and when, which renames it as Unity does
     Trinity::UUID m_SlowClick;
     double m_SlowClickTime = 0.0;
     // The row a left press landed on, which it selects once released without a drag
     Trinity::UUID m_Pressed;
-    // What the search field holds, and while it holds anything, the entities it matches and those it shows: the matches and every parent above one
+    // The search text, and while there is any, the entities it matches and those shown with parents
     std::string m_Search;
     std::unordered_set<Trinity::UUID> m_Matched;
     std::unordered_set<Trinity::UUID> m_Shown;
     bool m_FocusSearch = false;
-    // As the search changes, so the tree opens to every match afresh and is then left to be opened and closed
+    // As the search changes, so the tree opens to every match afresh and is then left alone
     bool m_SearchChanged = false;
-    // The ref: terms resolved, worked out again only as the terms, the project's assets or the history change, since a texture's materials are read from their files
+    // Worked out again only as the terms, assets or history change, since it reads material files
     References m_References;
     std::string m_ReferencesKey;
-    // What the scene's instances change of their prefabs, as Unity's Hierarchy marks it: the entities with values or components of their own, and those added to an instance. Worked out again only as the history, the files or prefab mode change, since every instance is compared with its prefab
+    // Entities an instance changes or adds, as Unity marks them. Worked out again only on change
     std::unordered_set<Trinity::UUID> m_Overridden;
     std::unordered_set<Trinity::UUID> m_Added;
     std::string m_OverridesKey;
@@ -109,7 +109,7 @@ private:
     std::unordered_map<Trinity::UUID, bool> m_OpenRequests;
     // How many rows the tree shows at once, which PageUp and PageDown move by
     std::size_t m_PageRows = 1;
-    // A key moved the selection, so its row scrolls just into view once drawn, where a selection made elsewhere scrolls to the middle
+    // A key moved the selection, so its row scrolls just into view, not to the middle
     bool m_KeepSelectionVisible = false;
     // Down in the search field hands the keys to the tree
     bool m_FocusTree = false;

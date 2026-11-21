@@ -26,13 +26,13 @@ namespace
     constexpr const char* c_NewScriptPopup = "New Script###ForgeNewScript";
     constexpr const char* c_NewPrefabPopup = "New Prefab###ForgeNewPrefab";
     constexpr const char* c_PrefabKindPopup = "Create Prefab or Variant?###ForgePrefabKind";
-    // The slider's leftmost notch is the list, and the smallest grid is the next, with nothing between them
+    // The slider's leftmost notch is the list, and the smallest grid is the next, with nothing between
     constexpr float c_ListSize = 2.0f;
     constexpr float c_MinimumThumbnailSize = 3.0f;
     constexpr float c_MaximumThumbnailSize = 12.0f;
     constexpr float c_WheelStep = 0.5f;
     constexpr float c_IconScale = 0.55f;
-    // An audio clip's play button against its thumbnail, and how far its waveform keeps from the thumbnail's sides and from its top and foot
+    // An audio clip's play button against its thumbnail, and its waveform's margins
     constexpr float c_PlayButtonScale = 0.4f;
     constexpr float c_WaveformInsetX = 0.08f;
     constexpr float c_WaveformInsetY = 0.2f;
@@ -49,7 +49,7 @@ namespace
     constexpr const char* c_ShowInFileManager = "Show in File Manager";
 #endif
 
-    // New Script's templates as it lists them, each with the name it suggests, which follows the template chosen until it is typed over
+    // New Script's templates, each with the name it suggests until the name is typed over
     struct ScriptTemplateChoice
     {
         EditorSession::ScriptTemplate Template = EditorSession::ScriptTemplate::Script;
@@ -120,7 +120,7 @@ namespace
         return l_Root != nullptr && l_Root->Path == path;
     }
 
-    // Assets always, and Scripts in a C# project and Source in a C++ one once it has them, so the other language's folder left on disk is not shown
+    // Assets always, and Scripts in a C# project or Source in a C++ one once it has them
     bool IsShown(const Root& root, const Trinity::Project& project)
     {
         if (root.Path == Trinity::Project::c_AssetsMount)
@@ -154,7 +154,7 @@ namespace
         return name == "CMakeLists.txt" || std::ranges::any_of(c_Cpp, [name](std::string_view extension) { return name.ends_with(extension); }) ? std::optional(Trinity::ScriptLanguage::Cpp) : std::nullopt;
     }
 
-    // A script file of the language the project's scripts are not written in, as a .cs file left in a C++ project, which is shown greyed and not dragged onto an entity, though it can still be opened, moved or deleted
+    // A script file of the project's other language, shown greyed and not dragged onto an entity
     std::optional<Trinity::ScriptLanguage> GetOtherLanguage(const Trinity::AssetRecord* record, std::string_view name, const Trinity::Project* project)
     {
         const std::optional<Trinity::ScriptLanguage> l_Language = record == nullptr && project != nullptr ? GetScriptFileLanguage(name) : std::nullopt;
@@ -162,7 +162,7 @@ namespace
         return l_Language && *l_Language != project->GetLanguage() ? l_Language : std::nullopt;
     }
 
-    // A script file that holds a class, which Find References In Scene finds by the class it is named after
+    // A script file that holds a class, which Find References In Scene finds by its name
     bool IsClassFile(std::string_view name)
     {
         constexpr std::array<std::string_view, 4> c_Extensions{ ".cs", ".cpp", ".hpp", ".h" };
@@ -170,7 +170,7 @@ namespace
         return std::ranges::any_of(c_Extensions, [name](std::string_view extension) { return name.ends_with(extension); });
     }
 
-    // The ref: term that names a file, by its path inside its root, as Models/Rock.fbx names /assets/Models/Rock.fbx, in quotes when the path has a space
+    // The ref: term that names a file, by its path inside its root, in quotes if it has a space
     std::string GetReferenceSearch(std::string_view path)
     {
         const std::size_t l_Root = path.find('/', 1);
@@ -208,7 +208,7 @@ namespace
         return record != nullptr && record->Importer == Trinity::PrefabAsset::c_AssetType;
     }
 
-    // Drawn from an instance of it, as Unity previews both, a model's being the prefab its hierarchy makes
+    // Drawn from an instance of it, as Unity previews both, a model's being its hierarchy's prefab
     bool HasPrefabThumbnail(const Trinity::AssetRecord* record)
     {
         return IsPrefab(record) || (record != nullptr && record->Importer == ModelImporter::c_Importer);
@@ -324,7 +324,7 @@ ContentBrowserPanel::~ContentBrowserPanel()
     m_Session.RemoveCloseListener(m_CloseListener);
 }
 
-// After every panel is drawn. Thumbnails not drawn this frame, scrolled away, in another folder or in a hidden panel, let go of their textures, and prefabs' of their views, and the prefabs' still to be drawn are readied
+// After every panel is drawn. Thumbnails not drawn this frame let go of their textures and views
 void ContentBrowserPanel::EndFrame()
 {
     const int l_Frame = ImGui::GetFrameCount();
@@ -365,7 +365,7 @@ void ContentBrowserPanel::WriteSettings(ImGuiTextBuffer& buffer) const
     buffer.append(l_Line.c_str(), l_Line.c_str() + l_Line.size());
 }
 
-// The folder tree on the left, and on the right the toolbar, the open folder's contents or what a search finds, and the foot. Moves and deletes wait until everything is drawn, since they change what is being listed
+// Moves and deletes wait until everything is drawn, since they change what is being listed
 void ContentBrowserPanel::OnImGuiRender()
 {
     m_DrawnFrame = ImGui::GetFrameCount();
@@ -441,7 +441,7 @@ void ContentBrowserPanel::OnImGuiRender()
     }
 }
 
-// A click or a right-click opens the folder and selects it, as in Unity, and the open folder is renamed here rather than among the items
+// A click or a right-click opens the folder and selects it, as in Unity. It is renamed here
 void ContentBrowserPanel::DrawFolderTree(const std::string& path, const std::string& label)
 {
     std::vector<std::string> l_Children;
@@ -513,7 +513,7 @@ void ContentBrowserPanel::DrawFolderTree(const std::string& path, const std::str
     }
 }
 
-// Up, then the open folder's path from its root, each part of which opens it and takes a drop, or while searching, where to search as Unity's search bar has it. The search box sits at the right end
+// Up, then the open folder's path, each part of which opens it and takes a drop
 void ContentBrowserPanel::DrawToolbar()
 {
     const Root* l_Root = FindRoot(m_Folder);
@@ -577,7 +577,7 @@ void ContentBrowserPanel::DrawToolbar()
     ImGui::InputTextWithHint("##Search", std::format("{} Search", Trinity::Icons::c_Search).c_str(), &m_Search, ImGuiInputTextFlags_EscapeClearsAll);
 }
 
-// Folders first, then files, each by name, in as many columns as fit, or a row each in the list. A search shows what it finds instead, from wherever it is. Ctrl and the wheel size them as the slider does
+// Folders first, then files, by name. A search shows what it finds instead
 void ContentBrowserPanel::DrawItems()
 {
     const ImGuiIO& l_IO = ImGui::GetIO();
@@ -632,7 +632,7 @@ void ContentBrowserPanel::DrawItems()
     DrawBackground();
 }
 
-// A thumbnail or an icon, over the name in the grid and before it in the list. Textures are only loaded for items on screen
+// A thumbnail or an icon, over the name in the grid and before it in the list
 void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
 {
     ImGui::PushID(item.Path.c_str());
@@ -648,7 +648,7 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
     const float l_Padding = l_List ? l_Style.FramePadding.y : l_Style.FramePadding.x;
     const float l_PictureSize = (l_List ? size.y : size.x) - l_Padding * 2.0f;
 
-    // An audio clip's play button previews it rather than selecting it, as Unity's does, over the middle of its waveform, or at the end of its row in the list. Only a clip with a cooked header has one
+    // An audio clip's play button previews it rather than selecting it. Only a cooked clip has one
     AudioClipPreview& l_Preview = m_Session.GetAudioPreview();
     const bool l_Playable = l_Visible && IsAudioClip(item.Record) && l_Preview.FindHeader(item.Record->ID) != nullptr;
     const bool l_Previewing = l_Playable && l_Preview.IsPlaying(item.Record->ID);
@@ -727,7 +727,7 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
 
         DrawPicture(item, ImVec2(l_Min.x + l_Padding, l_Min.y + l_Padding), l_PictureSize);
 
-        // Shown while the item is hovered or its clip plays, on a disc that keeps it clear of the waveform under it
+        // Shown while the item is hovered or its clip plays, on a disc that keeps it clear of the waveform
         if (l_Playable && (l_Hovered || l_Previewing))
         {
             const char* l_Glyph = l_Previewing ? Trinity::Icons::c_StopCircle : Trinity::Icons::c_PlayCircle;
@@ -740,7 +740,7 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
             l_DrawList.AddText(ImGui::GetFont(), l_ButtonSize, ImVec2(l_ButtonMin.x + (l_ButtonSize - l_Extent.x) * 0.5f, l_ButtonMin.y + (l_ButtonSize - l_Extent.y) * 0.5f), ImGui::GetColorU32(l_OnPlay ? ImGuiCol_CheckMark : ImGuiCol_Text), l_Glyph);
         }
 
-        // The name, centred under the picture while it fits, or after it along the row, short of a clip's button there
+        // The name, centred under the picture while it fits, or after it along the row
         const ImVec2 l_LabelMin = l_List ? ImVec2(l_Min.x + l_Padding + l_PictureSize + l_Style.ItemInnerSpacing.x, l_Min.y) : ImVec2(l_Min.x + l_Style.FramePadding.x, l_Min.y + size.x);
         const float l_LabelMaxX = l_List && l_Playable ? l_ButtonMin.x - l_Style.ItemInnerSpacing.x : l_Max.x - l_Style.FramePadding.x;
         if (item.Path == m_Renaming && item.Path != m_Folder)
@@ -773,7 +773,7 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
     ImGui::PopID();
 }
 
-// A texture's own picture, fitted inside the square keeping its shape, a prefab's or a model's in the grid once it is drawn, filling the square, an audio clip's waveform in the grid once it is cooked, its channels together with the playhead while it previews, or the icon for the item's kind, centred in it. A list's row keeps a prefab's icon, which tells an original from a variant or a model at that size
+// A texture's picture, a prefab's or model's thumbnail, a clip's waveform, or the kind's icon
 void ContentBrowserPanel::DrawPicture(const Item& item, ImVec2 position, float size)
 {
     ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
@@ -814,7 +814,7 @@ void ContentBrowserPanel::DrawPicture(const Item& item, ImVec2 position, float s
     l_DrawList.AddText(ImGui::GetFont(), l_IconSize, ImVec2(position.x + (size - l_IconExtent.x) * 0.5f, position.y + (size - l_IconExtent.y) * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), l_Icon);
 }
 
-// Unity's Assets menu, for an item or a folder in the tree, or with none for the open folder, from the space around the items. What cannot apply is greyed, with a tooltip where the reason is not plain. A root is never renamed, duplicated or deleted
+// Unity's Assets menu. What cannot apply is greyed. A root is never renamed, duplicated or deleted
 void ContentBrowserPanel::DrawAssetMenu(const Item* item)
 {
     const bool l_Editable = item != nullptr && !IsRoot(item->Path);
@@ -864,7 +864,7 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
 
     ImGui::SetItemTooltip("Copies a file from anywhere into %s", m_Folder.c_str());
 
-    // As in Unity: what in the open scene uses the asset, a model's meshes and materials, or a texture through its materials, or has the class a script file is named after, in the Hierarchy
+    // As in Unity: what in the open scene uses the asset, or has the class a script file is named after
     const bool l_Findable = item != nullptr && !item->Folder && (item->Record != nullptr || IsClassFile(item->Name));
     if (ImGui::MenuItem(std::format("{} Find References In Scene", Trinity::Icons::c_Search).c_str(), nullptr, false, l_Findable && m_FindReferences))
     {
@@ -921,7 +921,7 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
     }
 }
 
-// Unity's Create menu. Everything is made in the open folder: scenes, materials, input actions, audio mixers, sound events, UI documents and UI style sheets among the assets, named there at once, and a prefab among them and each language's scripts in its own folder, named first, since the name is the prefab's root's or the class's as well. A prefab variant is made of the prefab the menu is for, beside it
+// Unity's Create menu. Everything is made in the open folder. Prefabs and scripts are named first
 void ContentBrowserPanel::DrawCreateMenu(const Item* item)
 {
     if (ImGui::MenuItem(std::format("{} Folder", Trinity::Icons::c_Folder).c_str()))
@@ -1085,7 +1085,7 @@ void ContentBrowserPanel::DrawRenameField(const Item& item, ImVec2 position, flo
     ImGui::Dummy(ImVec2(0.0f, 0.0f));
 }
 
-// The space after the items: a click clears the selection, its menu is the Assets menu for the open folder, and a drop moves into the open folder
+// The space after the items: a click clears the selection, and a drop moves into the open folder
 void ContentBrowserPanel::DrawBackground()
 {
     const ImVec2 l_Available = ImGui::GetContentRegionAvail();
@@ -1104,7 +1104,7 @@ void ContentBrowserPanel::DrawBackground()
     AcceptMove(m_Folder);
 }
 
-// Unity's foot: the selection's icon and path, and the size slider at the right end, whose leftmost notch is the list
+// Unity's foot: the selection's icon and path, and the size slider at the right end
 void ContentBrowserPanel::DrawFooter()
 {
     const float l_SliderWidth = ImGui::GetFontSize() * c_SliderWidthInFonts;
@@ -1176,7 +1176,7 @@ void ContentBrowserPanel::DrawConfirmPopup()
     ImGui::EndPopup();
 }
 
-// Unity's question for a prefab made from an instance's root: an original, whose entities are its own, or a variant of the instance's prefab, which keeps what the instance changes of it, the model for a model's instance. Escape or Cancel makes neither
+// Unity's question for a prefab made from an instance's root: an original or a variant
 void ContentBrowserPanel::DrawPrefabKindPopup()
 {
     if (std::exchange(m_OpenPrefabKindPopup, false))
@@ -1239,7 +1239,7 @@ void ContentBrowserPanel::DrawPrefabKindPopup()
     ImGui::EndPopup();
 }
 
-// The class's name, which names its file too, and the template it starts from. Enter makes it, and Escape or Cancel makes nothing
+// The class's name, which names its file too, and its template. Enter makes it, Escape cancels
 void ContentBrowserPanel::DrawNewScriptPopup()
 {
     if (std::exchange(m_OpenNewScriptPopup, false))
@@ -1365,7 +1365,7 @@ void ContentBrowserPanel::DrawNewPrefabPopup()
     ImGui::EndPopup();
 }
 
-// Files arrive as asset UUIDs, which the Viewport and the texture slot take too, and folders as paths. An entity from the Hierarchy becomes a prefab in the folder, as in Unity, and is shown selected
+// Files arrive as asset UUIDs and folders as paths. An entity from the Hierarchy becomes a prefab
 void ContentBrowserPanel::AcceptMove(const std::string& folder)
 {
     if (!ImGui::BeginDragDropTarget())
@@ -1415,7 +1415,7 @@ void ContentBrowserPanel::AcceptMove(const std::string& folder)
     ImGui::EndDragDropTarget();
 }
 
-// While the browser has focus, Delete, F2, Ctrl+D and Ctrl+Alt+C act on its selection rather than on the scene's, and Ctrl+F goes to the search, as in Unity
+// With focus, Delete, F2, Ctrl+D and Ctrl+Alt+C act on its selection, and Ctrl+F goes to the search
 void ContentBrowserPanel::ReadShortcuts()
 {
     if (!m_Focused || ImGui::GetIO().WantTextInput)
@@ -1474,7 +1474,7 @@ void ContentBrowserPanel::Select(const Item& item)
     m_Session.SetInspectedAsset(item.Record != nullptr ? item.Record->ID : Trinity::UUID());
 }
 
-// A folder opens here, a scene in Forge, a prefab in prefab mode, input actions, an audio mixer and a sound event in their panels and a script in the script editor. Anything else but a material, which Properties edits, opens in the program the system has for it, as Unity opens a texture in an image editor
+// A folder opens here, a scene in Forge, a prefab in prefab mode, others in their panel or program
 void ContentBrowserPanel::Open(const Item& item)
 {
     if (item.Folder)
@@ -1565,7 +1565,7 @@ void ContentBrowserPanel::Duplicate(const Item& item)
 // Asks first, since a deleted file is gone for good
 void ContentBrowserPanel::AskDelete(const Item& item)
 {
-    const std::string_view l_Detail = IsPrefab(item.Record) ? "This cannot be undone. The open scene's instances of it stay as they are until the scene opens again, and then stand in for a missing prefab" : "This cannot be undone, and anything using it will find it missing";
+    const std::string_view l_Detail = IsPrefab(item.Record) ? "This cannot be undone. The scene's instances of it stay until the scene reopens, then stand in for a missing prefab" : "This cannot be undone, and anything using it will find it missing";
     m_Confirmation = Confirmation{ "Delete", std::format("Delete {}{}?", item.Name, item.Folder ? " and everything in it" : ""), std::string(l_Detail), "Delete", [this, l_Path = item.Path]
     {
         static_cast<void>(m_Session.DeleteAsset(l_Path));
@@ -1598,7 +1598,7 @@ void ContentBrowserPanel::ShowInFileManager(const Item* item)
     }
 }
 
-// Renames, or moves within its root, since a script among the assets, or an asset among the scripts, would no longer be what it is. The open folder follows a folder it is in
+// Renames, or moves within its root. The open folder follows a folder it is in
 void ContentBrowserPanel::Move(const std::string& path, const std::string& folder, const std::string& name)
 {
     if (GetParent(path) == folder && GetName(path) == name)
@@ -1700,7 +1700,7 @@ std::vector<ContentBrowserPanel::Item> ContentBrowserPanel::GetItems(const std::
     return l_Items;
 }
 
-// What the search finds in the open folder and everything in it, or in every root, folders first and then files, each by name
+// What the search finds in the open folder and below, or in every root, folders first, by name
 std::vector<ContentBrowserPanel::Item> ContentBrowserPanel::Search()
 {
     std::vector<Item> l_Matches;

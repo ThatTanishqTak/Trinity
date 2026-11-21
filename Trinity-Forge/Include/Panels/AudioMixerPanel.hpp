@@ -11,7 +11,7 @@
 #include <string>
 #include <string_view>
 
-// Unity's Audio Mixer window, for one .trmixer asset: its snapshots, its groups as a tree and its exposed values in a column on the left, and a strip for each group on the right, with its volume on a fader beside its meter, its Mute, Solo and Bypass, and its chain of effects, Attenuation among them, which Add... puts more after. The faders show and edit the selected snapshot, which is heard while no scene plays, and while one does with Edit in Play Mode on; with it off they follow the mix the scene plays and nothing is edited. Every edit is a command in the history, so it undoes in one step, and is saved to the file as it is made, so the project's mixer is heard as edited at once and keeps the edit once a scene stops. Until an asset is opened from the Content Browser, it shows the project's mixer
+// Unity's Audio Mixer window, for one .trmixer asset. Every edit is a command, saved as it is made
 class AudioMixerPanel final : public Panel
 {
 public:
@@ -26,7 +26,7 @@ protected:
     void OnImGuiRender() override;
 
 private:
-    // What was chosen last, which Delete, Ctrl+D and F2 act on, and what a rename is typed into: a snapshot, a group or an effect, which the session's selection names, or an exposed value, by its index
+    // What was chosen last, which Delete, Ctrl+D and F2 act on, and what a rename is typed into
     enum class Chosen : std::uint8_t
     {
         None,
@@ -35,7 +35,7 @@ private:
         Exposed
     };
 
-    // An edit made as the panel draws, made once it has drawn, so nothing drawn after it reads what it replaced, with what it selects once made
+    // An edit made as the panel draws, made once it has drawn, with what it selects once made
     struct Pending
     {
         Trinity::AudioMixerData After;
@@ -85,14 +85,14 @@ private:
     std::optional<Pending> m_Pending;
     Chosen m_Chosen = Chosen::None;
     std::size_t m_ChosenExposed = 0;
-    // A rename being typed: what it renames, a snapshot or a group by its ID or an exposed value by its index, its text, whether its field takes the keyboard when next drawn, and whether it was drawn this frame, as it is not under a group folded away
+    // A rename being typed: what it renames, its text, and whether it was drawn this frame
     Chosen m_Renaming = Chosen::None;
     Trinity::UUID m_RenameID;
     std::size_t m_RenameIndex = 0;
     std::string m_RenameText;
     bool m_FocusRename = false;
     bool m_RenameDrawn = false;
-    // Why the last rename was refused, shown under the list it was typed in until something else is chosen
+    // Why the last rename was refused, shown under its list until something else is chosen
     std::string m_RenameError;
     Chosen m_RenameErrorIn = Chosen::None;
     bool m_Focused = false;

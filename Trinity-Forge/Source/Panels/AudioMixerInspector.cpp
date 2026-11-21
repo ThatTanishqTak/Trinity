@@ -44,7 +44,7 @@ namespace
         ImGui::SetNextItemWidth(-FLT_MIN);
     }
 
-    // As many decimals as the value's range needs, then its unit, a percent sign as ImGui's format takes it, and a ratio's straight after the number
+    // As many decimals as the value's range needs, then its unit, a percent sign as ImGui takes it
     std::string GetFormat(const Trinity::AudioEffectParameter& info)
     {
         const float l_Span = info.Maximum - info.Minimum;
@@ -57,7 +57,7 @@ namespace
         return std::format("%.{}f{}{}", l_Decimals, info.Unit.starts_with(':') ? "" : " ", info.Unit == "%" ? std::string_view("%%") : info.Unit);
     }
 
-    // A name scripts can read, the group's name in letters, digits and underscores, then the value's key, as MusicVolume or ReverbRoom, with a number after it from 2 while another value has it
+    // The group's name in letters, digits and underscores, then the value's key, as MusicVolume
     std::string MakeExposedName(const Trinity::AudioMixerData& data, Trinity::AudioMixerValue value)
     {
         const Trinity::AudioMixerGroup* l_Group = data.FindGroup(value.Owner);
@@ -93,7 +93,7 @@ AudioMixerInspector::AudioMixerInspector(EditorSession& session) : m_Session(ses
 
 }
 
-// The group the panel chose, or the group of the effect it chose. Once the mixer has neither, as after an undo, Properties goes back to the selection. Edits are made once every row is drawn
+// The group chosen, or the chosen effect's group. Edits are made once every row is drawn
 void AudioMixerInspector::Draw()
 {
     const EditorSession::MixerSelection l_Selection = m_Session.GetMixerSelection();
@@ -206,7 +206,7 @@ void AudioMixerInspector::Draw()
     }
 }
 
-// The value as the snapshot has it, or as the mix has it while the rows follow it, its label in the accent colour while a name exposes it, and a right-click on either for its menu. Pitch shows in percent, as Unity's does, and a frequency or a pitch slides along a log scale. A drag is one command
+// As the snapshot has it, or the mix while following. A right-click opens its menu
 void AudioMixerInspector::DrawValue(const View& view, Trinity::AudioMixerValue value, std::string_view owner)
 {
     const std::optional<Trinity::AudioEffectParameter> l_Info = view.Data->GetValueInfo(value);
@@ -273,7 +273,7 @@ void AudioMixerInspector::DrawValue(const View& view, Trinity::AudioMixerValue v
     ImGui::PopID();
 }
 
-// Unity's menu of a mixer value: Expose or Unexpose, then the curve a transition to the snapshot edited moves it along
+// Unity's menu of a mixer value: Expose or Unexpose, then the curve a transition moves it along
 void AudioMixerInspector::DrawValueMenu(const View& view, Trinity::AudioMixerValue value, std::string_view label, std::string_view owner)
 {
     const auto a_Exposed = std::ranges::find(view.Data->Exposed, value, &Trinity::AudioExposedParameter::Value);
@@ -310,7 +310,7 @@ void AudioMixerInspector::DrawValueMenu(const View& view, Trinity::AudioMixerVal
     }
 }
 
-// None, then every Receive and Duck Volume of the mixer, by its type and its group. One a Send to which would come back to it is shown, and cannot be picked
+// None, then every Receive and Duck Volume. One a Send to would loop back to cannot be picked
 void AudioMixerInspector::DrawSendTarget(const View& view, const Trinity::AudioEffect& send)
 {
     const auto a_Name = [](const Trinity::AudioEffect& effect, const Trinity::AudioMixerGroup& group) { return std::format("{} in {}", Trinity::GetAudioEffectInfo(effect.Type).Name, std::string_view(group.Name)); };

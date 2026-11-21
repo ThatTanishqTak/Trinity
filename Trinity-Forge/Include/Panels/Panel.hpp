@@ -13,7 +13,7 @@ enum class DockSlot : std::uint8_t
     Bottom
 };
 
-// A dockable Forge window. ImGui knows it by its ID alone, its title unless it is given another, so the icon and the title can change without losing its place in a saved layout
+// A dockable Forge window. ImGui knows it by its ID alone, so its icon and title can change
 class Panel
 {
 public:
@@ -34,14 +34,14 @@ public:
 
     [[nodiscard]] bool IsOpen() const { return m_Open; }
     void SetOpen(bool open);
-    // Brings the panel to the front the next time it is drawn, selecting its tab where it is docked with others
+    // Brings the panel to the front the next time it is drawn, selecting its tab where docked
     void RequestFocus() { m_FocusRequested = true; }
 
 protected:
     virtual void OnImGuiRender() = 0;
 
     void SetBorderless(bool borderless) { m_Borderless = borderless; }
-    // One that is not leaves its keys to what it shows rather than moving the keyboard between its items, as the Game panel does while the scene plays. From the next time it is drawn
+    // One that is not leaves its keys to what it shows, as the Game panel does while the scene plays
     void SetNavigable(bool navigable) { m_Navigable = navigable; }
 
 private:

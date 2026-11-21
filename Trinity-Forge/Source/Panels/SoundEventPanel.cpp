@@ -30,11 +30,11 @@ namespace
     constexpr float c_CurveHeightInFonts = 12.0f;
     // A stop fades over this many seconds, so it never clicks
     constexpr float c_StopFade = 0.05f;
-    // ImCurveEdit counts its x in frames and shows one frame past its last, so the parameter's range is spread over this many, which that one more barely moves
+    // ImCurveEdit counts x in frames and shows one past its last, so the range is spread over this many
     constexpr float c_CurveFrames = 1000.0f;
     // How far below and above the curves' ranges the editor shows at first
     constexpr float c_CurveMargin = 0.05f;
-    // The most points a curve takes in the editor. ImCurveEdit names chosen points by their places whatever curves it is given next, so each curve it reads has room for this many, and a place it names past a curve's points reads its last
+    // ImCurveEdit names chosen points by place, so each curve has room for this many
     constexpr std::size_t c_MostPoints = 256;
 
     struct TypeInfo
@@ -49,7 +49,7 @@ namespace
     constexpr std::array<TypeInfo, 5> c_Types
     { {
         { Trinity::SoundContainerType::Clip, "Clip", Trinity::Icons::c_FileAudio, "Plays its clip, once or looping" },
-        { Trinity::SoundContainerType::Random, "Random", Trinity::Icons::c_Random, "Plays one of its children each time it is triggered, picked at random by their weights, as Unity's Audio Random Container does, and can trigger itself" },
+        { Trinity::SoundContainerType::Random, "Random", Trinity::Icons::c_Random, "Plays one of its children each time it is triggered, picked at random by weight, and can trigger itself" },
         { Trinity::SoundContainerType::Sequence, "Sequence", Trinity::Icons::c_ListOrdered, "Plays its children in turn, each from the sample the one before it ends on" },
         { Trinity::SoundContainerType::Layer, "Layer", Trinity::Icons::c_Clone, "Plays all its children at once, from the same sample" },
         { Trinity::SoundContainerType::Switch, "Switch", Trinity::Icons::c_Sitemap, "Plays the children whose case is the label its parameter has as it is triggered, or else those with none" }
@@ -60,7 +60,7 @@ namespace
         return c_Types[std::min(static_cast<std::size_t>(type), c_Types.size() - 1)];
     }
 
-    // What a curve moves, over the range the editor shows it on, its value where it changes nothing, how its values read, and its colour on a dark and on a light background
+    // What a curve moves, its range in the editor, its neutral value, its format and its colours
     struct TargetInfo
     {
         Trinity::SoundCurveTarget Target;
@@ -112,7 +112,7 @@ namespace
         return std::string(l_Name.substr(0, l_Name.find_last_of('.')));
     }
 
-    // Whether the windows are drawn light, by how bright their background is, as the Console tells its colours
+    // Whether the windows are drawn light, by how bright their background is
     bool IsLightTheme()
     {
         const ImVec4 l_Background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
@@ -216,7 +216,7 @@ namespace
         return l_Children;
     }
 
-    // The targets a container has a curve of by the parameter, in the order the editor counts its curves
+    // The targets a container has a curve of by the parameter, in the order the editor counts them
     std::vector<Trinity::SoundCurveTarget> GetShownTargets(const Trinity::SoundContainer& container, Trinity::UUID parameter)
     {
         std::vector<Trinity::SoundCurveTarget> l_Targets;
@@ -307,7 +307,7 @@ namespace
         return l_Picked;
     }
 
-    // The curves of one container by one parameter as ImCurveEdit draws and edits them: a point's x along the parameter's range, spread over c_CurveFrames, and its y over its own curve's range from 0 to 1, so Volume, Pitch and Cutoff share one view and the straight lines drawn between points are the ones heard. Points are moved and added on a copy of the container's curves, which the panel makes an edit of once the editor has drawn. A point moves only as far as its neighbours, so each keeps its place, and on a discrete parameter only to a label's. A place ImCurveEdit names past a curve's points is read as its last point and never edited
+    // x is spread over c_CurveFrames, y over each curve's own range, so the lines drawn are those heard
     class CurveView final : public ImCurveEdit::Delegate
     {
     public:
@@ -360,7 +360,7 @@ namespace
             m_Editing = false;
         }
 
-        // A point given back where it already is moves nowhere, so a click that starts a drag changes nothing
+        // A point given back where it already is moves nowhere, so a click starting a drag changes nothing
         int EditPoint(size_t curve, int point, ImVec2 value) override
         {
             if (curve >= m_Shown.size() || point < 0 || static_cast<std::size_t>(point) >= Curve(curve).Points.size())
@@ -493,7 +493,7 @@ Trinity::UUID SoundEventPanel::GetShownAsset() const
     return l_Record != nullptr && l_Record->Importer == Trinity::SoundEventAsset::c_AssetType ? m_Asset : Trinity::UUID();
 }
 
-// Edits are made once the panel has drawn, so the data it drew from stays as it was until then. A selection follows the edit only once it has been made. The audition forgets the values it was given as another event is shown
+// Edits are made once the panel has drawn, so the data it drew from stays as it was until then
 void SoundEventPanel::OnImGuiRender()
 {
     m_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -578,7 +578,7 @@ void SoundEventPanel::OnImGuiRender()
         ImGui::EndTable();
     }
 
-    // Nothing is being dragged or typed into, nor a curve's points dragged, so the next change is a command of its own
+    // Nothing is dragged or typed into, nor a curve's points, so the next change is its own command
     if (!ImGui::IsAnyItemActive() && !m_CurveEditing)
     {
         m_Session.GetHistory().EndMerge();
@@ -603,7 +603,7 @@ void SoundEventPanel::OnImGuiRender()
     }
 }
 
-// The selection stays inside the event shown as an undo or a reload takes things away, and starts at its root and its first parameter when another event is shown. Curves are drawn by a parameter while it has any
+// The selection stays inside the event shown as an undo or a reload takes things away
 void SoundEventPanel::Clamp(Trinity::UUID asset, const Trinity::SoundEventData& data)
 {
     EditorSession::SoundEventSelection l_Selection = m_Session.GetSoundEventSelection();
@@ -682,7 +682,7 @@ std::optional<std::string> SoundEventPanel::TextField(const char* label, const s
     return ImGui::IsItemDeactivatedAfterEdit() ? std::optional(Trim(l_Typed)) : std::nullopt;
 }
 
-// Play starts the event from its root, as a game would, and a slider for each parameter gives the instance its value, a global one the engine's, which every instance by its name hears. A parameter that seeks shows where it has got to as a tick on its slider
+// Play starts the event from its root, as a game would. Each parameter has a slider
 void SoundEventPanel::DrawAudition(Trinity::UUID asset, const Trinity::SoundEventData& data)
 {
     SoundEventAudition& l_Audition = m_Session.GetAudition();
@@ -692,7 +692,7 @@ void SoundEventPanel::DrawAudition(Trinity::UUID asset, const Trinity::SoundEven
         l_Audition.Play(asset);
     }
 
-    ImGui::SetItemTooltip("Plays the event from its root, as a game would, a step in front of a listener of its own and through the project's mixer, with the values the sliders give. Pressed again, it starts over");
+    ImGui::SetItemTooltip("Plays the event from its root, as a game would, through the project's mixer. Pressed again, it starts over");
     ImGui::SameLine();
     ImGui::BeginDisabled(!l_Playing);
     if (ImGui::Button(std::format("{} Stop", Trinity::Icons::c_Stop).c_str()))
@@ -792,7 +792,7 @@ void SoundEventPanel::DrawTree(const Trinity::SoundEventData& data)
     ImGui::PopID();
 }
 
-// The root is renamed and given another type, but is never dragged, duplicated or removed. A container dragged onto another goes below it, or before it when it is a Clip, and a clip dropped on one is added below it, or beside it when it is a Clip
+// The root is never dragged, duplicated or removed. A drop goes below a container, or beside a Clip
 void SoundEventPanel::DrawContainerNode(const Trinity::SoundEventData& data, const Trinity::SoundContainer& container)
 {
     const std::vector<const Trinity::SoundContainer*> l_Children = GetChildren(data, container.ID);
@@ -1021,7 +1021,7 @@ void SoundEventPanel::DrawParameters(const Trinity::SoundEventData& data)
     ImGui::PopID();
 }
 
-// Its name and type, its values, those its parent and its type give it, the event's own with the root's, and its curves
+// Its name and type, its values, the event's own with the root's, and its curves
 void SoundEventPanel::DrawContainerDetails(Trinity::UUID asset, const Trinity::SoundEventData& data, const Trinity::SoundContainer& container)
 {
     const std::string_view l_Name(container.Name);
@@ -1142,7 +1142,7 @@ void SoundEventPanel::DrawContainerDetails(Trinity::UUID asset, const Trinity::S
             }
             case Trinity::SoundContainerType::Random:
             {
-                Row("Avoid Repeat", "How many of its last picks it never picks again, as Unity's Avoid Repeating Last does, so a footstep never comes twice in a row");
+                Row("Avoid Repeat", "How many of its last picks it never picks again, so a footstep never comes twice in a row");
                 int l_Avoid = static_cast<int>(container.AvoidRepeat);
                 const int l_Most = std::max(static_cast<int>(l_Children.size()) - 1, 0);
                 if (ImGui::SliderInt("##AvoidRepeat", &l_Avoid, 0, l_Most, l_Avoid == 0 ? "%d, off" : "%d", ImGuiSliderFlags_AlwaysClamp))
@@ -1158,7 +1158,7 @@ void SoundEventPanel::DrawContainerDetails(Trinity::UUID asset, const Trinity::S
                 }
 
                 ImGui::BeginDisabled(!container.AutoTrigger);
-                Row("Timing", "Pulse spaces its triggers from the start of one to the start of the next, and Offset from the end of one to the start of the next");
+                Row("Timing", "Pulse spaces triggers from the start of one to the start of the next. Offset, from the end of one");
                 int l_Timing = static_cast<int>(container.Timing);
                 if (ImGui::Combo("##Timing", &l_Timing, "Pulse\0Offset\0"))
                 {
@@ -1256,7 +1256,7 @@ void SoundEventPanel::DrawContainerDetails(Trinity::UUID asset, const Trinity::S
     DrawCurves(asset, data, container);
 }
 
-// The event's own settings, which the root's details show: the mixer group it plays into, how many of it play at once, and how it is heard in 3D when played on its own, as the audition plays it
+// The event's own settings: its mixer group, its instance limit, and how it is heard in 3D
 void SoundEventPanel::DrawEventSettings(const Trinity::SoundEventData& data)
 {
     ImGui::SeparatorText("Event");
@@ -1284,7 +1284,7 @@ void SoundEventPanel::DrawEventSettings(const Trinity::SoundEventData& data)
     }
 
     // Master stands for none, and a group the project's mixer lacks plays into Master
-    Row("Output", "The group of the project's mixer it plays into when played on its own, as the audition and PlayAtPoint play it. An AudioSource playing it uses its own unless that names none");
+    Row("Output", "The mixer group it plays into when played on its own. An AudioSource playing it uses its own unless that names none");
     const Trinity::AudioMixer* l_Mixer = m_Session.GetMixer();
     const Trinity::AudioMixerData* l_MixerData = l_Mixer != nullptr ? &l_Mixer->GetData() : nullptr;
     const Trinity::AudioMixerGroup* l_Output = l_MixerData != nullptr && data.Output ? l_MixerData->FindGroup(data.Output) : nullptr;
@@ -1391,7 +1391,7 @@ void SoundEventPanel::DrawEventSettings(const Trinity::SoundEventData& data)
     ImGui::EndTable();
 }
 
-// The clip's name, or why it has none, which opens a list of the project's clips to pick from, and takes a clip dropped on it
+// The clip's name, or why it has none, which opens a list of clips and takes a clip dropped on it
 void SoundEventPanel::DrawClipSlot(const Trinity::SoundEventData& data, const Trinity::SoundContainer& container)
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
@@ -1462,7 +1462,7 @@ void SoundEventPanel::DrawClipSlot(const Trinity::SoundEventData& data, const Tr
     ImGui::EndPopup();
 }
 
-// Its name, kind and whether it is global, and a continuous one's range, default and seek speed, or a discrete one's labels and default
+// Its name, kind and whether it is global, then its range, default and seek speed, or its labels
 void SoundEventPanel::DrawParameterDetails(const Trinity::SoundEventData& data, const Trinity::SoundParameter& parameter)
 {
     const std::string_view l_Name(parameter.Name);
@@ -1501,7 +1501,7 @@ void SoundEventPanel::DrawParameterDetails(const Trinity::SoundEventData& data, 
     }
 
     a_ShowError(l_Key);
-    Row("Kind", "Continuous is a value along a range, which seeks towards each value it is given. Discrete is one of its labels, which a Switch picks by");
+    Row("Kind", "Continuous is a value along a range, which seeks towards each value given. Discrete is one of its labels");
     int l_Kind = parameter.Kind == Trinity::SoundParameterKind::Continuous ? 0 : 1;
     if (ImGui::Combo("##Kind", &l_Kind, "Continuous\0Discrete\0"))
     {
@@ -1629,7 +1629,7 @@ void SoundEventPanel::DrawParameterDetails(const Trinity::SoundEventData& data, 
     ImGui::PopID();
 }
 
-// Picked by a parameter, with a button to add or remove each of Volume, Pitch and Cutoff, the three in ImCurveEdit over the parameter's range, each over its own range up it, so the lines drawn are the lines heard. A tick marks where the audition has the parameter, and the values there show as the editor is hovered
+// Picked by a parameter, with a button to add or remove each of Volume, Pitch and Cutoff
 void SoundEventPanel::DrawCurves(Trinity::UUID asset, const Trinity::SoundEventData& data, const Trinity::SoundContainer& container)
 {
     ImGui::SeparatorText(std::format("{} Curves", Trinity::Icons::c_LineChart).c_str());
@@ -1637,7 +1637,7 @@ void SoundEventPanel::DrawCurves(Trinity::UUID asset, const Trinity::SoundEventD
     if (l_Parameter == nullptr)
     {
         m_CurveFocused = false;
-        ImGui::TextDisabled("A curve moves the container's volume, pitch or cutoff by a parameter as it plays. Add a parameter on the left to draw one by it");
+        ImGui::TextDisabled("A curve moves the container's volume, pitch or cutoff by a parameter. Add a parameter on the left to draw one");
 
         return;
     }
@@ -1794,7 +1794,7 @@ void SoundEventPanel::DrawCurves(Trinity::UUID asset, const Trinity::SoundEventD
     DrawPointFields(data, container, *l_Parameter, l_Chosen);
 }
 
-// Points removed, added where it was right-clicked at the curve's value there, and curves set level again
+// Points removed, added where it was right-clicked at the curve's value, and curves set level
 void SoundEventPanel::DrawCurveMenu(const Trinity::SoundEventData& data, const Trinity::SoundContainer& container, const Trinity::SoundParameter& parameter, const std::vector<CurvePoint>& chosen)
 {
     const std::vector<Trinity::SoundCurveTarget> l_Shown = GetShownTargets(container, parameter.ID);
@@ -1839,7 +1839,7 @@ void SoundEventPanel::DrawCurveMenu(const Trinity::SoundEventData& data, const T
     }
 }
 
-// The one point chosen, typed: where it is along the parameter, between its neighbours, and its value there, in its curve's units
+// The one point chosen, typed: where it is along the parameter, and its value in its curve's units
 void SoundEventPanel::DrawPointFields(const Trinity::SoundEventData& data, const Trinity::SoundContainer& container, const Trinity::SoundParameter& parameter, const std::vector<CurvePoint>& chosen)
 {
     if (chosen.size() > 1)
@@ -1851,7 +1851,7 @@ void SoundEventPanel::DrawPointFields(const Trinity::SoundEventData& data, const
 
     if (chosen.empty())
     {
-        ImGui::TextDisabled("Double-click a curve to add a point, and drag points to move them. Drag around points to choose several, and Delete removes those chosen. The wheel zooms and the middle button pans up and down");
+        ImGui::TextDisabled("Double-click a curve to add a point. Drag points to move them, or around them to choose several. Delete removes them");
 
         return;
     }
@@ -1916,7 +1916,7 @@ void SoundEventPanel::DrawPointFields(const Trinity::SoundEventData& data, const
     ImGui::SetItemTooltip("%s", std::format("Its {} there. Ctrl+click to type", l_Target.Name).c_str());
 }
 
-// Delete, Ctrl+D and F2 act on what was chosen last while the panel has the focus and nothing is typed into. While the curve editor has it, Delete and Backspace take its chosen points
+// Delete, Ctrl+D and F2 act on what was chosen last. In the curve editor, Delete takes its points
 void SoundEventPanel::ReadShortcuts(const Trinity::SoundEventData& data)
 {
     if (!m_Focused || !m_TextKey.empty() || ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
@@ -2122,7 +2122,7 @@ void SoundEventPanel::RemoveParameter(const Trinity::SoundEventData& data, Trini
     Edit(std::move(l_After), std::format("Remove parameter {}", std::string_view(l_Parameter->Name)), {}, l_Select, Chosen::Container);
 }
 
-// A name another parameter has, or none, which the game would not find it by, is not made, and why shows under the field
+// A name another parameter has, or none, is not made, and why shows under the field
 void SoundEventPanel::RenameParameter(const Trinity::SoundEventData& data, Trinity::UUID parameter, std::string_view name)
 {
     const Trinity::SoundParameter* l_Parameter = data.FindParameter(parameter);
@@ -2188,7 +2188,7 @@ void SoundEventPanel::ResetCurve(const Trinity::SoundEventData& data, Trinity::U
     }
 }
 
-// At the curve's value there, so the curve is the same until the point is moved, where no point already is
+// At the curve's value there, so the curve is the same until the point is moved
 void SoundEventPanel::AddPoint(const Trinity::SoundEventData& data, Trinity::UUID container, Trinity::UUID parameter, Trinity::SoundCurveTarget target, float value)
 {
     const Trinity::SoundParameter* l_Parameter = data.FindParameter(parameter);

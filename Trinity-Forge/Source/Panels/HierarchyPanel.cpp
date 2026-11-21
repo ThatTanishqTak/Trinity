@@ -26,9 +26,9 @@ namespace
     // The top and bottom quarters of a row drop before and after it, and the middle drops inside it
     constexpr float c_EdgeFraction = 0.25f;
     constexpr float c_DropLineThickness = 2.0f;
-    // How long a second click on a selected entity waits before it renames, at least, so the second click of a double-click never does
+    // How long a second click on a selected entity waits before renaming, so a double-click never does
     constexpr double c_SlowClickSeconds = 0.5;
-    // The keys the tree takes from ImGui's navigation while the Hierarchy has focus, so its focus box stays where it is as they move the selection
+    // The keys the tree takes from ImGui's navigation while the Hierarchy has focus
     constexpr std::array<ImGuiKey, 10> c_TreeKeys{ ImGuiKey_UpArrow, ImGuiKey_DownArrow, ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_Home, ImGuiKey_End, ImGuiKey_PageUp, ImGuiKey_PageDown, ImGuiKey_Enter, ImGuiKey_KeypadEnter };
 
     Trinity::UUID GetID(Trinity::Entity entity)
@@ -83,7 +83,7 @@ namespace
         return text.size() >= prefix.size() && std::ranges::equal(text.substr(0, prefix.size()), prefix, [](char left, char right) { return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right)); });
     }
 
-    // A record named by its path, the end of its path after a /, as Models/Rock.fbx names /assets/Models/Rock.fbx, or its UUID
+    // A record named by its path, the end of its path after a /, or its UUID
     bool NamesRecord(const Trinity::AssetRecord& record, std::string_view term)
     {
         const std::string_view l_Path(record.Path);
@@ -114,7 +114,7 @@ ImVec4 HierarchyPanel::GetPrefabColor()
     return l_Light ? ImVec4(0.1f, 0.35f, 0.8f, 1.0f) : ImVec4(0.45f, 0.7f, 1.0f, 1.0f);
 }
 
-// The scene's tree in hierarchy order, under a search field that stays as the tree scrolls. A selection made elsewhere, such as in the Viewport, opens its ancestors and scrolls into view. Edits wait until the tree is drawn, since they can destroy the entities it is walking. While a copy plays, the tree is the copy's, to select in and look at but not to change. A search draws its tree under IDs of its own, so the tree opened and closed without one is as it was once the search is cleared
+// Edits wait until the tree is drawn, since they can destroy the entities it is walking
 void HierarchyPanel::OnImGuiRender()
 {
     if (!m_Session.HasProject())
@@ -208,7 +208,7 @@ void HierarchyPanel::SetSearch(std::string search)
     m_SearchChanged = true;
 }
 
-// Unity's search field. Ctrl+F comes to it, Escape clears it, and Down goes into the tree to the first match. Clearing it opens the tree to the selection
+// Unity's search field. Ctrl+F comes to it, Escape clears it, and Down goes to the first match
 void HierarchyPanel::DrawSearch()
 {
     if (std::exchange(m_FocusSearch, false))
@@ -242,14 +242,14 @@ void HierarchyPanel::DrawSearch()
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Matches names, whatever their case. t: matches a component or a script class an entity has, as t:Light, t:Collider or t:Player do, and ref: an asset or a script file it uses, as Find References In Scene in the Content Browser gives. They can be mixed, as in door t:Joint, and a term in quotes keeps its spaces. The parents of what matches show dimmed, and the Scene panel outlines the matches");
+        ImGui::SetTooltip("Matches names. t: matches a component or script class, as t:Light, and ref: an asset or script. Quotes keep spaces");
     }
 }
 
-// Each word must be in an entity's name, whatever its case, with t: terms the entity must have a component or a script class one of them names, so t:Renderer finds MeshRenderer and SpriteRenderer, and with ref: terms it must use an asset or a script one of them names. Each match shows with every parent above it, so the tree keeps its shape
+// Each word must be in the name. t: terms name a component or script class, ref: terms an asset
 void HierarchyPanel::UpdateSearch(Trinity::Scene& scene)
 {
-    // Terms are split by spaces, and a term's value in quotes keeps its spaces, as in ref:"Models/Old Rock.fbx"
+    // Terms are split by spaces, and a term's value in quotes keeps its spaces
     std::vector<std::string_view> l_Words;
     std::vector<std::string_view> l_Types;
     std::vector<std::string_view> l_References;
@@ -350,7 +350,7 @@ void HierarchyPanel::UpdateSearch(Trinity::Scene& scene)
     }
 }
 
-// Each instance compared with its prefab as the key changes. The root's Position and Rotation are its own, so they mark nothing, and while a copy plays nothing is marked, since its instances change as it runs
+// Compared with its prefab as the key changes. While a copy plays nothing is marked
 void HierarchyPanel::UpdateOverrides(Trinity::Scene& scene)
 {
     std::string l_Key = m_ReadOnly ? std::string() : std::format("{} {} {}", m_Session.GetHistory().GetRevision(), m_Session.GetScanCount(), m_Session.GetOpenPrefab());
@@ -369,7 +369,7 @@ void HierarchyPanel::UpdateOverrides(Trinity::Scene& scene)
 
     for (Trinity::Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
     {
-        // Each instance by its root. One standing in for a missing prefab gives no overrides, having no prefab to compare with
+        // Each instance by its root. One standing in for a missing prefab has nothing to compare with
         if (!it_Entity.Has<Trinity::PrefabInstanceComponent>())
         {
             continue;
@@ -389,7 +389,7 @@ void HierarchyPanel::UpdateOverrides(Trinity::Scene& scene)
     }
 }
 
-// A term names an asset by its path, the end of its path, as Models/Rock.fbx does, or its UUID, and every asset of that name counts. A model brings what was imported from it, its meshes, materials and collision shapes, and a texture brings each material that samples it, read from its file. A script file, which is no asset, names the class it is named after, as Edit Script finds it
+// By path, path end or UUID. A model brings its sub-assets, and a texture its materials
 void HierarchyPanel::ResolveReferences(const std::vector<std::string_view>& terms)
 {
     m_References = {};
@@ -489,7 +489,7 @@ void HierarchyPanel::ResolveReferences(const std::vector<std::string_view>& term
     }
 }
 
-// Whether a slot of the entity holds an asset the ref: terms name, or one of its scripts is of a class named after a script file they name
+// Whether a slot of the entity holds an asset the ref: terms name, or a script of a class they name
 bool HierarchyPanel::HasReference(Trinity::Entity entity) const
 {
     bool l_Found = false;
@@ -511,7 +511,7 @@ bool HierarchyPanel::HasReference(Trinity::Entity entity) const
     });
 }
 
-// While searching, only what the search shows: a branch with no match below it is a leaf, every branch opens as the search changes, and a parent shown only for what is below it is dimmed
+// While searching, only what the search shows. A parent shown only for what is below it is dimmed
 void HierarchyPanel::DrawEntity(Trinity::Entity entity)
 {
     const Trinity::UUID l_ID = entity.GetUUID();
@@ -560,7 +560,7 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         m_OpenRequests.erase(a_Request);
     }
 
-    // As Unity colours them: a prefab's instance blue, its root and the prefab's entities in it alike, and an entity standing in for a missing prefab red. What is added to an instance is as any entity is, with a plus. In prefab mode the prefab's root is shown as the prefab, as Unity shows it there. An instance nested in another has a root of its own, marked as any instance's root is, with a variant's icon for a variant and a model's for a model's instance, as the Content Browser shows the model
+    // As Unity colours them: an instance blue, a missing prefab's stand-in red, an addition with a plus
     const bool l_Dimmed = l_Searching && !m_Matched.contains(l_ID);
     const Trinity::Entity l_Instance = Trinity::Prefab::FindInstanceRoot(entity);
     const NearestInstance l_Nearest = l_Instance ? FindNearestInstance(entity) : NearestInstance{};
@@ -577,7 +577,7 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
     const char* l_Icon = !l_InstanceRoot && !l_PrefabRoot ? Trinity::Icons::c_CubeOutline : l_Model ? Trinity::Icons::c_Cube : m_Session.IsPrefabVariant(l_Shown) ? Trinity::Icons::c_PackageVariant : Trinity::Icons::c_PackageVariantClosed;
     const std::string l_Icons = m_Added.contains(l_ID) ? std::format("{}{}", Trinity::Icons::c_Plus, l_Icon) : std::string(l_Icon);
     const std::string l_Label = l_Renaming ? l_Icons : std::format("{} {}", l_Icons, GetEntityLabel(entity));
-    // An instance's root ends its row with Unity's arrow, which overlaps the row and opens the root's prefab, though not a model's, which opens in no prefab mode, and an entity that changes its prefab is marked as Properties marks it, with the bar and a bold name
+    // An instance's root ends its row with Unity's arrow, which opens its prefab, though not a model's
     const bool l_Arrow = l_InstanceRoot && !IsMissingPrefab(entity) && !l_Renaming && !l_Model;
     const bool l_Overridden = m_Overridden.contains(l_ID);
     const float l_Right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
@@ -615,7 +615,7 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleEdgeY);
     }
 
-    // As in Unity, a press selects once it is released without a drag, so dragging an entity onto a field in Properties leaves Properties on the selection, while the arrow opens and closes and a right-click selects at once. A double-click frames the entity in the Scene panel, and a second, slower click on an entity already selected renames it
+    // As in Unity, a press selects once released without a drag. A second, slower click renames
     const bool l_LeftClicked = ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen();
     if (l_LeftClicked && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
     {
@@ -700,7 +700,7 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
     }
 }
 
-// Enter or clicking away keeps the name as one command. Escape puts the text back as it was, so nothing changes
+// Enter or clicking away keeps the name as one command. Escape puts the text back
 void HierarchyPanel::DrawRenameField(Trinity::Entity entity)
 {
     ImGui::SameLine();
@@ -720,7 +720,7 @@ void HierarchyPanel::DrawRenameField(Trinity::Entity entity)
     Trinity::TagComponent l_Tag = entity.Get<Trinity::TagComponent>();
     if (std::string_view(l_Tag.Tag) != m_RenameText)
     {
-        // Leaving the field by clicking another entity selects that one, which the command would undo by selecting what it renamed
+        // Leaving the field by clicking another entity selects that one, which the command would undo
         const Trinity::UUID l_Selection = m_Session.GetSelection();
         l_Tag.Tag = m_RenameText;
         CommandStack& l_History = m_Session.GetHistory();
@@ -730,7 +730,7 @@ void HierarchyPanel::DrawRenameField(Trinity::Entity entity)
     }
 }
 
-// While a copy plays, Copy alone, which takes the playing entity to paste once it stops, and Open Prefab. Unity's Prefab items close the menu of an instance's entity
+// While a copy plays, Copy alone, which takes the playing entity, and Open Prefab
 void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
 {
     const Trinity::UUID l_ID = entity.GetUUID();
@@ -800,7 +800,7 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
         return;
     }
 
-    // Open Prefab opens the nearest prefab, as the row's arrow does, though not a model, and Unpack and Unpack Completely the instance the scene keeps, which holds every override
+    // Open Prefab opens the nearest prefab, though not a model. Unpack acts on the scene's instance
     ImGui::Separator();
     const bool l_Missing = IsMissingPrefab(l_Instance);
     const Trinity::UUID l_Nearest = FindNearestInstance(entity).Prefab;
@@ -826,7 +826,7 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
     }
 }
 
-// The space below the tree: a click clears the selection, a drop makes the entity the last root, or an instance of a prefab or a model one, and its menu creates a root or pastes, the last two not while a copy plays
+// The space below the tree: a click clears the selection, and a drop makes a root
 void HierarchyPanel::DrawBackground()
 {
     const ImVec2 l_Available = ImGui::GetContentRegionAvail();
@@ -888,7 +888,7 @@ void HierarchyPanel::DrawBackground()
     }
 }
 
-// Where the mouse is over the row picks before, inside or after, and a line or an outline shows which. An entity moves there, an instance of a prefab or a model is created there, and so is an AudioSource of an audio clip or a sound event, heard as it is. A script goes onto the entity, as in Unity, so the whole row lights up for it
+// Where the mouse is over the row picks before, inside or after. A script lights the whole row
 void HierarchyPanel::AcceptDrop(Trinity::Entity target)
 {
     if (!ImGui::BeginDragDropTarget())
@@ -949,7 +949,7 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
     ImGui::EndDragDropTarget();
 }
 
-// Rename, Ctrl+F to the search, F to frame the selection in the Scene panel, or Shift+F to follow it there, and the tree's keys, while the Hierarchy has focus, as in Unity, and not one of its menus, which keeps its own keys. Copy, Paste, Duplicate and Delete are Forge's own shortcuts, so they work from any panel
+// While the Hierarchy has focus, as in Unity. Copy, Paste, Duplicate and Delete are Forge's own
 void HierarchyPanel::ReadShortcuts()
 {
     if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows | ImGuiFocusedFlags_NoPopupHierarchy) || ImGui::GetIO().WantTextInput)
@@ -979,7 +979,7 @@ void HierarchyPanel::ReadShortcuts()
     }
 }
 
-// Unity's tree keys, through the rows the last frame drew: Up and Down step through them, Home and End go to the first and the last, and PageUp and PageDown a page at a time. Left closes a branch or goes to its parent, Right opens it or goes to its first child, and with Alt either does every branch below it too. Enter renames, as on a Mac, and Ctrl+Up and Ctrl+Down move the entity among its siblings, as in Godot, the last two not while a copy plays
+// Unity's tree keys, through the rows the last frame drew. Ctrl+Up and Ctrl+Down reorder
 void HierarchyPanel::ReadTreeKeys()
 {
     const ImGuiID l_Owner = ImGui::GetID("##TreeKeys");
@@ -1081,7 +1081,7 @@ void HierarchyPanel::ReadTreeKeys()
     }
 }
 
-// Below asks the same of every branch under it, which applies as each is next drawn, so a branch closed below one that is closed too is found closed once that one opens
+// Below asks the same of every branch under it, which applies as each is next drawn
 void HierarchyPanel::SetBranchOpen(Trinity::Entity entity, bool open, bool below)
 {
     m_OpenRequests[entity.GetUUID()] = open;
@@ -1096,7 +1096,7 @@ void HierarchyPanel::SetBranchOpen(Trinity::Entity entity, bool open, bool below
     m_KeepSelectionVisible = true;
 }
 
-// Before the sibling above, or after the one below, one command each. Its place in the world stays, since its parent does
+// Before the sibling above, or after the one below, one command each. Its place in the world stays
 void HierarchyPanel::Reorder(Trinity::Entity entity, bool up)
 {
     const Trinity::Entity l_Previous = entity.GetPreviousSibling();
@@ -1110,7 +1110,7 @@ void HierarchyPanel::Reorder(Trinity::Entity entity, bool up)
     m_KeepSelectionVisible = true;
 }
 
-// The slow click's rename waits out the double-click time with the button up, and is dropped by a drag, by the selection moving on, or by the Hierarchy losing focus to another panel
+// The slow click's rename waits out the double-click time, and is dropped by a drag or lost focus
 void HierarchyPanel::UpdateSlowClick(Trinity::Scene& scene)
 {
     if (!m_SlowClick)
@@ -1164,7 +1164,7 @@ void HierarchyPanel::Rename(Trinity::UUID entity)
     }
 }
 
-// As the Entity menu has them: a built-in shape with its collider, a light or a camera, under the parent or as a root, made once the tree is drawn and shown selected
+// As the Entity menu has them, under the parent or as a root, made once the tree is drawn
 void HierarchyPanel::DrawCreateMenus(Trinity::UUID parent)
 {
     const auto a_Create = [this](std::move_only_function<bool()> create)

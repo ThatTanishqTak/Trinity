@@ -36,7 +36,7 @@ namespace
     constexpr const char* c_CollisionMeshPickerPopup = "##CollisionMeshPicker";
     constexpr const char* c_AudioResourcePickerPopup = "##AudioResourcePicker";
     constexpr const char* c_UIDocumentPickerPopup = "##UIDocumentPicker";
-    // An AudioSource's rolloff graph is this many lines high, and reaches this far past its maximum distance
+    // An AudioSource's rolloff graph is this many lines high, and reaches this far past its maximum
     constexpr float c_RolloffGraphLines = 6.0f;
     constexpr float c_RolloffGraphReach = 1.1f;
     // An AudioSource's Output meter runs from this many decibels to 0
@@ -47,19 +47,19 @@ namespace
     constexpr const char* c_ScriptAssetPickerPopup = "##ScriptAssetPicker";
     constexpr const char* c_UnappliedPopup = "Unapplied Import Settings###ForgeUnappliedSettings";
 
-    // Components with an editor of their own here. Transform is never removed, and Tag is the name at the top
+    // Components with an editor of their own here. Transform is never removed, and Tag is the name
     constexpr std::array<std::string_view, 27> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::CharacterControllerComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::CharacterController2DComponent::c_TypeName, Trinity::Joint2DComponent::c_TypeName, Trinity::AudioSourceComponent::c_TypeName, Trinity::AudioListenerComponent::c_TypeName, Trinity::UIDocumentComponent::c_TypeName, Trinity::ScriptComponent::c_TypeName };
 
     using PrefabOverride = Trinity::SceneSerializer::PrefabOverride;
 
-    // A row of a built-in component whose label is not its key with the spaces taken out, with the keys it shows
+    // A row of a built-in component whose label is not its key without spaces, with the keys it shows
     struct RowKeys
     {
         std::string_view Label;
         std::array<std::string_view, 4> Keys;
     };
 
-    // Near shows the near plane of whichever projection is shown, a lock the 3D body's three axes or the 2D body's one, and a label ending in a space starts the label of each of a list's rows, as Material 0 does. A key ending in a slash is a list saved an item a line, so each of its rows shows its own item, as Material 1 shows Materials/1
+    // A label ending in a space starts each of a list's rows. A key ending in a slash is a list
     constexpr std::array<RowKeys, 26> c_RowKeys{ {
         { "Audio Resource",{ "Resource" } },
         { "Volume Rolloff",{ "Rolloff" } },
@@ -89,7 +89,7 @@ namespace
         { "Reference DPI",{ "ReferenceDpi" } }
     } };
 
-    // What a menu asked to revert or apply, named as the command names it, such as Position of Body, and for Apply the level of the prefab it goes to, 0 for the instance's own
+    // What a menu asked to revert or apply, named as the command names it, and for Apply its level
     struct OverrideRequest
     {
         std::vector<PrefabOverride> Overrides;
@@ -98,7 +98,7 @@ namespace
         std::size_t Level = 0;
     };
 
-    // What Properties marks while it shows an entity of an instance: the session, which names the prefabs a change can go to, the instance's root, its prefab's name and whether that is a model, all the instance changes of the prefab, read once a frame, the entity shown, the component whose section is being drawn and the path a script's fields sit under, and what a menu asked for, which the panel does once every section is drawn
+    // What Properties marks while it shows an entity of an instance, read once a frame
     struct OverrideMarks
     {
         EditorSession* Session = nullptr;
@@ -112,7 +112,7 @@ namespace
         std::optional<OverrideRequest> Request;
     };
 
-    // Set while Properties draws an entity of an instance, and null otherwise, so Label and the sections mark their rows without each being told
+    // Set while Properties draws an entity of an instance, so Label and the sections mark their rows
     OverrideMarks* s_Marks = nullptr;
 
     bool EqualsIgnoringCase(std::string_view left, std::string_view right)
@@ -120,7 +120,7 @@ namespace
         return std::ranges::equal(left, right, [](char leftCharacter, char rightCharacter) { return std::tolower(static_cast<unsigned char>(leftCharacter)) == std::tolower(static_cast<unsigned char>(rightCharacter)); });
     }
 
-    // Whether a change at the path shows on the row of the key: the path is the key, holds it, as a whole component, script or list does, or is held by it
+    // Whether a change at the path shows on the row of the key: it is the key, or one holds the other
     bool IsShownAt(std::string_view path, std::string_view key)
     {
         const auto a_IsWithin = [](std::string_view inner, std::string_view outer) { return inner.size() > outer.size() && inner[outer.size()] == '/' && EqualsIgnoringCase(inner.substr(0, outer.size()), outer); };
@@ -128,7 +128,7 @@ namespace
         return path.empty() || EqualsIgnoringCase(path, key) || a_IsWithin(key, path) || a_IsWithin(path, key);
     }
 
-    // The values of the shown entity's component the row shows, by the keys its label names: the label without its spaces, under a script's fields' path, or what c_RowKeys gives a built-in component's row
+    // The shown component's values the row shows, by the keys its label names, or what c_RowKeys gives
     std::vector<PrefabOverride> FindRowOverrides(const OverrideMarks& marks, std::string_view label)
     {
         std::vector<std::string> l_Keys;
@@ -157,21 +157,21 @@ namespace
         return l_Overrides;
     }
 
-    // Unity's mark for what an instance changes of its prefab: a bar in the prefab's blue at the left edge of the row from the top given
+    // Unity's mark for what an instance changes: a bar in the prefab's blue at the row's left edge
     void DrawOverrideBar(float top)
     {
         const float l_Left = ImGui::GetCurrentWindow()->InnerClipRect.Min.x;
         ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(l_Left, top), ImVec2(l_Left + 3.0f, top + ImGui::GetFrameHeight()), ImGui::GetColorU32(HierarchyPanel::GetPrefabColor()));
     }
 
-    // A prefab the changes can be made the own of, by name, and whether it is a model, whose prefab is made from its file, so it takes nothing applied
+    // A prefab the changes can be made the own of, by name, and whether it is a model, which takes none
     struct ApplyLevel
     {
         std::string Name;
         bool Model = false;
     };
 
-    // The prefabs the changes can be made the own of, outermost first, as the first change's levels name them, or the instance's own alone for changes that name none
+    // The prefabs the changes can go to, outermost first, or the instance's own alone
     std::vector<ApplyLevel> GetApplyLevels(const std::vector<PrefabOverride>& overrides)
     {
         std::vector<ApplyLevel> l_Levels;
@@ -191,10 +191,10 @@ namespace
     // Why a model's level takes nothing applied, as the tooltip of an Apply greyed for it
     std::string GetModelApplyHint(std::string_view model)
     {
-        return std::format("{} is a model, whose prefab is made from its file, so nothing is applied to it. A prefab holding it, or a variant of it, takes it", model);
+        return std::format("{} is a model, whose prefab is made from its file, so nothing is applied to it. A variant of it takes it", model);
     }
 
-    // Unity's Apply to Prefab, an item for each prefab the changes can go to, outermost first, as Apply to Prefab 'Enemy' and Apply to Prefab 'Weapon' for a Weapon's value in an Enemy, a model's greyed as Unity greys it. Whether one was chosen
+    // Unity's Apply to Prefab, an item for each prefab, a model's greyed. Whether one was chosen
     bool DrawApplyItems(const std::vector<PrefabOverride>& overrides, std::string_view what, bool enabled = true)
     {
         const std::vector<ApplyLevel> l_Levels = GetApplyLevels(overrides);
@@ -219,7 +219,7 @@ namespace
         return l_Chosen;
     }
 
-    // Revert and Apply to Prefab on a right-click of the item just drawn, as Unity's Inspector has them, which the panel does once every section is drawn
+    // Revert and Apply to Prefab on a right-click of the item just drawn, done once sections are drawn
     void OverrideMenu(const char* id, const std::vector<PrefabOverride>& overrides, std::string_view what)
     {
         ImGui::OpenPopupOnItemClick(id, ImGuiPopupFlags_MouseButtonRight);
@@ -237,7 +237,7 @@ namespace
         ImGui::EndPopup();
     }
 
-    // Each component the instance removed of its prefab's, as Unity shows one: a greyed header with the bar that stays shut, whose right-click reverts or applies the removal
+    // Each component the instance removed, as Unity shows one: a greyed header that stays shut
     void DrawRemovedComponents(Trinity::Entity entity)
     {
         if (s_Marks == nullptr)
@@ -262,7 +262,7 @@ namespace
         }
     }
 
-    // A label on the left and the widget filling the rest of the row, less the width kept for buttons after it. In an instance a row that changes its prefab's value is bold, with the bar at its left edge, and its label reverts or applies the change on a right-click. The root's Position and Rotation are its own, so they are not marked, though their menu is there
+    // A label on the left and the widget filling the row. In an instance an overridden row is bold
     void Label(const char* label, float reserve = 0.0f)
     {
         ImGui::AlignTextToFramePadding();
@@ -290,7 +290,7 @@ namespace
         ImGui::SetNextItemWidth(reserve > 0.0f ? -reserve : -FLT_MIN);
     }
 
-    // The widget edits a copy, and a change becomes a command. While a widget stays active, as during a drag, its commands merge into one
+    // The widget edits a copy, and a change becomes a command. While it stays active, commands merge
     template<Trinity::Component T, typename F>
     void EditField(CommandStack& history, Trinity::Entity entity, std::string_view field, F widget)
     {
@@ -312,7 +312,7 @@ namespace
         return std::filesystem::path(record.Path).filename().string();
     }
 
-    // What a slot shows, as Unity's object fields do: what it names, "None (Material)" while empty, and a warning while what it names is gone or is not the type it takes. The tooltip says where it is, or what is wrong, and is empty for an empty slot
+    // As Unity's object fields: what it names, "None (Material)" while empty, or a warning
     struct SlotText
     {
         std::string Text;
@@ -320,7 +320,7 @@ namespace
         bool Broken = false;
     };
 
-    // Whether a slot of the type takes an asset the importer made: one of its type, any for a slot of no type, a model for a prefab's, as a model is read as a prefab of its hierarchy, so Instantiate makes instances of either, and an AudioClip or a Sound Event for an Audio Resource's
+    // Whether a slot of the type takes an asset the importer made. A prefab's also takes a model
     bool TakesAsset(std::string_view assetType, std::string_view importer)
     {
         if (assetType == c_AudioResourceType)
@@ -362,7 +362,7 @@ namespace
         return { GetAssetName(*l_Record), l_Record->Path, false };
     }
 
-    // An entity slot's text, as an asset slot's: the entity's name, what an empty slot means, and a warning while the entity is no longer in the scene
+    // As an asset slot's: the entity's name, what an empty slot means, or a warning if it is gone
     SlotText DescribeEntitySlot(Trinity::Scene& scene, Trinity::UUID value, std::string_view empty)
     {
         if (!value)
@@ -378,12 +378,12 @@ namespace
         return { std::format("{} Missing (Entity)", Trinity::Icons::c_Warning), std::format("Entity {} is not in the scene: it was deleted, or is in another scene", value), true };
     }
 
-    // Why the project's default input actions offer nothing to pick: the project names none, or its file cannot be read. Empty while they can be read
+    // Why the project's default input actions offer nothing to pick. Empty while they can be read
     std::string GetActionsUnavailable(Trinity::UUID asset, const EditorSession::InputActionsFile* file)
     {
         if (!asset)
         {
-            return "The project has no default input actions, which Play reads. Open an input actions asset in the Input Actions panel and choose Set as Default";
+            return "The project has no default input actions. Open one in the Input Actions panel and choose Set as Default";
         }
 
         if (file == nullptr)
@@ -394,7 +394,7 @@ namespace
         return file->Data ? std::string() : file->Error;
     }
 
-    // An input action field's text, as an asset slot's: its path, None while empty, and a warning while the actions of source, the project's default, lack it or cannot be read
+    // As an asset slot's: its path, None while empty, or a warning while the actions lack it
     SlotText DescribeActionSlot(const Trinity::InputActionsData* data, std::string_view unavailable, std::string_view source, std::string_view path)
     {
         if (path.empty())
@@ -412,10 +412,10 @@ namespace
             return { std::string(path), std::format("A {} action of {}", Trinity::ToString(data->Maps[l_Found->first].Actions[l_Found->second].Type), source), false };
         }
 
-        return { std::format("{} Missing ({})", Trinity::Icons::c_Warning, path), std::format("{} has no action {}, or more than one map has an action of that name, so Play reads it as released. It was deleted, or renamed outside the Input Actions panel", source, path), true };
+        return { std::format("{} Missing ({})", Trinity::Icons::c_Warning, path), std::format("{} has no action {}, or more than one map has it, so Play reads it as released. It was deleted or renamed", source, path), true };
     }
 
-    // A broken slot in the Console's warning colour. Pushed just for the button or combo's own text, and popped as soon as it is drawn, before a combo's list
+    // A broken slot in the Console's warning colour, popped before a combo's list is drawn
     void PushSlotColor(const SlotText& slot)
     {
         if (slot.Broken)
@@ -432,7 +432,7 @@ namespace
         }
     }
 
-    // What a drag from the Content Browser gives a slot of the type, as Unity's object fields take it: the asset when the slot takes it, as a slot of any type does and a prefab's does a model, else the first of the type among those it holds, such as a model's first mesh, material or embedded texture. None for an asset without one, or for another drag
+    // The asset when the slot takes it, else the first of the type it holds, such as a model's mesh
     Trinity::UUID GetDraggedAsset(const Trinity::AssetRegistry* registry, std::string_view assetType)
     {
         const ImGuiPayload* l_Payload = ImGui::GetDragDropPayload();
@@ -474,7 +474,7 @@ namespace
         return Trinity::UUID(l_Value);
     }
 
-    // Over a slot what is dragged does not fit, the no-entry cursor, as Unity's object fields show it, with no highlight. A script is left alone, since Properties takes one dropped anywhere on an entity
+    // Over a slot what is dragged does not fit, the no-entry cursor. A script is left alone
     void RefuseDrag()
     {
         const ImGuiPayload* l_Payload = ImGui::GetDragDropPayload();
@@ -484,7 +484,7 @@ namespace
         }
     }
 
-    // The shape of that kind the mesh's model cooked for it, found through the model's sub-asset keys, or none when the mesh is not a model's or the model's settings left it out
+    // The shape of that kind the mesh's model cooked for it, by the model's sub-asset keys, or none
     Trinity::UUID FindCollisionShape(const Trinity::AssetRegistry* registry, Trinity::UUID mesh, Trinity::CollisionShapeKind kind)
     {
         const Trinity::AssetRecord* l_Mesh = registry != nullptr && mesh ? registry->Find(mesh) : nullptr;
@@ -551,7 +551,7 @@ namespace
         return l_Changed;
     }
 
-    // Whether the 3D world takes the entity as part of a character: the nearest at or above it with a CharacterController, a RigidBody, a RigidBody2D or a CharacterController2D has the CharacterController, as the 3D world finds what an entity is part of. A joint cannot hold a character
+    // Whether the 3D world takes the entity as part of a character. A joint cannot hold a character
     bool IsPartOfCharacter(Trinity::Entity entity)
     {
         for (Trinity::Entity it_Entity = entity; it_Entity; it_Entity = it_Entity.GetParent())
@@ -570,7 +570,7 @@ namespace
         return false;
     }
 
-    // As for the 3D world, whether the 2D world takes the entity as part of a character: the nearest at or above it with a 3D body or character, a RigidBody2D or a CharacterController2D has the CharacterController2D and neither a RigidBody nor a CharacterController, as the 2D world finds what an entity is part of
+    // As for the 3D world, whether the 2D world takes the entity as part of a character
     bool IsPartOfCharacter2D(Trinity::Entity entity)
     {
         for (Trinity::Entity it_Entity = entity; it_Entity; it_Entity = it_Entity.GetParent())
@@ -594,7 +594,7 @@ namespace
         return false;
     }
 
-    // Whether an entity can be part of a 3D body or of a 2D one, for a joint to name. A character, and what follows it, cannot
+    // Whether an entity can be part of a 3D body or a 2D one, for a joint to name. A character cannot
     bool Is3DBody(Trinity::Entity entity)
     {
         return (entity.Has<Trinity::RigidBodyComponent>() || entity.Has<Trinity::BoxColliderComponent>() || entity.Has<Trinity::SphereColliderComponent>() || entity.Has<Trinity::CapsuleColliderComponent>() || entity.Has<Trinity::CylinderColliderComponent>() || entity.Has<Trinity::ConvexHullColliderComponent>() || entity.Has<Trinity::MeshColliderComponent>()) && !IsPartOfCharacter(entity);
@@ -605,7 +605,7 @@ namespace
         return (entity.Has<Trinity::RigidBody2DComponent>() || entity.Has<Trinity::BoxCollider2DComponent>() || entity.Has<Trinity::CircleCollider2DComponent>() || entity.Has<Trinity::CapsuleCollider2DComponent>() || entity.Has<Trinity::PolygonCollider2DComponent>()) && !IsPartOfCharacter2D(entity);
     }
 
-    // What a joint joins: the world, or an entity the test takes as part of a body, other than the joint's own, picked from the list or dropped from the Hierarchy
+    // The world, or an entity the test takes as part of a body, picked or dropped from the Hierarchy
     bool ConnectedBodyCombo(Trinity::Scene& scene, Trinity::Entity entity, Trinity::UUID& connected, const SlotText& preview, bool (*isBody)(Trinity::Entity))
     {
         bool l_Changed = false;
@@ -668,7 +668,7 @@ namespace
         return l_Changed;
     }
 
-    // A source's Output as its group's name, Master's while it names none, since it then plays into Master, and a warning while the project's mixer lacks the group, which it then plays into Master as well
+    // Its group's name, Master's while it names none, or a warning while the mixer lacks the group
     SlotText DescribeOutputSlot(const Trinity::AudioMixerData* mixer, Trinity::UUID output)
     {
         const std::string l_Master = mixer != nullptr ? std::string(std::string_view(mixer->GetMaster().Name)) : std::string("Master");
@@ -685,7 +685,7 @@ namespace
         return { std::format("{} Missing, plays into {}", Trinity::Icons::c_Warning, l_Master), std::format("Group {} is not in the project's mixer, so it plays into {}: the group was removed, or the project has another mixer", output, l_Master), true };
     }
 
-    // The project mixer's groups as Unity's Audio Mixer lists them, each indented under its parent, and Master first, which stands for none
+    // The project mixer's groups, each indented under its parent, Master first, which stands for none
     bool OutputCombo(const Trinity::AudioMixerData* mixer, Trinity::UUID& output, const SlotText& preview)
     {
         PushSlotColor(preview);
@@ -736,7 +736,7 @@ namespace
         return l_Changed;
     }
 
-    // A group's meter as one bar at its loudest channel's peak, from the floor to 0 dB, read out with that peak and the loudest RMS, as Unity's mixer strips show them
+    // One bar at its loudest channel's peak, from the floor to 0 dB, with that peak and the loudest RMS
     void DrawOutputMeter(std::string_view group, const Trinity::AudioMeter& meter)
     {
         float l_Peak = 0.0f;
@@ -758,7 +758,7 @@ namespace
         return pattern.empty() || std::ranges::search(text, pattern, [](char left, char right) { return std::tolower(static_cast<unsigned char>(left)) == std::tolower(static_cast<unsigned char>(right)); }).begin() != text.end();
     }
 
-    // A type name with its words apart, as Unity shows them: MeshRenderer reads Mesh Renderer, and RigidBody2D reads Rigid Body 2D
+    // A type name with its words apart, as Unity shows them: MeshRenderer reads Mesh Renderer
     std::string SpaceWords(std::string_view name)
     {
         std::string l_Text;
@@ -777,7 +777,7 @@ namespace
         return l_Text;
     }
 
-    // Unity's Add Component categories for the engine's components, in the order the list shows them. A module's components go under their namespace, after these
+    // Unity's Add Component categories, in order. A module's components go under their namespace
     constexpr std::array<std::string_view, 6> c_ComponentCategories{ "Rendering", "Lighting", "Physics", "Physics 2D", "Audio", "UI Toolkit" };
     constexpr std::string_view c_OtherCategory = "Other";
     constexpr std::string_view c_ScriptsCategory = "Scripts";
@@ -843,7 +843,7 @@ namespace
         const Trinity::ScriptClassDescription* Script = nullptr;
     };
 
-    // What the entity can be given that the search matches, a component's spaced name or its type, and a script's class or label, in category order and by name within each
+    // What the entity can be given that the search matches, in category order and by name within each
     std::vector<ComponentChoice> GetComponentChoices(Trinity::Entity entity, std::string_view filter, const Trinity::Project* project)
     {
         std::vector<ComponentChoice> l_Choices;
@@ -890,7 +890,7 @@ namespace
         return l_Choices;
     }
 
-    // The component's fields as a new one has them, which Reset puts back, read from an entity of a scene of its own. Every entity comes with a Transform
+    // The component's fields as a new one has them, which Reset puts back, read from a scratch scene
     std::string GetNewComponentText(std::string_view name)
     {
         Trinity::Scene l_Scene;
@@ -903,7 +903,7 @@ namespace
         return Trinity::SceneSerializer::SaveComponentToText(l_Entity, name);
     }
 
-    // The listener a running scene would be heard through, the first in hierarchy order, with how many the scene has
+    // The listener a running scene would be heard through, the first in order, with how many it has
     Trinity::Entity FindAudioListener(Trinity::Scene& scene, std::size_t& count)
     {
         const auto l_Listeners = scene.GetRegistry().view<Trinity::AudioListenerComponent>();
@@ -924,7 +924,7 @@ namespace
         return {};
     }
 
-    // Volume against distance, as Unity draws a source's rolloff: from 0 to a little past its maximum distance, with the minimum and the maximum marked, and where the listener is while the scene plays
+    // Volume against distance, as Unity draws it, with the minimum, the maximum and the listener marked
     void DrawRolloffGraph(const Trinity::AudioSourceComponent& source, std::optional<float> listener)
     {
         const float l_Width = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
@@ -971,7 +971,7 @@ namespace
         }
     }
 
-    // An entity of the scene, or none, picked from the list in hierarchy order or dropped from the Hierarchy
+    // An entity of the scene, or none, picked from the list or dropped from the Hierarchy
     bool EntityCombo(Trinity::Scene& scene, Trinity::UUID& value)
     {
         const SlotText l_Preview = DescribeEntitySlot(scene, value, "None (Entity)");
@@ -1035,7 +1035,7 @@ namespace
         return l_Changed;
     }
 
-    // A value as text, for a field that is shown and not edited. An entity and an asset show by their names, as their slots do
+    // A value as text, for a field that is shown and not edited. Entities and assets show by name
     std::string FormatScriptValue(Trinity::Scene& scene, const Trinity::AssetRegistry* registry, const Trinity::ScriptFieldValue& value)
     {
         switch (value.GetType())
@@ -1110,7 +1110,7 @@ namespace
         ImGui::TextDisabled("%s", std::format("{}  ({})", FormatScriptValue(scene, registry, value), Trinity::DescribeType(value)).c_str());
     }
 
-    // What every collider has, above its own shape. The offset's turn shows as X, Y and Z degrees worked out afresh each frame, which is enough for the small turns a collider takes. Layers show by the project's names for them
+    // What every collider has. The offset's turn shows in degrees, worked out afresh each frame
     template<typename T>
     void DrawColliderSettings(CommandStack& history, Trinity::Entity entity, const Trinity::CollisionLayers& layers)
     {
@@ -1156,7 +1156,7 @@ namespace
         }
     }
 
-    // As a 3D collider's, in its entity's XY plane, with its turn there in degrees counter-clockwise, kept as radians, and whether 2D characters meet it one way, which does nothing on a trigger, since a trigger holds no character. 2D and 3D colliders share the project's layers
+    // As a 3D collider's, in its entity's XY plane, in degrees counter-clockwise, kept as radians
     template<typename T>
     void DrawCollider2DSettings(CommandStack& history, Trinity::Entity entity, const Trinity::CollisionLayers& layers)
     {
@@ -1201,7 +1201,7 @@ namespace
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
         {
-            ImGui::SetTooltip("%s", l_Trigger ? "A trigger holds no character, so this does nothing while Trigger is on" : "2D characters meet it only from above, along its own Y axis, so they jump up through it, land on it and walk through its sides. Bodies meet it as any other");
+            ImGui::SetTooltip("%s", l_Trigger ? "A trigger holds no character, so this does nothing while Trigger is on" : "2D characters meet it only from above, along its own Y axis, so they jump up through it. Bodies meet it as any other");
         }
 
         Label("Layer");
@@ -1236,7 +1236,7 @@ PropertiesPanel::~PropertiesPanel()
     m_Session.RemoveCloseListener(m_CloseListener);
 }
 
-// Unity's question: Apply imports the asset again with the settings, and Revert leaves it as it was. Whatever waited for the answer, such as Forge closing, goes on after either
+// Unity's question: Apply imports the asset again, Revert leaves it. What waited then goes on
 void PropertiesPanel::DrawPopups()
 {
     if (std::exchange(m_OpenUnappliedPopup, false))
@@ -1287,7 +1287,7 @@ void PropertiesPanel::DrawPopups()
     ImGui::EndPopup();
 }
 
-// The settings edited, for the asset they were edited for, when they differ from what its .meta holds
+// The settings edited, for the asset they were edited for, when they differ from its .meta
 std::optional<PropertiesPanel::UnappliedSettings> PropertiesPanel::GetUnappliedSettings() const
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
@@ -1315,7 +1315,7 @@ std::optional<PropertiesPanel::UnappliedSettings> PropertiesPanel::GetUnappliedS
     return std::nullopt;
 }
 
-// The asset shown is no longer the one whose settings were being edited, so edits not applied are asked about rather than dropped. A question already open keeps its own
+// Edits not applied are asked about rather than dropped. A question already open keeps its own
 void PropertiesPanel::KeepUnappliedSettings(Trinity::UUID shown)
 {
     if (!m_SettingsAsset || m_SettingsAsset == shown)
@@ -1332,7 +1332,7 @@ void PropertiesPanel::KeepUnappliedSettings(Trinity::UUID shown)
 
     if (m_Unapplied)
     {
-        TR_WARN("Forge: the import settings edited for {} were dropped, since those for {} are still being asked about", l_Unapplied->Path, m_Unapplied->Path);
+        TR_WARN("Forge: import settings edited for {} were dropped, as {}'s are still asked about", l_Unapplied->Path, m_Unapplied->Path);
 
         return;
     }
@@ -1341,7 +1341,7 @@ void PropertiesPanel::KeepUnappliedSettings(Trinity::UUID shown)
     m_OpenUnappliedPopup = true;
 }
 
-// Before Forge closes or another project opens: the question already open, or one about the settings being edited, and then what waited. With nothing to ask, it goes on at once
+// Before Forge closes or another project opens. With nothing to ask, it goes on at once
 void PropertiesPanel::AskUnapplied(std::move_only_function<void()> then)
 {
     if (!m_Unapplied)
@@ -1361,7 +1361,7 @@ void PropertiesPanel::AskUnapplied(std::move_only_function<void()> then)
     m_OpenUnappliedPopup = true;
 }
 
-// The selected entity's components, each in its own section, under IDs of that entity's own. A change from a component's menu waits until every section is drawn, since the sections read the components
+// A change from a component's menu waits until every section is drawn, since they read it
 void PropertiesPanel::OnImGuiRender()
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -1410,7 +1410,7 @@ void PropertiesPanel::OnImGuiRender()
         return;
     }
 
-    // Shown as it moves, and editable again once it stops. An entity standing in for a missing prefab keeps the instance as the scene file has it, so nothing of it is edited
+    // Shown as it moves, and editable again once it stops. A missing prefab's stand-in is never edited
     const bool l_Playing = m_Session.IsPlaying();
     const bool l_Missing = IsMissingPrefab(l_Entity);
     if (l_Playing)
@@ -1420,7 +1420,7 @@ void PropertiesPanel::OnImGuiRender()
     else if (l_Missing)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Warn));
-        ImGui::TextWrapped("%s", std::format("{} Stands in for a prefab instance whose prefab is missing or cannot be read. The instance is kept as the scene file has it, and comes back once the prefab does, so this can be moved or deleted, and nothing else", Trinity::Icons::c_Warning).c_str());
+        ImGui::TextWrapped("%s", std::format("{} Stands in for an instance whose prefab is missing. It returns with the prefab, and can only be moved or deleted", Trinity::Icons::c_Warning).c_str());
         ImGui::PopStyleColor();
     }
 
@@ -1505,7 +1505,7 @@ void PropertiesPanel::OnImGuiRender()
     }
 }
 
-// The name follows the Tag while it is not being typed into, and becomes one command when the field is left, however it is left. Escape puts the text back, so nothing changes
+// The name follows the Tag while not typed into, and is one command when the field is left
 void PropertiesPanel::DrawName(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::TagComponent>())
@@ -1532,7 +1532,7 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
             CommitName(entity);
         }
 
-        // An instance's name the prefab's otherwise is marked, and its field reverts or applies it on a right-click
+        // An instance's name the prefab's otherwise is marked, and its field reverts or applies it
         if (s_Marks != nullptr)
         {
             s_Marks->Component = Trinity::TagComponent::c_TypeName;
@@ -1548,7 +1548,7 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
 
     ImGui::TextDisabled("UUID %s", entity.GetUUID().ToString().c_str());
 
-    // As Unity's Inspector heads an instance, with the nearest prefab its entities come from, which for an entity of an instance nested in the scene's is the nested one's, in the scene's instance, and the model's for a model's instance
+    // As Unity's Inspector heads an instance, with the nearest prefab its entities come from
     if (const Trinity::Entity l_Instance = Trinity::Prefab::FindInstanceRoot(entity))
     {
         const NearestInstance l_Nearest = FindNearestInstance(entity);
@@ -1562,7 +1562,7 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
         const std::string l_In = l_Nearest.Root != l_Instance ? std::format(", in {}", GetEntityLabel(l_Instance)) : std::string();
         ImGui::TextDisabled("%s", std::format("{} {} {}{}", l_Model ? Trinity::Icons::c_Cube : Trinity::Icons::c_PackageVariantClosed, l_Of, l_Path, l_In).c_str());
 
-        // As Unity's Inspector heads one, Open edits that prefab in prefab mode, or opens a model's file in the system's program, as a model opens in no prefab mode, and Unpack makes the scene's instance plain entities, beside the Overrides dropdown, both the scene's instance's, which keeps every override
+        // Open edits that prefab in prefab mode, or opens a model's file. Unpack is the scene's instance's
         const std::string l_Name = l_Record != nullptr ? std::filesystem::path(l_Record->Path).stem().string() : l_Prefab.ToString();
         ImGui::BeginDisabled(l_Record == nullptr);
         if (ImGui::Button("Open###OpenPrefab"))
@@ -1592,7 +1592,7 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
         }
 
         ImGui::EndDisabled();
-        ImGui::SetItemTooltip("%s", l_Missing ? "The prefab is missing, so the instance is unpacked once it is back" : std::format("Makes {} plain entities that its prefab no longer reaches, in one step, each instance nested in the prefab staying an instance of its own", GetEntityLabel(l_Instance)).c_str());
+        ImGui::SetItemTooltip("%s", l_Missing ? "The prefab is missing, so the instance is unpacked once it is back" : std::format("Makes {} plain entities its prefab no longer reaches, in one step. Instances nested in the prefab stay instances", GetEntityLabel(l_Instance)).c_str());
         if (s_Marks != nullptr)
         {
             ImGui::SameLine();
@@ -1604,7 +1604,7 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
     ImGui::Spacing();
 }
 
-// Unity's Overrides dropdown: on the instance's root all it changes of its prefab, and on one of its entities what that entity changes and the entities added or removed right under it. Each changed component, added or removed component and added or removed entity is a row with Revert and Apply, whose Apply offers each prefab the change can go to where there are more, and Revert All and Apply All take every row, Apply All to the instance's own prefab. The root's Position and Rotation are its own, so they are left out. A model takes nothing applied, so an Apply that would go to one alone is greyed, as Unity greys it
+// Unity's Overrides dropdown: a row with Revert and Apply for each change, then both for all
 void PropertiesPanel::DrawOverrides(Trinity::Entity entity)
 {
     if (s_Marks == nullptr)
@@ -1625,7 +1625,7 @@ void PropertiesPanel::DrawOverrides(Trinity::Entity entity)
     const Trinity::PrefabInstanceComponent& l_Instance = l_Root.Get<Trinity::PrefabInstanceComponent>();
     Trinity::Scene* l_Template = m_Session.FindPrefabTemplate(l_Instance.Prefab);
     Trinity::Scene& l_Scene = *entity.GetScene();
-    // The prefab's entity that one of the instance's would be, which names one the instance removed, one of a nested instance's too
+    // The prefab's entity that one of the instance's would be, which names one the instance removed
     const auto a_FindInPrefab = [&l_Instance, l_Template](Trinity::UUID uuid) { return l_Template != nullptr ? Trinity::Prefab::FindTemplateEntity(*l_Template, l_Instance.Instance, uuid) : Trinity::Entity(); };
     const auto a_IsUnder = [&entity](Trinity::Entity child) { return child && child.GetParent() && child.GetParent().GetUUID() == entity.GetUUID(); };
     const auto a_IsShown = [&](const PrefabOverride& change)
@@ -1730,7 +1730,7 @@ void PropertiesPanel::DrawOverrides(Trinity::Entity entity)
         Row& l_Row = l_Rows[it_Row];
         l_All.insert(l_All.end(), l_Row.Overrides.begin(), l_Row.Overrides.end());
         ImGui::PushID(static_cast<int>(it_Row));
-        // A row whose change can go to more than one prefab, as a Weapon's value in an Enemy can, offers each in a menu from its Apply, as Unity's does
+        // A row whose change can go to more than one prefab offers each in a menu from its Apply
         const std::vector<ApplyLevel> l_RowLevels = GetApplyLevels(l_Row.Overrides);
         const bool l_Levels = l_RowLevels.size() > 1;
         const bool l_ToModel = !l_Levels && l_RowLevels.front().Model;
@@ -1820,7 +1820,7 @@ void PropertiesPanel::CommitName(Trinity::Entity entity)
     Trinity::TagComponent l_Value = entity.Get<Trinity::TagComponent>();
     l_Value.Tag = m_NameText;
 
-    // The command selects what it renamed, which is not what was clicked when the field was left by selecting something else
+    // The command selects what it renamed, which is not what was clicked to leave the field
     const Trinity::UUID l_Selection = m_Session.GetSelection();
     CommandStack& l_History = m_Session.GetHistory();
     l_History.Execute(Trinity::CreateScope<SetComponentCommand<Trinity::TagComponent>>(entity.GetUUID(), std::move(l_Value), "Name"));
@@ -1828,7 +1828,7 @@ void PropertiesPanel::CommitName(Trinity::Entity entity)
     m_Session.SetSelection(l_Selection);
 }
 
-// Rotation shows as X, Y and Z degrees, kept while the entity stays selected and its rotation is only changed here, so a drag never jumps between equivalent angles
+// Rotation shows as X, Y and Z degrees, kept while selected, so a drag never jumps between angles
 void PropertiesPanel::DrawTransform(Trinity::Entity entity)
 {
     if (!BeginComponent(entity, Trinity::TransformComponent::c_TypeName, Trinity::Icons::c_WindowRestore))
@@ -1934,11 +1934,11 @@ void PropertiesPanel::DrawCamera(Trinity::Entity entity)
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Exposure 1 is EV100 %.3f. PBR Neutral matches glTF Sample Viewer, and None only clamps, which keeps unlit 2D colours as they are", Trinity::c_NeutralEV100);
+        ImGui::SetTooltip("Exposure 1 is EV100 %.3f. PBR Neutral matches glTF Sample Viewer. None only clamps, keeping unlit 2D colours", Trinity::c_NeutralEV100);
     }
 }
 
-// Directional, point or spot, in glTF's units: lux for a directional light, candela for the others. Directional and spot lights shine along the entity's -Z, so turning the entity aims them, and can cast shadows. Colour is edited as it looks, in sRGB, and kept linear. A range of 0 is worked out from the intensity, and the cone's inner angle stays inside its outer one
+// In glTF's units: lux for a directional light, candela for the others. They shine along -Z
 void PropertiesPanel::DrawLight(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::LightComponent>() || !BeginComponent(entity, Trinity::LightComponent::c_TypeName, Trinity::Icons::c_Globe))
@@ -2023,7 +2023,7 @@ void PropertiesPanel::DrawLight(Trinity::Entity entity)
     });
 }
 
-// Image-based lighting from an HDR environment in the project, which takes one dropped from the Content Browser. Rotation turns it about +Y, and 90 degrees lights a model as glTF Sample Viewer does by default
+// Image-based lighting from an HDR environment in the project. Rotation turns it about +Y
 void PropertiesPanel::DrawEnvironment(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::EnvironmentComponent>() || !BeginComponent(entity, Trinity::EnvironmentComponent::c_TypeName, Trinity::Icons::c_Globe))
@@ -2078,7 +2078,7 @@ void PropertiesPanel::DrawSpriteRenderer(Trinity::Entity entity)
     EditField<Trinity::SpriteRendererComponent>(l_History, entity, "OrderInLayer", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::DragInt("##OrderInLayer", &sprite.OrderInLayer, 0.1f); });
 }
 
-// The mesh, a material for each of its slots and whether it casts shadows, each change one command. The slots are those the mesh's submeshes use once it has loaded, and any set past them. An empty slot draws with the default material, and empty slots at the end are not kept
+// The mesh, a material for each slot, and shadow casting. Trailing empty slots are not kept
 void PropertiesPanel::DrawMeshRenderer(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::MeshRendererComponent>() || !BeginComponent(entity, Trinity::MeshRendererComponent::c_TypeName, Trinity::Icons::c_Cube))
@@ -2144,7 +2144,7 @@ void PropertiesPanel::DrawMeshRenderer(Trinity::Entity entity)
     EditField<Trinity::MeshRendererComponent>(l_History, entity, "CastShadows", [](Trinity::MeshRendererComponent& meshRenderer) { return ImGui::Checkbox("##CastShadows", &meshRenderer.CastShadows); });
 }
 
-// A slot for one asset of a type: a button naming it that opens a picker of the project's assets of that type, and the built-in meshes for a mesh, which also takes one dragged from the Content Browser, or the first of its type that one holds, and a cross that clears it. Only a drag that fits lights it up, as in Unity. As in Unity it reads None (Type) while empty, and in the warning colour Missing (Type) while the asset is gone, or Type Mismatch (Type) while it is another type
+// A button naming the asset that opens a picker, takes a drop, and a cross that clears it
 void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& set, const char* hint, float reserve)
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
@@ -2194,7 +2194,7 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
     DrawAssetPicker(popup, assetType, current, set);
 }
 
-// The project's assets of one type, or of every type when none is given, by path, after the built-in meshes for a mesh, and for a prefab its prefabs, variants among them, then the models it takes too, each under its heading, narrowed by what is typed
+// The project's assets of one type, or all, by path, under headings, narrowed by what is typed
 void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick)
 {
     if (!ImGui::BeginPopup(popup))
@@ -2288,7 +2288,7 @@ void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetT
     ImGui::EndPopup();
 }
 
-// A module's components, each field with the editor a script's field of its type has, then components registered without fields to edit, and those no loaded code knows, which are kept as they were read
+// A module's components, each field with its type's editor, then those no loaded code knows
 void PropertiesPanel::DrawOtherComponents(Trinity::Entity entity)
 {
     for (const std::string_view it_Name : Trinity::SceneSerializer::GetComponentNames())
@@ -2346,7 +2346,7 @@ void PropertiesPanel::DrawOtherComponents(Trinity::Entity entity)
     }
 }
 
-// Static bodies never move, kinematic ones go where their transform is moved, and dynamic ones fall and collide. Mass, damping, gravity, continuous collision, locks and sleep only matter to a dynamic body, so they show for one alone. Initial velocities are in metres per second, and in degrees per second about each world axis, kept as radians
+// Mass, damping, gravity, locks and sleep only matter to a dynamic body, so show for one alone
 void PropertiesPanel::DrawRigidBody(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::RigidBodyComponent>() || !BeginComponent(entity, Trinity::RigidBodyComponent::c_TypeName, Trinity::Icons::c_Arrows))
@@ -2429,7 +2429,7 @@ void PropertiesPanel::DrawRigidBody(Trinity::Entity entity)
     EditField<Trinity::RigidBodyComponent>(l_History, entity, "CanSleep", [](Trinity::RigidBodyComponent& body) { return ImGui::Checkbox("##CanSleep", &body.CanSleep); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Whether it may fall asleep once it has stayed within a few centimetres for half a second. A slow, small swing does that at each end, so untick it for a swinging lamp or a bobbing buoy");
+        ImGui::SetTooltip("Whether it may fall asleep once nearly still for half a second. Untick it for a swinging lamp or a bobbing buoy");
     }
 }
 
@@ -2491,7 +2491,7 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
     }
 }
 
-// Its mode, and a capsule standing along the entity's Y axis, in metres before its entity's scale as a capsule collider is, with its slope in degrees, kept as radians, its push in newtons and its mass in kilograms. Push Strength greys out for a physical one, which pushes as a body of its mass does
+// A capsule along the entity's Y axis, in metres before scale. Its slope is kept in radians
 void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::CharacterControllerComponent>() || !BeginComponent(entity, Trinity::CharacterControllerComponent::c_TypeName, Trinity::Icons::c_Arrows))
@@ -2519,7 +2519,7 @@ void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
     });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Kinematic is moved where its velocity takes it, pushing dynamic bodies by its push strength, and nothing pushes it. Physical is a dynamic body that cannot turn, which pushes and is knocked back as a body of its mass is");
+        ImGui::SetTooltip("Kinematic moves by its velocity, pushing dynamic bodies, unpushed itself. Physical is a dynamic body that cannot turn");
     }
 
     Label("Radius");
@@ -2558,7 +2558,7 @@ void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
     EditField<Character>(l_History, entity, "StepHeight", [](Character& character) { return ImGui::DragFloat("##StepHeight", &character.StepHeight, 0.01f, 0.0f, 1.0e4f, character.StepHeight > 0.0f ? "%.3f m" : "None", ImGuiSliderFlags_AlwaysClamp); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("How high a step it climbs, and as far down as it keeps to the floor going down one. Its round end cap climbs a little higher by itself");
+        ImGui::SetTooltip("How high a step it climbs, and how far down it keeps to the floor. Its round end cap climbs a little higher by itself");
     }
 
     Label("Layer");
@@ -2587,7 +2587,7 @@ void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
     }
 }
 
-// The type, the body it joins, picked from the entities with a body or a collider or dropped from the Hierarchy, its frame, and its type's own settings, with a hinge's angles in degrees, kept as radians. A joint naming an entity no longer in the scene says so, and is left out when the scene runs
+// The type, the body it joins, its frame, and its type's settings, a hinge's angles in degrees
 void PropertiesPanel::DrawJoint(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::JointComponent>() || !BeginComponent(entity, Trinity::JointComponent::c_TypeName, Trinity::Icons::c_Link))
@@ -2621,7 +2621,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
     EditField<Joint>(l_History, entity, "ConnectedBody", [&](Joint& joint) { return ConnectedBodyCombo(l_Scene, entity, joint.ConnectedBody, l_Preview, &Is3DBody); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("The body it joins, through that body's entity or one of its collider entities, or the world. An entity can be dropped here from the Hierarchy");
+        ImGui::SetTooltip("The body it joins, by that body's entity or one of its collider entities, or the world. Drop an entity here");
     }
 
     if (IsPartOfCharacter(entity))
@@ -2767,7 +2767,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
     }
 }
 
-// As a 3D body's, in the XY plane: the settings past the motion show for a dynamic body alone, and the initial spin is in degrees per second counter-clockwise, kept as radians. An entity with a RigidBody or a CharacterController as well keeps its 3D body or character, and one with a CharacterController2D is a character, which it says
+// As a 3D body's, in the XY plane. The initial spin is in degrees per second, kept as radians
 void PropertiesPanel::DrawRigidBody2D(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::RigidBody2DComponent>() || !BeginComponent(entity, Trinity::RigidBody2DComponent::c_TypeName, Trinity::Icons::c_Arrows))
@@ -2864,11 +2864,11 @@ void PropertiesPanel::DrawRigidBody2D(Trinity::Entity entity)
     EditField<Body>(l_History, entity, "CanSleep", [](Body& body) { return ImGui::Checkbox("##CanSleep", &body.CanSleep); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Whether it may fall asleep once it has stayed nearly still for half a second. Untick it for something that must never stop, such as a slow swing");
+        ImGui::SetTooltip("Whether it may fall asleep once nearly still for half a second. Untick it for something that must never stop");
     }
 }
 
-// Each 2D collider's settings, then its shape, in metres before its entity's scale. A polygon's points are listed one to a row, from 3 to 8, each removable while more than 3 are left
+// Each 2D collider's settings, then its shape. A polygon's points are listed, from 3 to 8
 void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
 {
     CommandStack& l_History = m_Session.GetHistory();
@@ -2912,7 +2912,7 @@ void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
     bool l_Removed = false;
     for (std::size_t it_Point = 0; it_Point < l_Count && !l_Removed; ++it_Point)
     {
-        // Each point's edits are named for it, so a drag of one never merges with another's or with a point added or removed
+        // Each point's edits are named for it, so a drag of one never merges with another's
         const std::string l_Name = std::format("Point {}", it_Point + 1);
         ImGui::PushID(static_cast<int>(it_Point));
         Label(l_Name.c_str());
@@ -2943,7 +2943,7 @@ void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
         ImGui::PopID();
     }
 
-    // A new point goes halfway between the last and the first, so the shape keeps its outline until it is dragged
+    // A new point goes halfway between the last and the first, so the shape keeps its outline
     ImGui::BeginDisabled(l_Count >= Polygon::c_MaxPoints);
     EditField<Polygon>(l_History, entity, "Points", [](Polygon& polygon)
     {
@@ -2959,7 +2959,7 @@ void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
     {
-        ImGui::SetTooltip("The collider is the convex hull of its points, in its own space, so a point inside it or in line with two others is left out. 8 at most");
+        ImGui::SetTooltip("The collider is the convex hull of its points, so a point inside it or in line with two others is left out. 8 at most");
     }
 
     Label("Radius");
@@ -2970,7 +2970,7 @@ void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
     }
 }
 
-// As a 3D character's, in its entity's XY plane: its mode, and a capsule standing along the entity's Y axis, in metres before its entity's scale as a 2D capsule collider is, with its slope in degrees, kept as radians, its push in newtons and its mass in kilograms, Push Strength greying out for a physical one. An entity with a RigidBody or a CharacterController keeps its 3D body or character, and a RigidBody2D beside it is left out, which it says
+// As a 3D character's, in its entity's XY plane. A RigidBody2D beside it is left out, which it says
 void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::CharacterController2DComponent>() || !BeginComponent(entity, Trinity::CharacterController2DComponent::c_TypeName, Trinity::Icons::c_Arrows))
@@ -3006,7 +3006,7 @@ void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
     });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Kinematic is moved where its velocity takes it, pushing dynamic 2D bodies by its push strength, and nothing pushes it. Physical is a dynamic 2D body that cannot turn, which pushes and is knocked back as a body of its mass is");
+        ImGui::SetTooltip("Kinematic moves by its velocity, pushing dynamic 2D bodies. Physical is a dynamic 2D body that cannot turn");
     }
 
     Label("Radius");
@@ -3045,7 +3045,7 @@ void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
     EditField<Character>(l_History, entity, "StepHeight", [](Character& character) { return ImGui::DragFloat("##StepHeight", &character.StepHeight, 0.01f, 0.0f, 1.0e4f, character.StepHeight > 0.0f ? "%.3f m" : "None", ImGuiSliderFlags_AlwaysClamp); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("How high a step it climbs, and as far down as it keeps to the floor going down one. Its round end cap climbs a little higher by itself");
+        ImGui::SetTooltip("How high a step it climbs, and how far down it keeps to the floor. Its round end cap climbs a little higher by itself");
     }
 
     Label("Layer");
@@ -3074,7 +3074,7 @@ void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
     }
 }
 
-// As a 3D joint's: the type, the 2D body it joins, picked from the entities with a 2D body or collider or dropped from the Hierarchy, its anchor and axis in its entity's own XY plane, and its type's own settings, with a revolute joint's angles and a revolute or wheel motor's speed in degrees, kept as radians. A joint naming an entity no longer in the scene, or on a 2D character or naming one, which a joint cannot hold, says so, and is left out when the scene runs
+// As a 3D joint's, in its entity's XY plane. Angles and motor speeds are kept in radians
 void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::Joint2DComponent>() || !BeginComponent(entity, Trinity::Joint2DComponent::c_TypeName, Trinity::Icons::c_Link))
@@ -3111,7 +3111,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
     EditField<Joint>(l_History, entity, "ConnectedBody", [&](Joint& joint) { return ConnectedBodyCombo(l_Scene, entity, joint.ConnectedBody, l_Preview, &Is2DBody); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("The 2D body it joins, through that body's entity or one of its 2D collider entities, or the world. An entity can be dropped here from the Hierarchy");
+        ImGui::SetTooltip("The 2D body it joins, by that body's entity or one of its 2D collider entities, or the world. Drop an entity here");
     }
 
     if (IsPartOfCharacter2D(entity))
@@ -3239,7 +3239,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
         EditField<Joint>(l_History, entity, "MaxDistance", [](Joint& joint) { return ImGui::DragFloat("##MaxDistance", &joint.MaxDistance, 0.01f, -1.0f, 1.0e4f, joint.MaxDistance >= 0.0f ? "%.3f m" : "From start", ImGuiSliderFlags_AlwaysClamp); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
-            ImGui::SetTooltip("Below 0, the distance between the two ends as the scene starts. Without a spring the ends move freely between the two, and are held rigid when they match");
+            ImGui::SetTooltip("Below 0, the distance between the two ends as the scene starts. Without a spring the ends move freely between the two");
         }
     }
 
@@ -3249,7 +3249,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
         EditField<Joint>(l_History, entity, "SpringFrequency", [](Joint& joint) { return ImGui::DragFloat("##SpringFrequency", &joint.SpringFrequency, 0.01f, 0.0f, 1000.0f, joint.SpringFrequency > 0.0f ? "%.2f Hz" : "None", ImGuiSliderFlags_AlwaysClamp); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
-            ImGui::SetTooltip("%s", l_Distance ? "How many times a second a body on the spring bounces. It pulls towards the middle of the range, which still stops it at either end" : "How many times a second the wheel bounces on its suspension. Without one the wheel travels freely along its axis, within any limits");
+            ImGui::SetTooltip("%s", l_Distance ? "How many times a second a body on the spring bounces. It pulls towards the middle of the range" : "How many times a second the wheel bounces on its suspension. Without one the wheel travels freely along its axis");
         }
 
         Label("Damping");
@@ -3271,7 +3271,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
     }
 }
 
-// A slot for the cooked shape a hull or mesh collider takes, and once the shape is loaded, as the Scene panel's drawing of the selection loads it, why it failed if it did. When the model of the entity's Mesh Renderer cooked a shape of this kind for its mesh, and the collider has another, a button takes that one
+// A slot for the cooked shape a hull or mesh collider takes, and why it failed if it did
 template<typename T>
 void PropertiesPanel::DrawShapeSlot(Trinity::Entity entity, Trinity::CollisionShapeKind kind, const char* popup, const char* hint)
 {
@@ -3308,7 +3308,7 @@ void PropertiesPanel::DrawShapeSlot(Trinity::Entity entity, Trinity::CollisionSh
     }
 }
 
-// Unity's Add Component: every registered component the entity is without, except Transform, which it always has, under its category, and every script class loaded code has under Scripts, which adds it last with its fields at their defaults and the Script component too when the entity is without it. The search is focused as it opens, and what is typed narrows them to one list across all of them. Up and Down move the highlight, which the mouse also moves, and Enter adds it. As Unity's New Script does, a name typed that no loaded class has makes a C# or C++ script by that name from its template, adds it at once and opens it in the script editor, and it runs once its build loads the class
+// Unity's Add Component: components by category and scripts, narrowed by a search. Enter adds
 void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
 {
     ImGui::Spacing();
@@ -3402,7 +3402,7 @@ void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
         ImGui::EndChild();
     }
 
-    // A new script by the name typed, in the project's language once it has a C# project or a C++ module, unless a loaded class already has that name
+    // A new script by the name typed, in the project's language, unless a loaded class has that name
     std::optional<Trinity::ScriptLanguage> l_NewScript;
     const Trinity::Project* l_Project = m_Session.GetProject();
     if (l_Searching && l_Project != nullptr && EditorSession::IsClassName(m_ComponentFilter))
@@ -3427,7 +3427,7 @@ void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
                 l_NewScript = it_Language;
             }
 
-            ImGui::SetItemTooltip("%s", std::format("Writes {}/{}{} from its template, adds the script and opens it in the script editor. It runs once its build loads the class", l_CSharp ? EditorSession::c_ScriptsFolder : EditorSession::c_SourceFolder, m_ComponentFilter, l_CSharp ? ".cs" : ".cpp").c_str());
+            ImGui::SetItemTooltip("%s", std::format("Writes {}/{}{} from its template, adds the script and opens it. It runs once its build loads the class", l_CSharp ? EditorSession::c_ScriptsFolder : EditorSession::c_SourceFolder, m_ComponentFilter, l_CSharp ? ".cs" : ".cpp").c_str());
         }
     }
 
@@ -3463,7 +3463,7 @@ void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
     ImGui::EndPopup();
 }
 
-// Up and Down move the highlight through the choices, and typing puts it back on the first, as in the search of Unity's Add Component
+// Up and Down move the highlight through the choices, and typing puts it back on the first
 int PropertiesPanel::OnComponentFilterEdit(ImGuiInputTextCallbackData* data)
 {
     PropertiesPanel& l_Panel = *static_cast<PropertiesPanel*>(data->UserData);
@@ -3481,7 +3481,7 @@ int PropertiesPanel::OnComponentFilterEdit(ImGuiInputTextCallbackData* data)
     return 0;
 }
 
-// Unity's AudioSource: what it plays and how, then in 3D Sound Settings, greyed while it does not spatialize, how the listener hears it from where it is and from behind what is in the way, over its volume against distance. While the scene plays, where its voice has got to, whether it is mixed or unheard, and how occluded it is
+// Unity's AudioSource: what it plays and how, then 3D Sound Settings, greyed unless it spatializes
 void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::AudioSourceComponent>() || !BeginComponent(entity, Trinity::AudioSourceComponent::c_TypeName, Trinity::Icons::c_VolumeUp))
@@ -3577,7 +3577,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Which sounds are mixed when more play than the project's real voices: 0 first and 256 last, and among the same the loudest first. The rest keep their time unheard");
+        ImGui::SetTooltip("Which sounds are mixed when more play than the project's real voices: 0 first, 256 last, then the loudest");
     }
 
     Label("Volume");
@@ -3601,7 +3601,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     EditField<Trinity::AudioSourceComponent>(l_History, entity, "Spatialize", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##Spatialize", &source.Spatialize); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Heard from the entity in 3D, through the scene's AudioListener, as Unity's Spatial Blend at 3D. Off, it is heard as it is, as at 2D");
+        ImGui::SetTooltip("Heard from the entity in 3D, through the scene's AudioListener, as Unity's Spatial Blend at 3D. Off, as at 2D");
     }
 
     ImGui::SeparatorText("3D Sound Settings");
@@ -3633,7 +3633,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
     {
-        ImGui::SetTooltip("How the volume falls between the minimum and maximum distances: Logarithmic as sound does in the open, Linear to nothing at the maximum, and Exponential twice as fast as Logarithmic");
+        ImGui::SetTooltip("How volume falls between the distances: Logarithmic as in the open, Linear to nothing, Exponential twice as fast");
     }
 
     Label("Min Distance");
@@ -3692,7 +3692,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     EditField<Trinity::AudioSourceComponent>(l_History, entity, "Occlusion", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##Occlusion", &source.Occlusion); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
     {
-        ImGui::SetTooltip("Muffled while the scene's physics, on the project's occlusion layers, stands between it and the listener, eased in and out over the project's occlusion time");
+        ImGui::SetTooltip("Muffled while the scene's physics, on the project's occlusion layers, stands between it and the listener");
     }
 
     ImGui::BeginDisabled(!entity.Get<Trinity::AudioSourceComponent>().Occlusion);
@@ -3724,7 +3724,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     ImGui::EndDisabled();
 }
 
-// It holds nothing. Of several in a scene only the first in hierarchy order is heard through, which each of the others says, as Unity warns of them
+// It holds nothing. Of several in a scene only the first in order is heard through, as each says
 void PropertiesPanel::DrawAudioListener(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::AudioListenerComponent>() || !BeginComponent(entity, Trinity::AudioListenerComponent::c_TypeName, Trinity::Icons::c_Headphones))
@@ -3744,7 +3744,7 @@ void PropertiesPanel::DrawAudioListener(Trinity::Entity entity)
     ImGui::TextDisabled("The scene is heard from here, facing -Z with +Y up");
 }
 
-// Unity's UIDocument, with its Panel Settings below it, each scale mode's own fields shown as Unity's Panel Settings shows them: the document, whether it is drawn over the game view or in the scene, its sort order and visibility, the group its UI sounds play into, then a world document's placing, size and sorting, then how it scales. A world document's scale is Panel Settings' Scale alone, so that is all it shows
+// Unity's UIDocument, with its Panel Settings below it. A world document's scale is Scale alone
 void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::UIDocumentComponent>() || !BeginComponent(entity, Trinity::UIDocumentComponent::c_TypeName, Trinity::Icons::c_WindowRestore))
@@ -3775,7 +3775,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Screen draws it over the game view. World draws it into the scene, unlit, on a quad its entity places, which every view of the scene shows");
+        ImGui::SetTooltip("Screen draws it over the game view. World draws it into the scene, unlit, on a quad its entity places");
     }
 
     const bool l_World = entity.Get<Trinity::UIDocumentComponent>().RenderMode == Trinity::UIRenderMode::World;
@@ -3800,7 +3800,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
     EditField<Trinity::UIDocumentComponent>(l_History, entity, "SoundOutput", [&](Trinity::UIDocumentComponent& document) { return OutputCombo(l_MixerData, document.SoundOutput, l_SoundSlot); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("%s", l_SoundSlot.Broken ? l_SoundSlot.Tooltip.c_str() : "The group of the project's mixer the sounds its elements' sound-hover and sound-click attributes name play into. Master stands for none, which plays a sound event into its own Output");
+        ImGui::SetTooltip("%s", l_SoundSlot.Broken ? l_SoundSlot.Tooltip.c_str() : "The mixer group its elements' sound-hover and sound-click sounds play into. Master stands for none");
     }
 
     if (l_World)
@@ -3811,7 +3811,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
         EditField<Trinity::UIDocumentComponent>(l_History, entity, "Scale", [](Trinity::UIDocumentComponent& document) { return ImGui::DragFloat("##Scale", &document.Panel.Scale, 0.01f, Trinity::UIPanelSettings::c_MinScale, Trinity::UIPanelSettings::c_MaxScale, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
-            ImGui::SetTooltip("Pixels of its texture to one dp. Raise it with the size and pixels per unit for sharper text at the same size in the scene");
+            ImGui::SetTooltip("Pixels of its texture to one dp. Raise it with the size and pixels per unit for sharper text at the same size");
         }
 
         return;
@@ -3830,7 +3830,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("How many of the view's pixels one dp of the document is: a fixed scale, the view's size against a reference resolution, or the monitor's DPI against a reference DPI. Lengths and font sizes in dp follow it, and px stays the view's own pixels");
+        ImGui::SetTooltip("The view's pixels to one dp: a fixed scale, the view against a reference resolution, or the DPI against a reference");
     }
 
     switch (entity.Get<Trinity::UIDocumentComponent>().Panel.ScaleMode)
@@ -3875,7 +3875,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
 
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             {
-                ImGui::SetTooltip("Match Width Or Height scales by the view's width against the reference's, its height, or between the two. Expand scales so the reference always fits, and Shrink so it always fills");
+                ImGui::SetTooltip("Match Width Or Height scales by width, height or between. Expand keeps the reference fitting, Shrink filling");
             }
 
             if (entity.Get<Trinity::UIDocumentComponent>().Panel.ScreenMatchMode == Trinity::UIScreenMatchMode::MatchWidthOrHeight)
@@ -3904,7 +3904,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
     }
 }
 
-// A world document's World settings: which pass sorts it, its sorting layer when that is the sprites', its size, fixed or its body's own, its pixels per unit and pivot, and whether it faces the camera
+// A world document's World settings: its sorting, size, pixels per unit, pivot and facing
 void PropertiesPanel::DrawUIWorldSettings(Trinity::Entity entity)
 {
     CommandStack& l_History = m_Session.GetHistory();
@@ -3921,7 +3921,7 @@ void PropertiesPanel::DrawUIWorldSettings(Trinity::Entity entity)
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Depth draws it with the blended meshes, from the farthest to the nearest, behind the opaque meshes in front of it, as a 3D scene wants. Sprites draws it with the sprites, by sorting layer and order, as a 2D scene wants");
+        ImGui::SetTooltip("Depth draws it with the blended meshes, far to near, as 3D wants. Sprites draws it by sorting layer, as 2D wants");
     }
 
     if (entity.Get<Trinity::UIDocumentComponent>().World.Sorting == Trinity::UIWorldSorting::Sprites)
@@ -3946,7 +3946,7 @@ void PropertiesPanel::DrawUIWorldSettings(Trinity::Entity entity)
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Fixed lays it out in the size given. Dynamic lets its body take the size its content needs, from the top left, so a margin on the body is kept around it");
+        ImGui::SetTooltip("Fixed lays it out in the size given. Dynamic lets its body take the size its content needs, from the top left");
     }
 
     if (entity.Get<Trinity::UIDocumentComponent>().World.SizeMode == Trinity::UIWorldSizeMode::Fixed)
@@ -3985,11 +3985,11 @@ void PropertiesPanel::DrawUIWorldSettings(Trinity::Entity entity)
     EditField<Trinity::UIDocumentComponent>(l_History, entity, "FaceCamera", [](Trinity::UIDocumentComponent& document) { return ImGui::Checkbox("##FaceCamera", &document.World.FaceCamera); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Turned to face the camera that draws it, keeping its entity's position and scale, as a health bar does. Off, it faces its entity's +Z, as a sprite does");
+        ImGui::SetTooltip("Turned to face the camera that draws it, as a health bar does. Off, it faces its entity's +Z, as a sprite does");
     }
 }
 
-// Each script by its class, with a box that turns it on and off and its fields below. Right-clicking a script resets its fields to its class's defaults, moves or removes it. A class no loaded code has is marked, and its values are shown as they were read. Every change goes to a copy of the component and becomes one command once the section is drawn, since the section reads the component
+// Each script by its class, with a box that turns it on and off and its fields below
 void PropertiesPanel::DrawScripts(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::ScriptComponent>() || !BeginComponent(entity, Trinity::ScriptComponent::c_TypeName, Trinity::Icons::c_Terminal))
@@ -4023,7 +4023,7 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
     {
         Trinity::ScriptEntry& l_Entry = l_Value.Scripts[it_Index];
         const std::string l_Label = GetScriptLabel(l_Entry);
-        // One in the other language, as a scene pasted in from another project brings, is kept and never runs, whatever is loaded
+        // One in the other language, as a pasted scene brings, is kept and never runs
         const Trinity::Project* l_Project = m_Session.GetProject();
         const bool l_Other = l_Project != nullptr && l_Entry.Language != l_Project->GetLanguage();
         const bool l_Known = !l_Other && Trinity::ScriptClassRegistry::Find(l_Entry.Language, l_Entry.ClassName) != nullptr;
@@ -4060,7 +4060,7 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
             }
         }
 
-        // As Unity opens a script from its component, the two clicks leaving the header open or closed as it was
+        // As Unity opens a script from its component, the two clicks leaving the header as it was
         if (!l_Other && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
         {
             l_Edit = std::pair(l_Entry.Language, std::string(std::string_view(l_Entry.ClassName)));
@@ -4141,7 +4141,7 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
             ImGui::PopStyleColor(4);
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             {
-                ImGui::SetTooltip("A call into it failed, as when it throws, so it is called no more while the scene plays. It runs again once its code reloads, or on the next Play. Click to show the Console, which has why");
+                ImGui::SetTooltip("A call into it failed, so it is not called again until its code reloads or the next Play. Click to show the Console");
             }
         }
 
@@ -4209,7 +4209,7 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
     }
 }
 
-// A known class's fields in its order, each with its type's editor, then those the entry keeps that the class lacks or now types otherwise, greyed, with a button that drops them. An unknown class's fields are greyed as they were read, as are those of a script in another language than the project's
+// A known class's fields in order, then those the entry keeps that the class lacks, greyed
 void PropertiesPanel::DrawScriptFields(Trinity::ScriptEntry& entry, std::string& change)
 {
     Trinity::Scene& l_Scene = m_Session.GetScene();
@@ -4274,7 +4274,7 @@ void PropertiesPanel::DrawScriptFields(Trinity::ScriptEntry& entry, std::string&
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Values the class no longer has, or now holds as another type. They are kept until removed here, so a field put back gets its value again");
+        ImGui::SetTooltip("Values the class no longer has, or now holds as another type. Kept until removed here, in case the field comes back");
     }
 }
 
@@ -4284,7 +4284,7 @@ bool PropertiesPanel::DrawScriptValue(const Trinity::ScriptFieldDescription& fie
     return value.GetType() == Trinity::ScriptFieldType::List ? DrawListValue(field, value) : DrawFieldValue(field, field.Name.c_str(), value);
 }
 
-// A value's editor by the field's type, after the label, short of the width kept for buttons after it. A colour is edited in sRGB and kept linear, a rotation in degrees about X, Y and Z worked out afresh each frame, an enum by its values' names, an asset reference takes the asset type the field asks for, or any, and an input action one of the project's default input actions
+// A value's editor by the field's type. A colour is edited in sRGB and kept linear
 bool PropertiesPanel::DrawFieldValue(const Trinity::ScriptFieldDescription& field, const char* label, Trinity::ScriptFieldValue& value, float reserve)
 {
     if (value.GetType() == Trinity::ScriptFieldType::Asset)
@@ -4439,7 +4439,7 @@ bool PropertiesPanel::DrawFieldValue(const Trinity::ScriptFieldDescription& fiel
     return false;
 }
 
-// The field's name folds its elements away, and is open until it is closed. Each element has its type's editor and buttons that move it up or down or remove it, and Add below them puts a copy of the last at the end, or the type's zero in an empty list. Each button press is an undo step of its own, and so are the edits of each element
+// The field's name folds its elements away. Each button press is an undo step of its own
 bool PropertiesPanel::DrawListValue(const Trinity::ScriptFieldDescription& field, Trinity::ScriptFieldValue& value)
 {
     enum class Action : std::uint8_t
@@ -4595,7 +4595,7 @@ bool PropertiesPanel::DrawListValue(const Trinity::ScriptFieldDescription& field
     return true;
 }
 
-// Picked from the project's default input actions, each map's under its name, by a search of their paths, or dropped from the Input Actions panel showing that asset. A path the actions lack is kept, shown as missing, until another is picked
+// Picked from the project's default input actions, or dropped. A missing path is kept, shown so
 bool PropertiesPanel::DrawInputActionSlot(Trinity::ScriptString& path)
 {
     const Trinity::Project* l_Project = m_Session.GetProject();
@@ -4712,7 +4712,7 @@ bool PropertiesPanel::DrawInputActionSlot(Trinity::ScriptString& path)
     return true;
 }
 
-// An asset picked in the Content Browser: where it is, for a texture a preview and its import settings, for a model its import settings and materials, for a material its editor, and for an audio clip its waveform, a preview and its import settings
+// An asset picked in the Content Browser: where it is, a preview, and its settings or editor
 void PropertiesPanel::DrawAsset(Trinity::UUID id)
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
@@ -4809,7 +4809,7 @@ void PropertiesPanel::DrawTexturePreview()
     ImGui::Spacing();
 }
 
-// Edited here first, and written to the .meta and reimported only on Apply, which the texture's sprites pick up once the new one has loaded
+// Edited here first, and written to the .meta and reimported only on Apply
 void PropertiesPanel::DrawTextureSettings(const Trinity::AssetRecord& record)
 {
     const TextureImportSettings l_Saved = TextureImporter::ReadSettings(record);
@@ -4872,7 +4872,7 @@ void PropertiesPanel::DrawTextureSettings(const Trinity::AssetRecord& record)
     }
 }
 
-// Units and axes as the file gives them unless set here, and the collision shapes cooked for its meshes. Apply writes them to the .meta and imports the model again, which entities already created from it do not follow
+// Units and axes as the file gives them unless set here. Entities already made do not follow Apply
 void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
 {
     const ModelImportSettings l_Saved = ModelImporter::ReadSettings(record);
@@ -4916,7 +4916,7 @@ void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("The shapes cooked beside each mesh for colliders: a convex hull, which any body can have, and its triangles, for static and kinematic bodies");
+        ImGui::SetTooltip("The shapes cooked beside each mesh for colliders: a convex hull for any body, and triangles for static ones");
     }
 
     ImGui::Spacing();
@@ -4942,7 +4942,7 @@ void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
     }
 }
 
-// Play, which previews the clip as the Content Browser's button does, its waveform in a lane a channel with the playhead across it, and what the importer found, all from the cooked header, so nothing of the clip loads until it plays
+// Play, its waveform a lane a channel, and what the importer found, all from the cooked header
 void PropertiesPanel::DrawAudioClip(const Trinity::AssetRecord& record)
 {
     AudioClipPreview& l_Preview = m_Session.GetAudioPreview();
@@ -4984,7 +4984,7 @@ void PropertiesPanel::DrawAudioClip(const Trinity::AssetRecord& record)
     ImGui::Spacing();
 }
 
-// Edited here first, and written to the .meta and imported again only on Apply, which writes the header alone. A clip loaded anywhere loads again once its import ends, and its next play takes the new settings
+// Edited here first, and written to the .meta and imported again only on Apply
 void PropertiesPanel::DrawAudioClipSettings(const Trinity::AssetRecord& record)
 {
     const AudioClipImportSettings l_Saved = AudioClipImporter::ReadSettings(record);
@@ -5008,14 +5008,14 @@ void PropertiesPanel::DrawAudioClipSettings(const Trinity::AssetRecord& record)
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Decompress On Load decodes the clip as it loads, which takes the most memory and nothing to play, for short sounds played often. Compressed In Memory keeps the file's bytes and decodes them as it plays. Streaming reads the file a little ahead as it plays, for long music and ambience");
+        ImGui::SetTooltip("Decompress On Load suits short sounds played often. Compressed In Memory decodes as it plays. Streaming suits music");
     }
 
     Label("Preload");
     ImGui::Checkbox("##Preload", &m_AudioClipSettings.Preload);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
-        ImGui::SetTooltip("Whether a scene waits for the clip's samples before it starts. Without it they load in the background, and a play before they are in starts once they are");
+        ImGui::SetTooltip("Whether a scene waits for the clip's samples before it starts. Without it they load in the background");
     }
 
     ImGui::Spacing();
@@ -5072,7 +5072,7 @@ void PropertiesPanel::DrawModelMaterials(const Trinity::AssetRecord& record)
     }
 }
 
-// Every factor and texture, each edit written at once and shown the same frame, and undone in one step. A model's material marks in colour the fields its .meta overrides, and right-clicking one puts back what was imported. Colours are edited as they look, in sRGB, and kept linear
+// Each edit is written at once and undone in one step. A model's material marks overridden fields
 void PropertiesPanel::DrawMaterial(const Trinity::AssetRecord& record)
 {
     if (m_Material.GetID() != record.ID)
@@ -5136,7 +5136,7 @@ void PropertiesPanel::DrawMaterial(const Trinity::AssetRecord& record)
         }
     }
 
-    // The label, in the accent colour when any of its fields is overridden, with a menu that puts them back as imported
+    // The label, in the accent colour when any of its fields is overridden, with a menu to restore them
     const auto a_Label = [&](const char* label, std::initializer_list<std::string_view> fields)
     {
         const bool l_IsOverridden = std::ranges::any_of(fields, [&l_Overridden](std::string_view field) { return std::ranges::find(l_Overridden, field) != l_Overridden.end(); });
@@ -5180,7 +5180,7 @@ void PropertiesPanel::DrawMaterial(const Trinity::AssetRecord& record)
         ImGui::SetNextItemWidth(-FLT_MIN);
     };
 
-    // The widget edits a copy, and a change becomes an edit, which merges with the next while the widget stays active
+    // The widget edits a copy, and a change becomes an edit, merging while the widget stays active
     const auto a_Edit = [&](std::string_view field, const auto& widget)
     {
         Trinity::MaterialData l_Edited = l_Current;
@@ -5255,7 +5255,7 @@ void PropertiesPanel::DrawMaterial(const Trinity::AssetRecord& record)
     }
 }
 
-// Each slot shows its texture once loaded, takes a texture dropped from elsewhere in Forge or picked from the project's, and names the UV set it is sampled with
+// Each slot shows its texture once loaded, takes a drop or a pick, and names its UV set
 void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, const Trinity::MaterialData& current, const std::function<void(const char*, std::initializer_list<std::string_view>)>& label)
 {
     struct Slot
@@ -5357,7 +5357,7 @@ void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, c
     }
 }
 
-// The component's section, with Unity's component menu on a right-click: Reset to a new one's values, Remove Component, and Copy Component, whose values go into one of its type with Paste Component Values, or onto an entity without one with Paste Component As New, each change one command. A greyed section, as while the scene plays, has the menu too with Copy Component alone, so values found while playing can be pasted once it stops. A Transform stays, and a Script component's scripts reset each from its own menu. In an instance, one the instance added has a plus and the bar, and the menu reverts or applies what the instance changes of it, leaving the root's Position and Rotation
+// The component's section, with Unity's component menu on a right-click. A Transform stays
 bool PropertiesPanel::BeginComponent(Trinity::Entity entity, std::string_view name, const char* icon)
 {
     std::vector<PrefabOverride> l_Overrides;

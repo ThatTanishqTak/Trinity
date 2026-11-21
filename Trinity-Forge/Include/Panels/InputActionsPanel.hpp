@@ -12,7 +12,7 @@
 #include <string_view>
 #include <utility>
 
-// Unity's Input Actions editor, for one .trinput asset: its maps on the left, the chosen map's actions with their bindings in the middle, and what is chosen on the right, an action's type and interaction, or a binding's sources and processors. Every edit is a command in the history, so it undoes in one step, and is saved to the file and loaded again as it is made, so a scene playing reads it at once and keeps it once it stops. Renaming a map or an action of the project's default asset rewrites the scene's input action fields that named it in the same step, and an action dragged onto such a field in Properties sets it. Listen takes the next key, mouse button other than the left, gamepad button, or stick or trigger pushed past half as a source, and Escape or a click anywhere stops it. Until an asset is opened from the Content Browser, it shows the project's default
+// Unity's Input Actions editor, for one .trinput asset. Every edit is a command, saved as made
 class InputActionsPanel final : public Panel
 {
 public:
@@ -29,7 +29,7 @@ protected:
     void OnImGuiRender() override;
 
 private:
-    // What the details show: a map, an action of it, or a binding of that action, each by its index, -1 for none
+    // What the details show: a map, an action of it, or a binding of that action, by index, -1 for none
     struct Selection
     {
         int Map = -1;
@@ -39,7 +39,7 @@ private:
         [[nodiscard]] bool operator==(const Selection&) const = default;
     };
 
-    // A source Listen fills, by the binding and the part of it, the frame it began in, whose input was the click that began it, and where each pad's axes rested then, so a trigger already held is not taken
+    // A source Listen fills, the frame it began in, and where each pad's axes rested then
     struct Listening
     {
         Selection Binding;
@@ -48,7 +48,7 @@ private:
         std::array<std::array<float, std::to_underlying(Trinity::GamepadAxis::Count)>, Trinity::Input::c_MaxGamepads> Rest{};
     };
 
-    // An edit made as the panel draws, made once it has drawn, so nothing drawn after it reads what it replaced. A rename takes the scene's input action fields that named what it renamed along
+    // An edit made as the panel draws, made once it has drawn. A rename takes the scene's fields along
     struct Pending
     {
         Trinity::InputActionsData After;
@@ -98,7 +98,7 @@ private:
     std::optional<Pending> m_Pending;
     std::string m_Search;
     std::string m_PickerFilter;
-    // A name being typed, kept apart from the asset's until the field is left, whether it has been typed into, why the last one was refused, and the frame its field takes the keyboard in, as after Rename
+    // A name being typed, kept apart from the asset's until the field is left, and why one was refused
     std::string m_NameText;
     std::string m_NameError;
     bool m_NameEdited = false;

@@ -55,7 +55,7 @@ namespace
         }
     }
 
-    // Everything, Nothing, one layer by its name, or how many, with a box for each layer, which keeps the list open as it is ticked
+    // Everything, Nothing, one layer by its name, or how many, with a box for each layer
     bool LayerMaskCombo(const char* id, std::uint32_t& mask, const Trinity::CollisionLayers& layers)
     {
         const std::uint32_t l_Mask = mask & Trinity::c_AllCollisionLayers;
@@ -125,14 +125,14 @@ void ProjectSettingsPanel::OnImGuiRender()
     DrawCollisionMatrix(l_Project->GetPhysicsSettings());
     ImGui::EndDisabled();
 
-    // Nothing is being dragged or typed into, so the next change is a command of its own, whether or not the Properties panel, which does the same, is showing
+    // Nothing is being dragged or typed into, so the next change is a command of its own
     if (!ImGui::IsAnyItemActive())
     {
         m_Session.GetHistory().EndMerge();
     }
 }
 
-// The mixer, which the engine plays from the next frame, a scene playing included, then what a scene takes as it starts playing. Virtual voices are never fewer than real ones, as Unity keeps them. A drag is one command
+// Virtual voices are never fewer than real ones, as Unity keeps them. A drag is one command
 void ProjectSettingsPanel::DrawAudio(Trinity::AudioSettings settings, const Trinity::CollisionLayers& layers, bool playing)
 {
     ImGui::SeparatorText("Audio");
@@ -149,7 +149,7 @@ void ProjectSettingsPanel::DrawAudio(Trinity::AudioSettings settings, const Trin
         m_Session.EditAudioSettings(settings, "real voices");
     }
 
-    Tooltip("Sounds mixed at once, the most important first, then the loudest. The rest go on in time, unheard, until there is room for them");
+    Tooltip("Sounds mixed at once, the most important first, then the loudest. The rest go on in time, unheard");
 
     Label("Virtual Voices");
     int l_Virtual = static_cast<int>(settings.VirtualVoices);
@@ -185,7 +185,7 @@ void ProjectSettingsPanel::DrawAudio(Trinity::AudioSettings settings, const Trin
         m_Session.EditAudioSettings(settings, "occlusion rays");
     }
 
-    Tooltip("Rays cast a frame at most, from the listener to the occluded sources in turn, the longest unchecked first. 0 checks none, so nothing is muffled");
+    Tooltip("Rays cast a frame at most, from the listener to the occluded sources in turn. 0 checks none, so nothing is muffled");
 
     Label("Occlusion Time");
     if (ImGui::DragFloat("##OcclusionTime", &settings.OcclusionTime, 0.01f, 0.0f, 10.0f, "%.2f s", ImGuiSliderFlags_AlwaysClamp))
@@ -197,7 +197,7 @@ void ProjectSettingsPanel::DrawAudio(Trinity::AudioSettings settings, const Trin
     ImGui::EndDisabled();
 }
 
-// None, then the project's audio mixers by their paths. One the project names and no longer has shows as missing, which leaves Master alone
+// None, then the project's audio mixers by path. A missing one shows so, leaving Master alone
 void ProjectSettingsPanel::DrawMixer(Trinity::AudioSettings settings)
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
@@ -240,7 +240,7 @@ void ProjectSettingsPanel::DrawMixer(Trinity::AudioSettings settings)
         ImGui::EndCombo();
     }
 
-    Tooltip("The Audio Mixer everything Forge plays goes through, a scene playing included. Create > Audio Mixer in the Content Browser makes one");
+    Tooltip("The Audio Mixer everything Forge plays goes through. Create > Audio Mixer in the Content Browser makes one");
 }
 
 // Gravity in each world and the fixed steps a second both take. A drag is one command
@@ -306,7 +306,7 @@ void ProjectSettingsPanel::DrawLayerNames(Trinity::PhysicsSettings settings)
     }
 }
 
-// The matrix has the layers down its rows and, last first, across its columns, so each pair has one box, in the triangle above the diagonal. Each box is one command
+// Layers down the rows and, last first, across the columns, so each pair has one box
 void ProjectSettingsPanel::DrawCollisionMatrix(Trinity::PhysicsSettings settings)
 {
     const Trinity::CollisionLayers& l_Layers = settings.Layers;

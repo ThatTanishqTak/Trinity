@@ -8,7 +8,7 @@
 #include <string>
 #include <string_view>
 
-// Unity's Inspector of an Audio Mixer Group, which Properties shows while a group or one of its effects is chosen in the Audio Mixer panel: the group's Pitch, then each unit of its chain in its order, Attenuation with the group's Volume, and each effect's Bypass, Wet and values, with a Send's target, the one chosen opened and scrolled to. The values are the snapshot's that the panel edits, and a right-click on one exposes it to scripts by a name made from it, or no longer, and picks the curve a transition to the snapshot moves it along. Each edit is a command, as the panel's are. While the project's mixer plays a scene with Edit in Play Mode off, the values follow the mix it plays and nothing is edited
+// Unity's Inspector of an Audio Mixer Group, shown by Properties. Each edit is a command
 class AudioMixerInspector
 {
 public:
@@ -17,7 +17,7 @@ public:
     void Draw();
 
 private:
-    // An edit made as the inspector draws, made once it has drawn, so nothing drawn after it reads what it replaced
+    // An edit made as the inspector draws, made once it has drawn, so nothing drawn reads stale data
     struct Pending
     {
         Trinity::AudioMixerData After;
@@ -25,7 +25,7 @@ private:
         std::string Field;
     };
 
-    // What every row reads: the mixer, the snapshot edited, the group shown, the mix playing while the rows follow it, and whether they edit
+    // The mixer, the snapshot edited, the group shown, the mix playing, and whether rows edit
     struct View
     {
         const Trinity::AudioMixerData* Data = nullptr;

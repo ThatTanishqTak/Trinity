@@ -18,7 +18,7 @@
 namespace
 {
     constexpr float c_LabelWidthInFonts = 7.0f;
-    // How far a stick or trigger has to be pushed from where it rested, and from its centre, for Listen to take it
+    // How far a stick or trigger has to be pushed from where it rested for Listen to take it
     constexpr float c_ListenPush = 0.5f;
 
     constexpr std::array c_ActionTypes{ Trinity::InputActionType::Button, Trinity::InputActionType::Axis, Trinity::InputActionType::Vector2 };
@@ -174,7 +174,7 @@ namespace
         }
     }
 
-    // Why the item at that index cannot be called this among the others, as a file refuses, or empty when it can
+    // Why the item at that index cannot be called this among the others, or empty when it can
     template<typename Item>
     std::string CheckName(const Trinity::InputVector<Item>& items, int self, std::string_view name, std::string_view what)
     {
@@ -205,7 +205,7 @@ namespace
         std::swap(items[static_cast<std::size_t>(index)], items[static_cast<std::size_t>(index + by)]);
     }
 
-    // The first key but Escape, mouse button but the left, or gamepad button that went down this frame, or else stick or trigger pushed from where it rested. A stick is taken whole for a Vector2 action's own binding, and as the axis pushed otherwise
+    // The first key but Escape or button that went down this frame, or a stick or trigger pushed
     std::optional<Trinity::InputSource> FindPushed(const std::array<std::array<float, std::to_underlying(Trinity::GamepadAxis::Count)>, Trinity::Input::c_MaxGamepads>& rest, bool wholeStick)
     {
         for (std::uint16_t it_Key = 0; it_Key < std::to_underlying(Trinity::KeyCode::Count); ++it_Key)
@@ -286,7 +286,7 @@ Trinity::UUID InputActionsPanel::GetShownAsset() const
     return l_Project != nullptr ? l_Project->GetInputActions() : Trinity::UUID();
 }
 
-// Edits are made once the panel has drawn, so the data it drew from stays as it was until then. A selection follows the edit only once it has been made
+// Edits are made once the panel has drawn, so the data it drew from stays as it was until then
 void InputActionsPanel::OnImGuiRender()
 {
     m_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -378,7 +378,7 @@ void InputActionsPanel::OnImGuiRender()
     }
 }
 
-// What is chosen stays inside what the asset has as an undo or a reload takes things away, and the first map is chosen once there is one
+// What is chosen stays inside what the asset has as an undo or a reload takes things away
 void InputActionsPanel::Clamp(const Trinity::InputActionsData& data)
 {
     const int l_Maps = static_cast<int>(data.Maps.size());
@@ -414,7 +414,7 @@ void InputActionsPanel::Rename(Trinity::InputActionsData after, std::string what
     m_Pending = Pending{ std::move(after), std::move(what),{}, std::nullopt, true };
 }
 
-// A rename typed for what was chosen is made before another is chosen, since its field is not drawn again to say it was left
+// A rename typed for what was chosen is made before another is chosen, as its field is not redrawn
 void InputActionsPanel::Select(const Trinity::InputActionsData& data, Selection selection)
 {
     if (selection == m_Selected)
@@ -457,7 +457,7 @@ void InputActionsPanel::DrawHeader(Trinity::UUID asset, const Trinity::AssetReco
     if (m_Listening)
     {
         ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Warn));
-        ImGui::TextWrapped("Listening: press a key, a mouse button other than the left, or a gamepad button, or push a stick or trigger. Escape or a click stops it");
+        ImGui::TextWrapped("Listening: press a key, a mouse button but the left, or a gamepad button, or push a stick. Escape or a click stops it");
         ImGui::PopStyleColor();
     }
     else if (m_Session.IsPlaying())
@@ -593,7 +593,7 @@ void InputActionsPanel::DrawActions(const Trinity::InputActionsData& data)
             }
         }
 
-        // Onto a script's input action field in Properties, which takes an action of the project's default asset
+        // Onto a script's input action field in Properties, which takes the default asset's actions
         if (ImGui::BeginDragDropSource())
         {
             const std::string l_Path = std::format("{}{}{}", std::string_view(l_Map.Name), Trinity::InputActionsData::c_PathSeparator, std::string_view(l_Action.Name));
@@ -719,7 +719,7 @@ void InputActionsPanel::DrawActions(const Trinity::InputActionsData& data)
     }
 }
 
-// Each kind of thing chosen in a scope of its own, so a field left half typed for one is never taken as typed for the next
+// Each kind of thing chosen in a scope of its own, so a half-typed field is never taken for another
 void InputActionsPanel::DrawDetails(const Trinity::InputActionsData& data)
 {
     ImGui::PushID(m_Selected.Map);
@@ -1164,7 +1164,7 @@ void InputActionsPanel::DrawProcessors(const Trinity::InputActionsData& data)
     }
 }
 
-// Typed into, and made once the field is left, or before another is chosen. A name the file would refuse is not made, and why shows under it. Rename takes the field with its text all selected, as ImGui would otherwise keep where the cursor was in a field taken again
+// Typed into, and made once the field is left. A name the file would refuse shows why under it
 void InputActionsPanel::DrawName(const Trinity::InputActionsData& data, std::string_view current)
 {
     Label("Name");
@@ -1233,7 +1233,7 @@ void InputActionsPanel::CommitName(const Trinity::InputActionsData& data)
     }
 }
 
-// Delete, Ctrl+D and F2 act on what is chosen while the panel has the focus and nothing is typed into
+// Delete, Ctrl+D and F2 act on what is chosen while the panel has focus and nothing is typed
 void InputActionsPanel::ReadShortcuts(const Trinity::InputActionsData& data)
 {
     if (!m_Focused || m_Selected.Map < 0 || ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) || m_Listening)
@@ -1288,7 +1288,7 @@ void InputActionsPanel::AddBinding(const Trinity::InputActionsData& data, Select
     Edit(std::move(l_After), l_What, {}, Selection{ action.Map, action.Action, l_Index });
 }
 
-// The deepest thing named goes: the binding when one is, else the action, else the map. What is chosen moves to the one before it
+// The deepest thing named goes: the binding, else the action, else the map
 void InputActionsPanel::Remove(const Trinity::InputActionsData& data, Selection what)
 {
     Trinity::InputActionsData l_After = data;
@@ -1314,7 +1314,7 @@ void InputActionsPanel::Remove(const Trinity::InputActionsData& data, Selection 
     }
 }
 
-// Right after the original, an action or a map named as Unity names a copy, with a number after its name
+// Right after the original, named as Unity names a copy, with a number after its name
 void InputActionsPanel::Duplicate(const Trinity::InputActionsData& data, Selection what)
 {
     Trinity::InputActionsData l_After = data;
@@ -1404,7 +1404,7 @@ void InputActionsPanel::BeginListen(Selection binding, std::size_t part)
     m_Listening = l_Listening;
 }
 
-// From the frame after it began, since that frame's input is the click that began it. It stops when what it fills is gone, as after an undo
+// From the frame after it began, since that frame's input is the click that began it
 void InputActionsPanel::UpdateListen(const Trinity::InputActionsData& data)
 {
     if (!m_Listening)

@@ -20,7 +20,7 @@ namespace
     // Where a meter turns from green to yellow, and from yellow to red, in decibels
     constexpr float c_MeterWarm = -6.0f;
     constexpr float c_MeterHot = 0.0f;
-    // A group dragged in the tree, by its ID, and an effect dragged along its strip, by its group's ID and its place in the chain
+    // A group dragged in the tree, by its ID, and an effect dragged along its strip, by group and place
     constexpr const char* c_GroupPayload = "TRINITY_MIXER_GROUP";
     constexpr const char* c_EffectPayload = "TRINITY_MIXER_EFFECT";
 
@@ -47,7 +47,7 @@ namespace
         return std::string(text.substr(l_First, text.find_last_not_of(" \t") - l_First + 1));
     }
 
-    // Whether the windows are drawn light, by how bright their background is, as the Console tells its colours
+    // Whether the windows are drawn light, by how bright their background is
     bool IsLightTheme()
     {
         const ImVec4 l_Background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
@@ -98,7 +98,7 @@ namespace
         }
     }
 
-    // Why the item at that index cannot be called this among the others, which a script finds it by, or empty when it can
+    // Why the item at that index cannot be called this among the others, or empty when it can
     template<typename List>
     std::string CheckName(const List& items, std::size_t self, std::string_view name, std::string_view what)
     {
@@ -146,7 +146,7 @@ namespace
         return l_Children;
     }
 
-    // Each group as the tree shows it, from Master down, each before the groups below it, which is the order of the strips
+    // Each group as the tree shows it, from Master down, which is the order of the strips
     void CollectBranch(const Trinity::AudioMixerData& data, const Trinity::AudioMixerGroup& group, std::vector<const Trinity::AudioMixerGroup*>& order)
     {
         order.push_back(&group);
@@ -200,7 +200,7 @@ namespace
         return l_Text;
     }
 
-    // Every type but Attenuation, which a group has once, as the effect menus list them. The type picked, if any
+    // Every type but Attenuation, which a group has once. The type picked, if any
     std::optional<Trinity::AudioEffectType> DrawEffectTypes()
     {
         std::optional<Trinity::AudioEffectType> l_Picked;
@@ -215,7 +215,7 @@ namespace
         return l_Picked;
     }
 
-    // Each channel a bar on the fader's own scale of decibels, so 0 dB is level with the fader's, its RMS filled green, then yellow from -6 dB and red from 0 dB, and its peak a line. Two empty bars for a group nothing plays through
+    // Each channel a bar on the fader's decibel scale: RMS green, yellow from -6 dB, red from 0 dB
     void DrawMeter(const std::optional<Trinity::AudioMeter>& meter, ImVec2 size)
     {
         const ImVec2 l_Min = ImGui::GetCursorScreenPos();
@@ -315,13 +315,13 @@ bool AudioMixerPanel::IsProjectMixer(Trinity::UUID asset) const
     return l_Project != nullptr && asset && l_Project->GetAudioSettings().Mixer == asset;
 }
 
-// Always but while the project's mixer plays a scene with Edit in Play Mode off, when the faders follow the mix
+// False only while the project's mixer plays a scene with Edit in Play Mode off
 bool AudioMixerPanel::IsEditable(Trinity::UUID asset) const
 {
     return m_Session.IsMixerEditable(asset);
 }
 
-// Edits are made once the panel has drawn, so the data it drew from stays as it was until then. A selection follows the edit only once it has been made
+// Edits are made once the panel has drawn, so the data it drew from stays as it was until then
 void AudioMixerPanel::OnImGuiRender()
 {
     m_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -331,7 +331,7 @@ void AudioMixerPanel::OnImGuiRender()
     if (l_File == nullptr || l_Record == nullptr)
     {
         m_Renaming = Chosen::None;
-        ImGui::TextDisabled("%s", m_Session.HasProject() ? "Double-click an audio mixer in the Content Browser to edit it here. Create > Audio Mixer there makes one, which is the project's mixer while it has none" : "Open or create a project to edit its audio mixers");
+        ImGui::TextDisabled("%s", m_Session.HasProject() ? "Double-click an audio mixer in the Content Browser to edit it here. Create > Audio Mixer there makes one" : "Open or create a project to edit its audio mixers");
 
         return;
     }
@@ -410,7 +410,7 @@ void AudioMixerPanel::OnImGuiRender()
     }
 }
 
-// The selection stays inside the mixer shown as an undo or a reload takes things away, and starts at its start snapshot when another mixer is shown
+// The selection stays inside the mixer shown as an undo or a reload takes things away
 void AudioMixerPanel::Clamp(Trinity::UUID asset, const Trinity::AudioMixerData& data)
 {
     EditorSession::MixerSelection l_Selection = m_Session.GetMixerSelection();
@@ -507,7 +507,7 @@ void AudioMixerPanel::DrawHeader(Trinity::UUID asset, const Trinity::AssetRecord
         m_Session.SetEditMixerInPlay(l_Edit);
     }
 
-    ImGui::SetItemTooltip("Holds the mix at the selected snapshot so it can be edited, each edit heard at once and kept once the scene stops. Off, the faders follow the mix the scene plays");
+    ImGui::SetItemTooltip("Holds the mix at the selected snapshot so it can be edited and heard at once. Off, the faders follow the scene's mix");
     const Trinity::AudioMixerSnapshot* l_Snapshot = data != nullptr ? data->FindSnapshot(m_Session.GetMixerSelection().Snapshot) : nullptr;
     if (l_Edit)
     {
@@ -529,7 +529,7 @@ void AudioMixerPanel::DrawRenameError(Chosen chosen)
     }
 }
 
-// The start snapshot is marked, and is neither removed nor set again. While the faders follow the mix a snapshot is chosen, and nothing is edited. Each list of the column has an ID of its own, so the headers' + and the rows' fields never meet
+// The start snapshot is marked, and is never removed. Each list has an ID of its own
 void AudioMixerPanel::DrawSnapshots(const Trinity::AudioMixerData& data, bool editable)
 {
     ImGui::PushID("Snapshots");
@@ -619,7 +619,7 @@ void AudioMixerPanel::DrawGroups(const Trinity::AudioMixerData& data, bool edita
     ImGui::PopID();
 }
 
-// A group dragged onto another goes below it, after the groups already there. Master is never dragged, renamed or removed
+// A group dragged onto another goes below it, last. Master is never dragged, renamed or removed
 void AudioMixerPanel::DrawGroupNode(const Trinity::AudioMixerData& data, const Trinity::AudioMixerGroup& group, bool editable)
 {
     const std::vector<const Trinity::AudioMixerGroup*> l_Children = GetChildren(data, group.ID);
@@ -807,7 +807,7 @@ void AudioMixerPanel::DrawStrips(Trinity::UUID asset, const Trinity::AudioMixerD
     }
 }
 
-// The group's name, its volume in decibels, its Mute, Solo and Bypass, its fader beside its meter, and its chain. While the faders follow the mix they show where it has each volume now, and the meters move only for the project's mixer, which is the one playing
+// The group's name, volume, Mute, Solo and Bypass, its fader beside its meter, and its chain
 void AudioMixerPanel::DrawStrip(Trinity::UUID asset, const Trinity::AudioMixerData& data, const Trinity::AudioMixerGroup& group, bool editable)
 {
     const float l_Font = ImGui::GetFontSize();
@@ -933,7 +933,7 @@ void AudioMixerPanel::DrawToggles(const Trinity::AudioMixerData& data, const Tri
     }
 }
 
-// Each unit of the chain in its order, Attenuation among it, dimmed while bypassed, then Add..., which puts a new effect last, after the fader as Unity's does. An effect is dragged along its strip to move it, Attenuation too
+// Each unit of the chain in order, dimmed while bypassed, then Add.... Drag one to move it
 void AudioMixerPanel::DrawChain(const Trinity::AudioMixerData& data, const Trinity::AudioMixerGroup& group, bool editable)
 {
     const Trinity::AudioEffectList l_Chain = Trinity::AudioMixerData::GetChain(group);
@@ -1074,7 +1074,7 @@ void AudioMixerPanel::DrawEffectMenu(const Trinity::AudioMixerData& data, const 
     }
 }
 
-// Typed into, and made once the field is left. Escape puts the name back, which leaves nothing to make
+// Typed into, and made once the field is left. Escape puts the name back
 void AudioMixerPanel::DrawRenameField(const Trinity::AudioMixerData& data)
 {
     m_RenameDrawn = true;
@@ -1091,7 +1091,7 @@ void AudioMixerPanel::DrawRenameField(const Trinity::AudioMixerData& data)
     }
 }
 
-// Delete, Ctrl+D and F2 act on what was chosen last while the panel has the focus, nothing is typed into, and the mixer is edited rather than followed
+// Delete, Ctrl+D and F2 act on what was chosen last, while the panel has focus and can edit
 void AudioMixerPanel::ReadShortcuts(const Trinity::AudioMixerData& data, bool editable)
 {
     if (!m_Focused || !editable || m_Renaming != Chosen::None || ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
@@ -1170,7 +1170,7 @@ void AudioMixerPanel::BeginRename(Chosen chosen, Trinity::UUID id, std::size_t i
     m_RenameError.clear();
 }
 
-// A name the file would refuse, or one another of its kind has, which a script finds it by, is not made, and why shows under the list
+// A name the file would refuse, or one already taken, is not made, and why shows under the list
 void AudioMixerPanel::CommitRename(const Trinity::AudioMixerData& data)
 {
     const Chosen l_Renaming = std::exchange(m_Renaming, Chosen::None);

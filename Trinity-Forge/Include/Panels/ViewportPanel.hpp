@@ -34,7 +34,7 @@ public:
     // Once a frame, before the game UI lays out
     void ShowUI();
 
-    // Frames the selection, gliding there once the Scene panel is next drawn, as a double-click or F in the Hierarchy asks, and with follow keeps it framed as it moves
+    // Frames the selection, gliding there once the panel is next drawn. follow keeps it framed
     void RequestFrame(bool follow) { m_FrameRequest = follow; }
     // The entities outlined beside the selection, as the Hierarchy's search matches, or null for none
     void SetHighlighted(std::function<const std::unordered_set<Trinity::UUID>*()> highlighted) { m_Highlighted = std::move(highlighted); }
@@ -56,7 +56,7 @@ private:
         Scale
     };
 
-    // Where a glide takes the camera in the mode it began in: the focus and distance in 3D, or the position, in X and Y, and height in 2D, and in 3D the yaw and pitch it turns to, when it turns
+    // Where a glide takes the camera in the mode it began in, with the yaw and pitch it turns to
     struct Glide
     {
         glm::vec3 Focus{ 0.0f };
@@ -116,27 +116,27 @@ private:
     double m_CameraChangeTime = 0.0;
     bool m_CameraDirty = false;
     bool m_Panning = false;
-    // The editor camera looks down -Z at the sprites in 2D, and flies and orbits in perspective in 3D. Each scene keeps its own choice with its camera
+    // 2D looks down -Z at the sprites. 3D flies and orbits. Each scene keeps its own choice
     bool m_Mode3D = false;
     bool m_Flying = false;
     bool m_Orbiting = false;
-    // Iso chosen by turning to a side view from perspective, which goes back to perspective once the view is turned by hand, as in Unity
+    // Iso chosen by turning to a side view, which goes back to perspective once turned by hand
     bool m_AutoOrthographic = false;
     bool m_OrientationHovered = false;
-    // Framing's glide, eased towards each frame and dropped once there, or as the camera is moved by hand. The entity Shift+F follows, until the selection moves on or the camera is moved off it. A frame asked for from another panel, following or not
+    // Framing's glide, dropped once there or when the camera is moved. Then the entity Shift+F follows
     std::optional<Glide> m_Glide;
     Trinity::UUID m_Followed;
     std::optional<bool> m_FrameRequest;
     std::function<const std::unordered_set<Trinity::UUID>*()> m_Highlighted;
-    // A click's pixel, picked through the entity IDs the next frame draws, and how many picks are on their way back
+    // A click's pixel, picked through the entity IDs the next frame draws, and the picks pending
     std::optional<glm::uvec2> m_PickPixel;
     std::uint32_t m_PicksPending = 0;
     bool m_LightHeatmap = false;
-    // Every collider and joint in the scene, and while it plays, where its bodies touch, rather than the selection's alone
+    // Every collider and joint, and while playing where bodies touch, not the selection's alone
     bool m_PhysicsDebug = false;
-    // Every AudioSource's reach and cone, and while the scene plays its occlusion ray, rather than the selection's alone
+    // Every AudioSource's reach and cone, and while playing its occlusion ray, not the selection's only
     bool m_AudioGizmos = false;
-    // Each AudioSource's and AudioListener's icon, by its entity, where it was drawn last in pixels from the image's corner, which a click picks at once, since neither has a surface to draw an ID on
+    // Each audio icon's entity and where it was drawn, which a click picks, as it has no ID surface
     std::vector<std::pair<Trinity::UUID, glm::vec2>> m_AudioIcons;
     bool m_ShowStats = true;
 
@@ -150,7 +150,7 @@ private:
     std::uint32_t m_GizmoID = 0;
     float m_ToolbarWidth = 0.0f;
     float m_ToolbarHeight = 0.0f;
-    // The breadcrumb's, across the top in prefab mode, which the image and what floats over it start below
+    // The breadcrumb's, across the top in prefab mode, which the image and its overlays start below
     float m_BreadcrumbHeight = 0.0f;
     bool m_GizmoDragging = false;
     bool m_GizmoHovered = false;

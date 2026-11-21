@@ -25,7 +25,7 @@ namespace
     constexpr float c_ValueWidth = 6.0f;
     constexpr float c_SquareSize = 2.5f;
 
-    // How a choice is named in imgui.ini and in the menu, as Unity names it there, and the shape it keeps: none when free, a ratio, or a fixed resolution
+    // How a choice is named in imgui.ini and the menu, and its shape: free, a ratio, or a resolution
     struct AspectChoice
     {
         std::string_view Name;
@@ -84,7 +84,7 @@ namespace
         }
     }
 
-    // The game's sound as the Stats show it, read from the engine and the playing scene each frame: the voices mixed and those kept unheard, the sound events playing and the streams read from files, then how long each period of sound took to mix, on average and at most, over about the last half second
+    // Voices mixed and kept unheard, events and streams playing, and mix time over the last half second
     void AppendAudioStats(std::vector<std::string>& lines, const Trinity::AudioEngine* engine, const Trinity::AudioScene* scene)
     {
         if (engine == nullptr)
@@ -146,7 +146,7 @@ namespace
         return {};
     }
 
-    // A bar filled from the left for a Button and from the middle for an Axis, marked at the press point, or a dot in a square for a Vector2, with Y up and a ring at the press point. A Hold's or a MultiTap's progress runs along the foot
+    // A bar for a Button or an Axis, or a dot in a square for a Vector2, marked at the press point
     void DrawActionValue(ImDrawList& drawList, ImVec2 min, ImVec2 max, const Trinity::InputActionDefinition& action, const Trinity::InputActions::ActionReading& reading)
     {
         const ImU32 l_Fill = ImGui::GetColorU32(reading.Held ? ImGuiCol_PlotHistogramHovered : ImGuiCol_PlotHistogram);
@@ -230,11 +230,11 @@ void GamePanel::Request([[maybe_unused]] const Trinity::ScreenRequest& request)
 {
     if (!std::exchange(m_ScreenIgnored, true))
     {
-        TR_INFO("Game: a script changed the screen's resolution, full screen mode or vsync, which a built player applies and Forge ignores, so the Game panel stays as it is");
+        TR_INFO("Game: a script changed the screen's resolution, mode or vsync. Forge ignores it");
     }
 }
 
-// The panel's lines in imgui.ini: the aspect choice, by its name, and whether Stats and Actions are on
+// The panel's lines in imgui.ini: the aspect choice by name, and whether Stats and Actions are on
 bool GamePanel::ReadSetting(std::string_view key, std::string_view value)
 {
     if (key == "GameStats")
@@ -278,7 +278,7 @@ void GamePanel::WriteSettings(ImGuiTextBuffer& buffer) const
     buffer.append(l_Lines.c_str(), l_Lines.c_str() + l_Lines.size());
 }
 
-// Through the scene's primary camera, for the view's own shape, with the camera's exposure and curve, the scene's sprites and 4x MSAA, as the game will draw it, the scene itself in prefab mode too. Nothing is submitted while the panel is hidden behind another tab or closed, so the view keeps what it last showed and costs nothing. After the transform pass
+// Through the scene's primary camera, as the game will draw it. Nothing is submitted while hidden
 void GamePanel::PrepareScene()
 {
     // Each Play is told once that the screen is not its to change
@@ -323,7 +323,7 @@ void GamePanel::ShowUI()
     l_UI->ShowScene(m_Session.GetMainScene(), m_View, m_UIPlaying);
 }
 
-// The toolbar under the tab, then the view's image on black in the space below it. The image is the view's own size, which catches up with the space once it settles, so meanwhile it is bordered or scaled down. While the scene plays the panel's keys are the game's, so the keyboard does not move between the toolbar's items, and until there is an image the scene reads the mouse over the space at 1:1
+// The toolbar, then the view's image on black. The image's size catches up once the space settles
 void GamePanel::OnImGuiRender()
 {
     m_Shown = true;
@@ -372,7 +372,7 @@ Trinity::SceneInputFilter GamePanel::TakeSceneFilter()
     return std::exchange(m_SceneFilter, { .Keyboard = false, .Mouse = false, .MouseOver = false });
 }
 
-// A strip under the tab, as Unity's Game view has: the aspect choice, saved in imgui.ini, the size the view is drawn at, the scale it is shown at, and Actions and Stats at the right end. It starts where the panel's content does, below the dock's tab bar, which a docked window's own top lies under
+// A strip under the tab, as Unity's Game view has: aspect, size, scale, then Actions and Stats
 void GamePanel::DrawToolbar()
 {
     const ImGuiStyle& l_Style = ImGui::GetStyle();
@@ -442,7 +442,7 @@ void GamePanel::DrawToolbar()
         SetScale(l_Scale);
     }
 
-    ImGui::SetItemTooltip("Zooms in to look at the game's pixels, or out to see all of a resolution larger than the panel. While the scene is stopped or paused, the wheel zooms towards the mouse and the middle button pans");
+    ImGui::SetItemTooltip("Zooms in on the game's pixels, or out to fit. While stopped or paused, the wheel zooms and the middle button pans");
     ImGui::SameLine();
     ImGui::TextUnformatted(std::format("{:.1f}x", GetScale()).c_str());
 
@@ -454,17 +454,17 @@ void GamePanel::DrawToolbar()
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(ImGui::GetContentRegionAvail().x - l_ButtonsWidth, 0.0f));
     DrawToggle(l_MuteLabel.c_str(), m_MuteAudio);
-    ImGui::SetItemTooltip("Silences the game while it plays, every sound playing on unheard and its meters moving, as Unity's Mute Audio does. Kept from one play to the next");
+    ImGui::SetItemTooltip("Silences the game while it plays, as Unity's Mute Audio does. Kept from one play to the next");
     ImGui::SameLine();
     DrawToggle(c_ActionsLabel, m_ShowActions);
-    ImGui::SetItemTooltip("Each player's actions over the image while the scene plays, by the maps it has enabled: lit while held, with its value, and a Hold's or a MultiTap's progress along its foot");
+    ImGui::SetItemTooltip("Each player's actions over the image while the scene plays: lit while held, with its value and progress");
     ImGui::SameLine();
     DrawToggle(c_StatsLabel, m_ShowStats);
-    ImGui::SetItemTooltip("The frame rate and the game's size over the image, and its sound: the voices mixed and those kept unheard, the sound events playing, the streams read from files, and how long each period of sound takes to mix");
+    ImGui::SetItemTooltip("The frame rate and the game's size over the image, with its sound: voices, sound events, streams and mix time");
     ImGui::EndChild();
 }
 
-// The image at its scale and pan, clipped to the space, with sharp pixels from 1:1 up as Unity shows them, and smooth ones when scaled down. The wheel zooms towards the mouse and the middle button pans only while the scene is stopped or paused, as in Unity, so a running game keeps them
+// Sharp pixels from 1:1 up, smooth when scaled down. The wheel and middle button work while stopped
 GamePanel::ImageArea GamePanel::DrawImage(ImVec2 start, ImVec2 available, std::uint32_t index)
 {
     const ImGuiIO& l_IO = ImGui::GetIO();
@@ -553,7 +553,7 @@ void GamePanel::DrawStats(ImVec2 start, ImVec2 available) const
     l_DrawList.PopClipRect();
 }
 
-// Over the image's top-left corner, as the Stats are over its top-right: each player in use with the devices it reads, each map it has enabled and each of the map's actions, lit while held, with its value drawn and written. Only a playing scene reads its actions, so until one does it says so
+// Over the image's top-left corner: each player's devices, enabled maps and actions, lit while held
 void GamePanel::DrawActions(ImVec2 start, ImVec2 available) const
 {
     // A player's line, a map's or an action's, by how far it is indented, or a note
@@ -675,7 +675,7 @@ void GamePanel::DrawActions(ImVec2 start, ImVec2 available) const
     l_DrawList.PopClipRect();
 }
 
-// The scene's keyboard while the panel has the focus, a popup of it aside, and no field takes typing, and its mouse with it, read in the image's pixels, with a new press or the wheel only while the pointer is over what shows of the image and no window lies over it. ImGui places everything on the screen while windows can float, and the window's events are from its own top left, the main viewport's
+// The scene's keyboard while the panel has focus, and its mouse in the image's pixels
 void GamePanel::FilterSceneInput(const ImageArea& image, ImVec2 start, ImVec2 available)
 {
     const bool l_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows | ImGuiFocusedFlags_NoPopupHierarchy);
@@ -691,7 +691,7 @@ void GamePanel::FilterSceneInput(const ImageArea& image, ImVec2 start, ImVec2 av
     m_SceneFilter.MouseScale = image.Scale;
 }
 
-// A size is taken once the space has held it for c_SettleSeconds, as the Scene panel's is, so dragging a splitter rebuilds the view's targets once. A new aspect choice is taken at once
+// A size is taken once the space has held it for c_SettleSeconds, so a splitter drag rebuilds once
 void GamePanel::FollowArea(std::uint32_t width, std::uint32_t height)
 {
     const double l_Now = ImGui::GetTime();
@@ -724,7 +724,7 @@ void GamePanel::SetAspect(Aspect aspect)
     ImGui::MarkIniSettingsDirty();
 }
 
-// Fitted again when it comes back down to the fit, so from there it follows the space as it changes, as it does until it is first zoomed
+// Fitted again when it comes back down to the fit, so from there it follows the space
 void GamePanel::SetScale(float scale)
 {
     const float l_Fit = GetFitScale();
@@ -745,7 +745,7 @@ float GamePanel::GetScale() const
     return std::clamp(m_Scale.value_or(0.0f), GetFitScale(), c_MaximumScale);
 }
 
-// 1:1, or smaller to show the whole of a view larger than the space, which only a fixed resolution is
+// 1:1, or smaller to show the whole of a view larger than the space
 float GamePanel::GetFitScale() const
 {
     const Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
@@ -755,7 +755,7 @@ float GamePanel::GetFitScale() const
     return std::min({ 1.0f, static_cast<float>(m_AreaWidth) / l_Width, static_cast<float>(m_AreaHeight) / l_Height });
 }
 
-// The whole space when free, the largest rectangle of the ratio's shape inside it, or the fixed resolution whatever the space
+// The whole space when free, the largest rectangle of the ratio inside it, or the fixed resolution
 glm::uvec2 GamePanel::GetWantedSize() const
 {
     const AspectChoice& l_Choice = c_Aspects[static_cast<std::size_t>(m_Aspect)];
