@@ -108,7 +108,7 @@ namespace Trinity
             return true;
         }
 
-        // Bold is skipped when Regular fails, so GetFont gives the default font for both. A missing Bold leaves Regular for both
+        // Bold is skipped when Regular fails, so GetFont gives the default for both
         void LoadFonts()
         {
             if (!LoadFont(c_FontFiles[std::to_underlying(UIFont::Regular)]))
@@ -282,7 +282,7 @@ namespace Trinity
             return a_Mapping != c_KeyMappings.end() ? a_Mapping->Mapped : ImGuiKey_None;
         }
 
-        // The polling table already holds this event, since Application updates Input before any layer sees it
+        // The polling table already holds this event: Application updates Input before any layer sees it
         void AddKeyEvent(ImGuiIO& io, KeyCode key, bool pressed)
         {
             io.AddKeyEvent(ImGuiMod_Ctrl, Input::IsKeyPressed(KeyCode::TR_LEFT_CONTROL) || Input::IsKeyPressed(KeyCode::TR_RIGHT_CONTROL));
@@ -384,7 +384,7 @@ namespace Trinity
             GetViewportWindow(viewport).SetOpacity(alpha);
         }
 
-        // ImGui changes these flags from frame to frame, such as NoInputs while a window is dragged, so the window under it can be found
+        // ImGui changes these flags from frame to frame, such as NoInputs while a window is dragged
         void UpdateViewport(ImGuiViewport* viewport)
         {
             Window& l_Window = GetViewportWindow(viewport);
@@ -417,7 +417,7 @@ namespace Trinity
 
     ImGuiLayer::~ImGuiLayer() = default;
 
-    // ImGui writes no files itself: its settings go through /saves, and are saved when ImGui asks and at shutdown, unless the specification keeps none
+    // ImGui writes no files itself: its settings go through /saves, unless the specification keeps none
     void ImGuiLayer::OnAttach()
     {
         ImGui::SetAllocatorFunctions(&AllocateUI, &FreeUI, nullptr);
@@ -432,7 +432,7 @@ namespace Trinity
         l_IO.BackendFlags |= ImGuiBackendFlags_HasMouseCursors | ImGuiBackendFlags_RendererHasTextures | ImGuiBackendFlags_RendererHasVtxOffset;
         l_IO.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
 
-        // Navigation alone does not take the keyboard, so layer shortcuts keep working while an ImGui window has focus
+        // Navigation alone does not take the keyboard, so layer shortcuts work while ImGui has the focus
         l_IO.ConfigNavCaptureKeyboard = false;
 
         ImGuiPlatformIO& l_PlatformIO = ImGui::GetPlatformIO();
@@ -447,7 +447,7 @@ namespace Trinity
         m_DpiScale = l_Window.GetDpiScale();
         m_Renderer = CreateScope<ImGuiRenderer>(l_Application.GetDevice(), l_Application.GetRenderer().GetOutputFormat());
 
-        // Floating windows are bare popups owned by the main window, with ImGui drawing their title bars, and no taskbar entries
+        // Floating windows are bare popups owned by the main window, with no taskbar entries
         ImGuiViewport* l_MainViewport = ImGui::GetMainViewport();
         l_MainViewport->PlatformHandle = &l_Window;
         l_MainViewport->PlatformHandleRaw = l_Window.GetNativeHandle();
@@ -502,7 +502,7 @@ namespace Trinity
         Application::Get().GetWindow().SetCursorShape(CursorShape::Arrow);
 
         const MemoryTagStats l_Stats = Memory::GetStats(MemoryTag::UI);
-        TR_CORE_INFO("ImGui: context destroyed after {} frame(s), and UI holds {} in {} live allocation(s)", m_FrameCount, Memory::FormatBytes(l_Stats.CurrentBytes), l_Stats.LiveAllocations);
+        TR_CORE_INFO("ImGui: context destroyed after {} frame(s), UI holds {} in {} allocation(s)", m_FrameCount, Memory::FormatBytes(l_Stats.CurrentBytes), l_Stats.LiveAllocations);
     }
 
     // Overlays update after every layer, so the UI is built from what this frame's updates left behind
@@ -533,7 +533,7 @@ namespace Trinity
 
         ImGui::Render();
 
-        // Creates, moves and destroys the windows of floating ImGui windows. The Renderer draws them in its frame, through the outputs those windows were given
+        // Creates, moves and destroys floating windows. The Renderer draws them through their outputs
         if (m_ViewportsSupported)
         {
             ImGui::UpdatePlatformWindows();
@@ -561,7 +561,7 @@ namespace Trinity
         }
     }
 
-    // An application with a scene view in its UI, such as Forge's viewport panel, decides here what reaches the layers below, rather than ImGui. It holds until called again
+    // An application with a scene view in its UI decides what the layers below get, until told again
     void ImGuiLayer::SetSceneInput(bool mouse, bool keyboard)
     {
         m_SceneInputSet = true;
@@ -569,7 +569,7 @@ namespace Trinity
         m_SceneKeyboard = keyboard;
     }
 
-    // ImGui sees every event, and the ones it wants, or SetSceneInput keeps from the scene, are hidden from the layers below. Releases always pass, so no layer below is left holding a key or button
+    // ImGui sees every event. Releases always pass, so no layer below is left holding a key or button
     void ImGuiLayer::OnEvent(Event& event)
     {
         ImGuiIO& l_IO = ImGui::GetIO();
@@ -618,7 +618,7 @@ namespace Trinity
         l_Dispatcher.Dispatch<MonitorsChangedEvent>([this](MonitorsChangedEvent&) { m_MonitorsChanged = true; return false; });
     }
 
-    // Window events become ImGui's requests for that viewport. Input goes the way the main window's does, through Application, so Input and the layers see it too
+    // Window events become ImGui's requests for that viewport. Input goes through Application as usual
     void ImGuiLayer::OnViewportEvent(ImGuiViewport& viewport, Event& event)
     {
         ImGuiIO& l_IO = ImGui::GetIO();
@@ -666,7 +666,7 @@ namespace Trinity
         m_EventSource = nullptr;
     }
 
-    // Turns multi-viewport on or off as ui.viewports asks, refreshes the monitors, and gives ImGui the mouse as Windows sees it
+    // Turns multi-viewport on or off as ui.viewports asks, and refreshes the monitors and the mouse
     void ImGuiLayer::UpdateViewports()
     {
         if (!m_ViewportsSupported)
@@ -680,7 +680,7 @@ namespace Trinity
         {
             l_IO.ConfigFlags ^= ImGuiConfigFlags_ViewportsEnable;
 
-            // ImGui follows each viewport's DPI itself while viewports are on, and the style is rebuilt to hand it over
+            // ImGui follows each viewport's DPI itself while viewports are on, so the style is rebuilt
             l_IO.ConfigDpiScaleFonts = l_Enable;
             l_IO.ConfigDpiScaleViewports = l_Enable;
             m_AppliedDpiScale = 0.0f;
@@ -698,7 +698,7 @@ namespace Trinity
             return;
         }
 
-        // Fills in while the mouse is over none of these windows, such as when a floating window is dragged faster than it follows
+        // Fills in while the mouse is over none of these windows, such as during a fast drag
         const std::optional<Platform::ScreenPoint> l_Cursor = Platform::GetCursorPosition();
         if (l_Cursor && m_MouseWindow == nullptr && FindViewport(Platform::GetFocusedWindow()) != nullptr)
         {
@@ -730,7 +730,7 @@ namespace Trinity
         m_MonitorsChanged = false;
     }
 
-    // Hidden until ImGui shows it, with ImGui's cursor, and with its input routed through OnViewportEvent
+    // Hidden until ImGui shows it, with ImGui's cursor, and its input routed through OnViewportEvent
     void ImGuiLayer::CreateViewportWindow(ImGuiViewport* viewport)
     {
         ImGuiLayer& l_Layer = *static_cast<ImGuiLayer*>(ImGui::GetIO().BackendPlatformUserData);
@@ -804,7 +804,7 @@ namespace Trinity
         }
     }
 
-    // ImGui picks the cursor during a frame and the window shows it from the next one, as ImGui's own platform backends do
+    // ImGui picks the cursor during a frame and the window shows it from the next, as its backends do
     void ImGuiLayer::UpdateCursor(Window& window)
     {
         const ImGuiIO& l_IO = ImGui::GetIO();
@@ -832,7 +832,7 @@ namespace Trinity
         return l_Fonts[std::min(static_cast<int>(std::to_underlying(font)), l_Fonts.Size - 1)];
     }
 
-    // Fonts are drawn at the scaled size, so text stays sharp. The style is rebuilt from ImGui's defaults because ScaleAllSizes rounds down and cannot be undone, which also drops style editor changes, then given ui.theme's colours. A theme it does not know is drawn dark
+    // The style is rebuilt from ImGui's defaults, as ScaleAllSizes rounds down and cannot be undone
     void ImGuiLayer::UpdateStyle()
     {
         const float l_UserScale = std::clamp(s_UserScaleVariable.Get(), c_MinimumUserScale, c_MaximumUserScale);
@@ -842,7 +842,7 @@ namespace Trinity
             return;
         }
 
-        // Windows already open grow with their text. With multi-viewport on, ImGui scales them itself for DPI, so only ui.scale is left here
+        // With multi-viewport on, ImGui scales windows itself for DPI, so only ui.scale is left here
         const bool l_ImGuiFollowsDpi = (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) != 0;
         const float l_Ratio = m_AppliedDpiScale > 0.0f ? (l_ImGuiFollowsDpi ? l_UserScale / m_AppliedUserScale : (m_DpiScale * l_UserScale) / (m_AppliedDpiScale * m_AppliedUserScale)) : 1.0f;
         if (l_Ratio != 1.0f)
@@ -874,7 +874,7 @@ namespace Trinity
         }
         else if (l_Theme != "dark" && l_Rethemed)
         {
-            TR_CORE_WARN("ImGui: ui.theme has no theme called {}, so the UI is drawn dark. It takes dark, light or classic", l_Theme);
+            TR_CORE_WARN("ImGui: ui.theme takes dark, light or classic, not {}, so the UI is drawn dark", l_Theme);
         }
 
         ImGui::GetStyle() = l_Style;
@@ -890,7 +890,7 @@ namespace Trinity
         }
     }
 
-    // Read before the first frame rather than on attach, so layers attached after this one have added their own settings handlers by then
+    // Read before the first frame, not on attach, so later layers have added their settings handlers
     void ImGuiLayer::LoadSettings()
     {
         const Expected<std::string, FileError> l_Settings = FileSystem::ReadText(c_SettingsPath);

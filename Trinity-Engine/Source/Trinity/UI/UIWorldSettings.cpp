@@ -11,7 +11,7 @@ namespace Trinity
         constexpr std::array<std::string_view, 2> c_RenderModeNames{ "Screen", "World" };
         constexpr std::array<std::string_view, 2> c_SortingNames{ "Depth", "Sprites" };
         constexpr std::array<std::string_view, 2> c_SizeModeNames{ "Fixed", "Dynamic" };
-        // Below this squared length a camera's axis is taken to be missing, as in a view-projection that flattens the scene
+        // Below this squared length a camera's axis is taken to be missing, as when a projection flattens
         constexpr float c_MinAxisLength = 1e-12f;
 
         template<typename Enum, std::size_t Count>
@@ -31,7 +31,7 @@ namespace Trinity
         }
     }
 
-    // The camera's right and up are the first two rows of its view-projection, as a projection without skew scales the view's rows and adds nothing across them. Up is made square to right, so a camera with a sheared transform still gives a flat turn. A view-projection with no right or up leaves the entity's rotation
+    // Right and up are the view-projection's first two rows. Up is squared to right against shear
     glm::mat4 GetWorldUIMatrix(const UIWorldSettings& settings, glm::uvec2 pixels, const glm::mat4& world, const glm::mat4& viewProjection)
     {
         const float l_PixelsPerUnit = std::isfinite(settings.PixelsPerUnit) ? std::clamp(settings.PixelsPerUnit, UIWorldSettings::c_MinPixelsPerUnit, UIWorldSettings::c_MaxPixelsPerUnit) : UIWorldSettings().PixelsPerUnit;

@@ -4,7 +4,7 @@
 
 namespace Trinity
 {
-    // RmlUi's clock, log, paths and clipboard. Its time is the frames' own, advanced as GameUI updates, so animations and transitions follow the timesteps a game runs on, a fixed schedule's too. Its paths are the virtual file system's
+    // RmlUi's clock, log, paths and clipboard. Its time is the frames' own, advanced as GameUI updates
     class GameUISystemInterface final : public Rml::SystemInterface
     {
     public:

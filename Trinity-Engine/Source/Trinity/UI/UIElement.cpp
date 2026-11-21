@@ -272,7 +272,7 @@ namespace Trinity
         return l_Element != nullptr && InUI([&] { return l_Element->Focus(true); });
     }
 
-    // RmlUi's own Blur gives the focus to the element around it, which then has it, so the document's body takes it, which stands for none
+    // RmlUi's own Blur gives the focus to the element around it, so the body takes it instead
     void UIElement::Blur() const
     {
         Rml::Element* l_Element = Reach(*this);

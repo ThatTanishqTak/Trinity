@@ -23,20 +23,20 @@ namespace Trinity
         Bold
     };
 
-    // The upper half of an ImGui texture ID carries flags for ImGui.slang. This one has it encode what an sRGB texture decodes to back to sRGB, since ImGui draws in gamma space
+    // A flag in the upper half of an ImGui texture ID: ImGui.slang encodes the sample back to sRGB
     constexpr std::uint64_t c_ImGuiEncodeSrgb = std::uint64_t{ 1 } << 32;
 
-    // The ID to draw a texture asset with in ImGui: its bindless index, with c_ImGuiEncodeSrgb for an sRGB texture
+    // Its bindless index, with c_ImGuiEncodeSrgb for an sRGB texture
     [[nodiscard]] TRINITY_API std::uint64_t GetImGuiTextureID(const TextureAsset& texture);
 
-    // What an application wants of its ImGui: Forge's windows keep their places in /saves/imgui.ini and may leave the main window as windows of their own, and a Development player's overlay does neither, so the game's saves are as the game left them and nothing is drawn outside its window
+    // Forge keeps window places in /saves/imgui.ini and floats windows. A player's overlay does neither
     struct ImGuiLayerSpecification
     {
         bool KeepSettings = true;
         bool Viewports = true;
     };
 
-    // Runs a Dear ImGui frame around every layer's OnImGuiRender, an application opts in by pushing it as an overlay, so programs without it never link ImGui
+    // An application opts in by pushing it as an overlay, so programs without it never link ImGui
     class TRINITY_API ImGuiLayer final : public Layer
     {
     public:

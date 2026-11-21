@@ -1,6 +1,6 @@
 #pragma once
 
-// Nerd Font icons as UTF-8, drawn by the engine fonts. The Material Design ones lie above U+FFFF, which IMGUI_USE_WCHAR32 allows
+// Nerd Font icons as UTF-8. The Material Design ones lie above U+FFFF, so need IMGUI_USE_WCHAR32
 namespace Trinity
 {
     namespace Icons

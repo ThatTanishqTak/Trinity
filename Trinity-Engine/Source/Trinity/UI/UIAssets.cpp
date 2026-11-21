@@ -78,7 +78,7 @@ namespace Trinity
                 const std::string_view l_Word = text.substr(l_Start, l_End - l_Start);
                 l_Position = l_End;
 
-                // A scheme's colon is a separator, so the word after it starts with //, as no path in the project does
+                // A scheme's colon is a separator, so the word after it starts with //, as no project path does
                 if (!a_IsLink(l_Word) || l_Word.starts_with("//"))
                 {
                     continue;
@@ -94,7 +94,7 @@ namespace Trinity
             return l_Links;
         }
 
-        // Each src declaration inside each @font-face block, a list of paths, each quoted or bare. A path from the root, or with a scheme, stays as it is
+        // Each src inside each @font-face block. A path from the root, or with a scheme, stays as it is
         std::string ResolveFontFaceSources(std::string_view text, std::string_view path)
         {
             constexpr std::string_view c_Rule = "@font-face";

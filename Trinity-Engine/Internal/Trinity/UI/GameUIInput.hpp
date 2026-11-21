@@ -9,7 +9,7 @@ namespace Rml
     class Element;
 }
 
-// What the game UI hands RmlUi of the keyboard: keys by RmlUi's names, the modifiers held, and which elements take the keyboard while they have the focus
+// Keys by RmlUi's names, the modifiers held, and which elements take the keyboard while focused
 namespace Trinity::GameUIInput
 {
     // KI_UNKNOWN for a key RmlUi has no name for

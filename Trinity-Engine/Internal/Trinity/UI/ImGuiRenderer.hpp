@@ -12,7 +12,7 @@ struct ImTextureRect;
 
 namespace Trinity
 {
-    // Draws Dear ImGui through the RHI. Vertices and indices go into the upload ring every frame, textures follow ImGui's create, update and destroy requests, and ImTextureID is a texture's bindless index
+    // Vertices and indices go into the upload ring every frame. ImTextureID is a bindless index
     class ImGuiRenderer
     {
     public:

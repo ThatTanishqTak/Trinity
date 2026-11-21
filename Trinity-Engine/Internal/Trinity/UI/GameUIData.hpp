@@ -19,7 +19,7 @@ namespace Trinity
 {
     class Scene;
 
-    // A scalar as it crosses into and out of the store, of its type alone. Text is valid until the value changes
+    // A scalar as it crosses into and out of the store. Text is valid until the value changes
     struct UIDataScalar
     {
         UIDataType Type = UIDataType::Int;
@@ -29,7 +29,7 @@ namespace Trinity
         std::string_view Text;
     };
 
-    // The data models scripts bind into UIDocuments, held here, by the scene and the entity whose UIDocument they are and by name, and reached by RmlUi through links each document's context keeps, by the model's and the value's names. A link reaches what it was bound to while that lives, and nothing once it has gone, so a document outlives the values it showed, and binding the name again, as the next run of a scene does, takes the link over. Everything is counted under GameUI. Main thread only
+    // Held by scene, entity and name. A link reaches what it was bound to while that lives. Main thread
     class GameUIData
     {
     public:
@@ -39,10 +39,10 @@ namespace Trinity
         GameUIData(const GameUIData&) = delete;
         GameUIData& operator=(const GameUIData&) = delete;
 
-        // Before a document is read into the context: an empty model for each data-model its text names, and the context lacks, which takes values bound once the document has been read
+        // Before a document is read into the context: an empty model for each data-model its text names
         static void DeclareModels(Rml::Context& context, std::string_view text);
 
-        // The document's context shows the entity's UIDocument of the scene, so the models bound there are linked into it. Cheap when it already showed them
+        // Links the models bound for the scene's entity into the document's context. Cheap if already done
         void Attach(UIDocumentID document, Rml::Context& context, const Scene* owner, UUID entity);
         // As its context goes, with what it linked
         void Detach(UIDocumentID document);

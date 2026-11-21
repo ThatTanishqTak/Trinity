@@ -10,7 +10,7 @@
 
 namespace Trinity
 {
-    // How a screen document's size follows its view's, as Unity's Panel Settings Scale Mode: a fixed scale, the view's size against a reference resolution, or the monitor's DPI against a reference DPI
+    // As Unity's Panel Settings Scale Mode: a fixed scale, a reference resolution, or a reference DPI
     enum class UIScaleMode : std::uint8_t
     {
         ConstantPixelSize,
@@ -18,7 +18,7 @@ namespace Trinity
         ConstantPhysicalSize
     };
 
-    // How Scale With Screen Size weighs the view's width and height against the reference's: by Match between the two, by the smaller, so the reference always fits, or by the larger, so it always fills
+    // By Match between width and height, by the smaller so it always fits, or the larger so it fills
     enum class UIScreenMatchMode : std::uint8_t
     {
         MatchWidthOrHeight,
@@ -26,7 +26,7 @@ namespace Trinity
         Shrink
     };
 
-    // A screen document's scaling, as Unity's Panel Settings has it. The scale is how many of the view's pixels one dp of the document is, so lengths and font sizes written in dp follow it, and text is drawn sharp at every size, while px stays the view's own pixels
+    // As Unity's Panel Settings. The scale is the view's pixels to one dp. px stays the view's pixels
     struct UIPanelSettings
     {
         static constexpr float c_MinScale = 0.01f;
@@ -44,9 +44,9 @@ namespace Trinity
         // Constant Physical Size's: the DPI the document is written for, on which one dp is one pixel
         float ReferenceDpi = 96.0f;
 
-        // For a view of this size, on a monitor of this DPI scale against 96 DPI, between c_MinScale and c_MaxScale. A zero size or reference reads as 1
+        // Between c_MinScale and c_MaxScale. dpiScale is against 96 DPI. A zero size or reference gives 1
         [[nodiscard]] TRINITY_API float GetScale(std::uint32_t width, std::uint32_t height, float dpiScale) const;
-        // A world document's, which has no view or monitor to follow: Scale alone, whatever the scale mode, between c_MinScale and c_MaxScale
+        // A world document's: Scale alone, whatever the scale mode, between c_MinScale and c_MaxScale
         [[nodiscard]] TRINITY_API float GetWorldScale() const;
 
         [[nodiscard]] bool operator==(const UIPanelSettings&) const = default;

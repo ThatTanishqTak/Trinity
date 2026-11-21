@@ -17,7 +17,7 @@ namespace Trinity
 {
     class ScriptRuntime;
 
-    // What happened to an element, as RmlUi raises it: a click, a control's value changing, a form submitted, the pointer coming onto and leaving it, and the focus coming to and leaving it. Numbered as C#'s UIEventType
+    // As RmlUi raises it. Numbered as C#'s UIEventType
     enum class UIEventType : std::uint8_t
     {
         Click,
@@ -33,7 +33,7 @@ namespace Trinity
 
     [[nodiscard]] TRINITY_API std::string_view ToString(UIEventType type);
 
-    // An element of a UI document, safe to keep after the element has gone, such as when SetInnerRML replaced what held it or its document was read again: every call on it then does nothing, or reads as nothing, logged once a handle. Main thread only
+    // Safe to keep after the element has gone: calls then do nothing, logged once. Main thread only
     class TRINITY_API UIElement
     {
     public:
@@ -43,12 +43,12 @@ namespace Trinity
         explicit operator bool() const { return IsValid(); }
 
         [[nodiscard]] std::string GetID() const;
-        // Every text inside it, joined, and text put in place of everything it holds, shown as written rather than read as RML
+        // Every text inside it, joined. Setting it replaces everything it holds, shown as written, not RML
         [[nodiscard]] std::string GetText() const;
         void SetText(std::string_view text) const;
         [[nodiscard]] std::string GetInnerRML() const;
         void SetInnerRML(std::string_view rml) const;
-        // A form control's value, such as a text field's text or a range's number, and empty for any other element, on which setting it does nothing
+        // A form control's value, such as a text field's text. Empty, and unsettable, for any other element
         [[nodiscard]] std::string GetValue() const;
         void SetValue(std::string_view value) const;
         // A checkbox's or a radio button's, which its checked attribute is
@@ -60,13 +60,13 @@ namespace Trinity
         [[nodiscard]] std::optional<std::string> GetAttribute(std::string_view name) const;
         void SetAttribute(std::string_view name, std::string_view value) const;
         void RemoveAttribute(std::string_view name) const;
-        // A property set on the element itself, as its style attribute sets one, over its stylesheets'. False for a property or a value RmlUi cannot read
+        // Set on the element itself, over its stylesheets'. False for a property or value RmlUi cannot read
         bool SetStyle(std::string_view property, std::string_view value) const;
         void RemoveStyle(std::string_view property) const;
-        // The property as the element has it, from its own style or its stylesheets, empty for one RmlUi does not know
+        // As the element has it, from its own style or its stylesheets. Empty for one RmlUi does not know
         [[nodiscard]] std::string GetStyle(std::string_view property) const;
 
-        // Hidden is display: none set on the element, so it takes no space and neither the pointer nor the focus reaches it. Shown again, that goes, and its stylesheets' display holds. Visible is whether it and every element around it are displayed
+        // Hidden sets display: none on the element. Visible is whether it and all around it are displayed
         [[nodiscard]] bool IsVisible() const;
         void SetVisible(bool visible) const;
         [[nodiscard]] bool IsFocused() const;
@@ -102,7 +102,7 @@ namespace Trinity
 
     struct UIEvent;
 
-    // How the runtime calls a handler, which is opaque to it. Invoke is false when the handler failed, logged by its language, which removes it, and Free lets it go. The language is the one its time goes to
+    // Invoke is false when the handler failed, which removes it. Free lets it go
     struct UIHandlerCalls
     {
         bool (*Invoke)(void* handler, const UIEvent& event) = nullptr;
@@ -110,7 +110,7 @@ namespace Trinity
         ScriptLanguage Language = ScriptLanguage::Cpp;
     };
 
-    // A UIDocument of the running scene, by its entity, as its scripts reach it. Its document is loaded as it is first reached, when its scene has not been shown yet, so OnCreate finds its elements. Every call does nothing, or finds nothing, for an entity without a UIDocument or one whose document did not load. Main thread only
+    // Loaded as it is first reached, so OnCreate finds its elements. Calls do nothing if it did not
     class TRINITY_API UIDocument
     {
     public:
@@ -126,10 +126,10 @@ namespace Trinity
         [[nodiscard]] UIElement Query(std::string_view selector) const;
         // The element with the focus, or none
         [[nodiscard]] UIElement GetFocus() const;
-        // The data model of that name, as data-model="name" names it in the document, made the first time it is asked for, and kept while the scene's scripts run, its document loaded or not. Invalid for a name RmlUi cannot reach
+        // As data-model names it, made on first ask. Invalid for a name RmlUi cannot reach
         [[nodiscard]] UIDataModel GetModel(std::string_view name) const;
 
-        // The handler, for each event of that type on the element with that ID, and for Click, Change and Submit on any element inside it too, as they bubble out, the innermost element's handlers first. It is found by its ID as each event comes, so it holds for an element made again. Events are queued as they happen and given to handlers once a frame, before the fixed steps and OnUpdate, after the input action handlers. The handler is the script's that was running as it was added, and goes with it, and every handler goes with the running scene. Kept under the Scripting tag until then or until removed
+        // By element ID, so it holds for an element made again. Click, Change and Submit bubble out to it
         template<typename F>
             requires std::is_invocable_v<std::decay_t<F>&, const UIEvent&>
         UIEventHandle On(std::string_view element, UIEventType type, F&& handler) const;
@@ -143,7 +143,7 @@ namespace Trinity
         UUID m_Entity;
     };
 
-    // What a handler is told: its document, the element it was added for, where the event happened, which is that element or one inside it, and for Change and Submit the value it changed to or the form sent, valid for the call
+    // The element it was added for, the target, on or inside it, and the value, valid for the call
     struct UIEvent
     {
         UIEventType Type = UIEventType::Click;
@@ -153,7 +153,7 @@ namespace Trinity
         std::string_view Value;
     };
 
-    // A UI event GameUI queued for the scripts of the scene whose UIDocument's document it happened in, numbered from 1 in the order it happened. Path holds the IDs of the target and of each element around it that has one, the target's first, each followed by a zero, and only the target's for PointerEnter, PointerLeave, Focus and Blur, which each element has for itself
+    // Numbered from 1 in order. Path holds the IDs from the target outwards, each followed by a zero
     struct UIQueuedEvent
     {
         std::uint64_t Sequence = 0;

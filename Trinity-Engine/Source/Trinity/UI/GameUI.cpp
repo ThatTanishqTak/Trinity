@@ -61,7 +61,7 @@
 #include <utility>
 #include <vector>
 
-// RmlUi's font engine makes and ends its FreeType library through these, in place of FT_Init_FreeType and FT_Done_FreeType, which Vendor/CMakeLists.txt renames in that one source of RmlUi's. They take FreeType's own steps, with its memory counted under GameUI
+// FT_Init_FreeType and FT_Done_FreeType, renamed by Vendor/CMakeLists.txt, with memory counted
 extern "C"
 {
     FT_Error TrinityRmlUi_InitFreeType(FT_Library* library);
@@ -115,9 +115,9 @@ namespace Trinity
         // The one that lives, which scripts reach through UIDocument and UIElement
         GameUI* s_Instance = nullptr;
 
-        // Under every document's own, so the controls a player moves between take the focus as Unity's do, while a document's own rule for them wins
+        // Under every document's own, so controls take the focus as Unity's do. A document's own rule wins
         constexpr const char* c_BaseStyleSheet = "button, input, select, textarea { tab-index: auto; }";
-        // As Unity's UI input module: how far Navigate has to be pushed to move the focus, how long it waits before moving again while held, and how often it moves after that
+        // As Unity's UI input module: the push that moves the focus, the wait before repeating, the rate
         constexpr float c_NavigatePush = 0.5f;
         constexpr float c_NavigateRepeatDelay = 0.5f;
         constexpr float c_NavigateRepeatRate = 0.1f;
@@ -127,7 +127,7 @@ namespace Trinity
         constexpr std::array<MouseCode, 3> c_PointerButtons{ MouseCode::TR_LEFT, MouseCode::TR_RIGHT, MouseCode::TR_MIDDLE };
         // The events scripts handle, each as the RmlUi event it is
         constexpr std::array<std::pair<Rml::EventId, UIEventType>, c_UIEventTypeCount> c_ScriptEvents{ { { Rml::EventId::Click, UIEventType::Click },{ Rml::EventId::Change, UIEventType::Change },{ Rml::EventId::Submit, UIEventType::Submit },{ Rml::EventId::Mouseover, UIEventType::PointerEnter },{ Rml::EventId::Mouseout, UIEventType::PointerLeave },{ Rml::EventId::Focus, UIEventType::Focus },{ Rml::EventId::Blur, UIEventType::Blur } } };
-        // The view of a screen document loaded for a scene's scripts while no view shows the scene, which is no view, so it draws nothing and takes no input
+        // The view of a screen document loaded for scripts while no view shows its scene: none
         constexpr ViewID c_NoView = std::numeric_limits<ViewID>::max();
 #if !defined(TR_DISTRIBUTION)
         // RmlUi's debugger's own context, which no document's name is
@@ -143,15 +143,15 @@ namespace Trinity
             Right
         };
 
-        // How much nearer than a world document a collider, or the surface of the depth read back under the cursor, has to be to hide it, so one the document lies on does not
+        // How much nearer than a world document a collider or surface must be to hide it
         constexpr float c_OcclusionDistance = 0.001f;
         constexpr float c_OcclusionFraction = 0.001f;
-        // How far in pixels the cursor may be from where the depth read back was asked about for that depth to stand for the cursor's
+        // How far in pixels the cursor may be from where the depth was read back for it to still count
         constexpr float c_DepthPickSlack = 2.0f;
         // Below this a ray's direction is taken to lie in a quad's plane, as a fraction of the quad's area
         constexpr float c_Parallel = 1e-6f;
 
-        // A pointer's ray in the world, from its origin along its unit direction, meeting nothing past its length
+        // A pointer's ray in the world, from its origin along its unit direction, up to its length
         struct WorldRay
         {
             glm::vec3 Origin{ 0.0f };
@@ -159,7 +159,7 @@ namespace Trinity
             float Length = std::numeric_limits<float>::infinity();
         };
 
-        // Where a ray meets a world document's quad: how far along it, the document's pixel there, from its top left, and whether that is on the quad
+        // How far along the ray, the document's pixel there from its top left, and whether on the quad
         struct QuadHit
         {
             float Distance = 0.0f;
@@ -167,7 +167,7 @@ namespace Trinity
             bool Inside = false;
         };
 
-        // A point of the view, from its pixel, top down, and its depth, reversed as the view draws it, so the near plane is at 1
+        // From its pixel, top down, and its depth, reversed as the view draws it, so the near plane is at 1
         glm::vec3 Unproject(const glm::mat4& inverseViewProjection, glm::vec2 pixel, glm::vec2 size, float depth)
         {
             const glm::vec4 l_Point = inverseViewProjection * glm::vec4(2.0f * pixel.x / size.x - 1.0f, 1.0f - 2.0f * pixel.y / size.y, depth, 1.0f);
@@ -175,7 +175,7 @@ namespace Trinity
             return glm::vec3(l_Point) / l_Point.w;
         }
 
-        // Through a point of the view, from the near plane out to the far plane, at depth 0, which a perspective view has at infinity. A view-projection that gives no way through gives a ray of no length
+        // From the near plane to depth 0, at infinity in a perspective view. No length if no way through
         WorldRay GetPixelRay(const glm::mat4& viewProjection, glm::vec2 pixel, glm::vec2 size)
         {
             const glm::mat4 l_Inverse = glm::inverse(viewProjection);
@@ -203,7 +203,7 @@ namespace Trinity
             return l_Ray;
         }
 
-        // The quad is the unit square sprites are drawn from, centred on its origin with +Y up, which its matrix puts in place. A ray meets its plane from either side, within the ray's length when bounded, and not at all when it runs along it
+        // A ray meets the unit quad's plane from either side, and not at all when it runs along it
         std::optional<QuadHit> HitQuad(const glm::mat4& quad, glm::uvec2 size, const WorldRay& ray, bool bounded)
         {
             const glm::vec3 l_Center(quad[3]);
@@ -256,7 +256,7 @@ namespace Trinity
             return action;
         }
 
-        // Each of an action's sources the player's devices are pushing now, kept from the game: a key, a mouse button, a pad's button, axis or stick
+        // Each of the action's sources the player's devices are pushing now, kept from the game
         void TakeSources(const InputAction& action)
         {
             for (std::uint32_t it_Binding = 0; it_Binding < action.GetBindingCount(); ++it_Binding)
@@ -322,7 +322,7 @@ namespace Trinity
             return path.size() >= extension.size() && std::ranges::equal(path.substr(path.size() - extension.size()), extension, [](char left, char right) { return (left >= 'A' && left <= 'Z' ? left - 'A' + 'a' : left) == right; });
         }
 
-        // RmlUi's own font engine, but for a face it has already loaded from the same file as the same family, style and weight, which it would load again, and add again, each time a stylesheet naming it in an @font-face is read, as a reload does. Set once RmlUi has made and started its own, which it ends and frees as it shuts down
+        // RmlUi's own engine, but for a face already loaded from the same file, which a reload would re-add
         class GameUIFontEngine final : public Rml::FontEngineInterface
         {
         public:
@@ -429,7 +429,7 @@ namespace Trinity
         };
     }
 
-    // RmlUi keeps the interfaces until it shuts down, so they live as long as the UI does. Each document has a context of its own and keeps the list it recorded until it records again, which its view's overlay pass plays back with the view's other documents', in their sort order, or a world document's own pass plays back into its texture
+    // RmlUi keeps the interfaces until it shuts down, so they live as long as the UI does
     struct GameUI::State final : ViewOverlay, WorldUISource
     {
         struct Document
@@ -446,13 +446,13 @@ namespace Trinity
             // What breaks a tie of sort orders: the order loaded, or the hierarchy's order for a scene's
             std::uint64_t Sequence = 0;
             bool Visible = true;
-            // A world document has no view, and its World settings and the size its texture is at the last Update, 0 when it draws nothing
+            // A world document has no view. Its texture size is as of the last Update, 0 when it draws nothing
             bool World = false;
             UIWorldSettings WorldSettings;
             glm::uvec2 TextureSize{ 0 };
         };
 
-        // A UIDocument's document, by its entity, kept while ShowScene or ShowWorld sees it, or while its scene is retained for its scripts: a screen document over a view, or over none until a view shows its scene, and a world document, in the scene it was last seen in, which is known by its address alone and never read through. One whose asset could not be loaded keeps no document, and is not tried again until it names another
+        // Kept by entity while a view shows it or scripts hold its scene. A failed one is not tried again
         struct SceneDocument
         {
             ViewID View = Renderer::c_MainView;
@@ -464,7 +464,7 @@ namespace Trinity
             bool Shown = false;
         };
 
-        // An element a script reached, in a slot its handles name with the slot's generation, so a handle given out before the element went reaches nothing. An element has one slot while it lives, and a slot is used again, under the next generation, once its element has gone. Reported is the last generation a call on a gone element was logged for
+        // Handles name a slot and its generation, so a handle from before the element went reaches nothing
         struct ElementSlot
         {
             Rml::ObserverPtr<Rml::Element> Element;
@@ -472,7 +472,7 @@ namespace Trinity
             std::uint32_t Reported = 0;
         };
 
-        // A UI event for the scripts of the scene whose document it happened in, by the frame it happened in
+        // A UI event for the scripts of the scene its document is in, by the frame it happened in
         struct QueuedEvent
         {
             const Scene* Owner = nullptr;
@@ -488,7 +488,7 @@ namespace Trinity
             UIQueuedSound Sound;
         };
 
-        // Queues each event scripts handle, and the sound an element's attribute names for it, as it passes the root of its document's context on its way in, in the capture phase, so it sees those that do not bubble too
+        // Listens on the context's root in the capture phase, so it sees events that do not bubble too
         class EventListener final : public Rml::EventListener
         {
         public:
@@ -507,7 +507,7 @@ namespace Trinity
             State& m_State;
         };
 
-        // A world document drawn in this frame's graph, into its texture, whose bindless index is known once its pass has run
+        // A world document drawn in this frame's graph. Its bindless index is known once its pass has run
         struct WorldPass
         {
             UIDocumentID Document = c_NoDocument;
@@ -515,7 +515,7 @@ namespace Trinity
             std::uint32_t Index = RHI::c_NoBindlessIndex;
         };
 
-        // A world document of the scene running in the interactive view, with the quad the view's camera last drew it on, whether its centre was in view and how far from the eye, and, sorted with the sprites, its sorting layer, its order and its rank in the hierarchy
+        // With the quad the view's camera last drew it on, its distance, and its sprite sorting
         struct WorldTarget
         {
             Document* Doc = nullptr;
@@ -567,7 +567,7 @@ namespace Trinity
         std::uint32_t StyleSheetReloads = 0;
         bool Started = false;
         bool Sorted = true;
-        // The view whose documents take the scene's input, the document each pointer button's press went to, which its release goes to too, and Navigate's direction and the time to its next move while it is held there
+        // The view taking input, the document each button pressed in, and Navigate's repeat state
         std::optional<ViewID> InputView;
         std::array<UIDocumentID, c_PointerButtons.size()> Captures{};
         NavigateDirection Direction = NavigateDirection::None;
@@ -582,22 +582,22 @@ namespace Trinity
         GameUIVector<FrameGraphTexture> WorldTextures;
         // The scene each view was last shown, whose world documents go as the view forgets its scene
         GameUIVector<std::pair<ViewID, const Scene*>> ViewScenes;
-        // The interactive view's world documents this input turn, the sprites' topmost first, then the rest from the nearest, and those a ray met
+        // This input turn: the sprites' topmost first, then the rest from the nearest, and those a ray met
         GameUIVector<WorldTarget> WorldTargets;
         GameUIVector<WorldHit> WorldHits;
-        // Code's pointer for the next turn, whether it was held at the last, and the world document it pressed in
+        // Code's pointer for the next turn, whether it was held at the last, and the document it pressed in
         std::optional<WorldPointer> PendingPointer;
         bool PointerHeld = false;
         UIDocumentID PointerCapture = c_NoDocument;
         // The depth under the cursor, as the interactive view last read it back
         std::optional<DepthPickResult> CursorDepth;
-        // Elements scripts hold handles to, the events queued for scripts with the last sequence number given and the frames Update has begun, and the scenes kept for their scripts, with how often each is
+        // Elements scripts hold, queued events with their last sequence number, and scenes retained
         GameUIVector<ElementSlot> ElementSlots;
         GameUIVector<QueuedEvent> Events;
         std::uint64_t EventSequence = 0;
         std::uint64_t FrameCount = 0;
         EventListener Listener{ *this };
-        // The sounds elements' attributes asked for, with the last sequence number given, whether Navigate is moving the focus, which sounds as hovering does, and the paths named that no clip or sound event has, each logged once
+        // Sounds asked for, whether Navigate is moving the focus, and unknown paths, each logged once
         GameUIVector<QueuedSound> Sounds;
         std::uint64_t SoundSequence = 0;
         bool Navigating = false;
@@ -605,7 +605,7 @@ namespace Trinity
         GameUIVector<std::pair<const Scene*, std::uint32_t>> RetainedScenes;
         GameUIData Data;
 #if !defined(TR_DISTRIBUTION)
-        // RmlUi's debugger in a context of its own, made as it first opens and kept until the UI ends, over the view it was opened on, with what it drew at the last Update, the document it inspects, c_NoDocument while it is closed, and the pointer buttons pressed in it, whose releases it has too
+        // In a context of its own, made as it first opens and kept until the UI ends
         Rml::Context* DebuggerHost = nullptr;
         ViewID DebuggerView = Renderer::c_MainView;
         GameUIDrawList DebuggerDrawList;
@@ -613,7 +613,7 @@ namespace Trinity
         std::array<bool, c_PointerButtons.size()> DebuggerPresses{};
 #endif
 
-        // The element with the focus, but neither the document's body nor the context's root, which stand for none
+        // The focused element, but neither the document's body nor the context's root, which stand for none
         [[nodiscard]] static Rml::Element* GetFocusedElement(const Document& document)
         {
             Rml::Element* l_Focus = document.Context->GetFocusElement();
@@ -621,7 +621,7 @@ namespace Trinity
             return l_Focus != nullptr && l_Focus != document.Context->GetRootElement() && l_Focus != document.Rml ? l_Focus : nullptr;
         }
 
-        // An element under the pointer, other than the document's body, which lets the pointer through to the game
+        // An element under the pointer other than the body, which lets the pointer through to the game
         [[nodiscard]] static bool TakesPointer(const Document& document)
         {
             Rml::Element* l_Hover = document.Context->GetHoverElement();
@@ -650,7 +650,7 @@ namespace Trinity
             document.SetStyleSheetContainer(l_Own != nullptr ? BaseStyle->CombineStyleSheetContainer(*l_Own) : BaseStyle->CombineStyleSheetContainer(Rml::StyleSheetContainer()));
         }
 
-        // As the view stops taking input: no press goes on, code's pointer included, and nothing is hovered, in its screen documents or the world's
+        // As the view stops taking input: no press goes on, code's pointer included, and nothing is hovered
         void ReleaseInput()
         {
             Captures.fill(c_NoDocument);
@@ -672,7 +672,7 @@ namespace Trinity
 #endif
         }
 
-        // The running scene's world documents that drew last frame, on the quads the view's camera drew them on, as the entities' transforms still are as the scene's frame begins. Sprites go first, topmost first by layer, order and hierarchy, as Renderer2D draws them over everything else, then the rest from the nearest to the eye
+        // Those that drew last frame. Sprites first, topmost first, then the rest from the nearest
         void GatherWorld(Scene* scene, const RenderView& camera)
         {
             WorldTargets.clear();
@@ -727,7 +727,7 @@ namespace Trinity
             });
         }
 
-        // Whether a collider, but for the document's own entity's, or the surface whose depth was read back under the cursor, lies nearer along the ray than the document it meets this far along. The depth stands for the cursor's only while the cursor is near where it was asked about
+        // Whether a collider, or the surface read back under the cursor, lies nearer along the ray
         [[nodiscard]] bool IsHidden(const WorldTarget& target, float distance, const WorldRay& ray, const PhysicsScene3D* physics, const std::optional<glm::vec2>& cursor, glm::vec2 size) const
         {
             const float l_Nearer = distance - (c_OcclusionDistance + c_OcclusionFraction * distance);
@@ -769,7 +769,7 @@ namespace Trinity
             }
         }
 
-        // The world documents the ray meets, sprites first and then from the nearest, each given the pointer until one has an element under it, which takes it. A document sorted by depth that something hides stops the search, as everything past it is hidden too. The rest lose the pointer
+        // Sprites first, then from the nearest. A hidden document sorted by depth stops the search
         Document* PointWorld(const WorldRay& ray, const PhysicsScene3D* physics, const std::optional<glm::vec2>& cursor, glm::vec2 size, int modifiers)
         {
             WorldHits.clear();
@@ -806,7 +806,7 @@ namespace Trinity
             return l_Taken;
         }
 
-        // A world document pressed in keeps the pointer wherever the ray meets its plane, on its quad or off it, until the press ends
+        // A world document pressed in keeps the pointer, on its quad or off it, until the press ends
         void PointCaptured(Document& document, const WorldRay& ray, int modifiers)
         {
             const auto a_Target = std::ranges::find(WorldTargets, &document, &WorldTarget::Doc);
@@ -831,7 +831,7 @@ namespace Trinity
             }
         }
 
-        // The world document in view whose centre lies nearest the way Navigate points from this one's on the view, counting distance across that way twice, as Unity's automatic navigation weighs it, and which has an element that takes the focus
+        // The nearest document the way Navigate points, distance across counted twice, as Unity weighs it
         [[nodiscard]] Document* FindNeighbour(const Document& document, NavigateDirection direction, const glm::mat4& viewProjection, float aspect) const
         {
             const auto a_From = std::ranges::find(WorldTargets, &document, &WorldTarget::Doc);
@@ -872,7 +872,7 @@ namespace Trinity
             return l_Best;
         }
 
-        // A handle names its slot in its low half and the slot's generation in its high half, which starts at 1, so none is 0
+        // A handle is its slot in the low half and the slot's generation, from 1, in the high: none is 0
         [[nodiscard]] UIElement Wrap(Rml::Element* element)
         {
             if (element == nullptr)
@@ -924,7 +924,7 @@ namespace Trinity
             if (l_Element == nullptr && l_Slot.Reported != l_Generation)
             {
                 l_Slot.Reported = l_Generation;
-                TR_CORE_WARN("GameUI: a script reached an element that has gone, as what held it was replaced or its document was read again, so the call does nothing");
+                TR_CORE_WARN("GameUI: a script reached an element that has gone, so the call does nothing");
             }
 
             return l_Element;
@@ -935,7 +935,7 @@ namespace Trinity
             return scene != nullptr && std::ranges::find(RetainedScenes, scene, &std::pair<const Scene*, std::uint32_t>::first) != RetainedScenes.end();
         }
 
-        // The IDs of the target and of the elements around it that have one, for an event that bubbles, and of the target alone for one each element has for itself. One where none has an ID, or of a document no scene's UIDocument keeps, is passed over, as no handler could take it
+        // One where no element has an ID, or of a document no scene keeps, is passed over
         void Queue(Rml::Event& event)
         {
             const auto a_Kind = std::ranges::find(c_ScriptEvents, event.GetId(), &std::pair<Rml::EventId, UIEventType>::first);
@@ -982,7 +982,7 @@ namespace Trinity
             l_Queued.Event.Value = l_Type == UIEventType::Submit ? event.GetParameter<Rml::String>("submit", "") : event.GetParameter<Rml::String>("value", "");
         }
 
-        // An element's sound-hover as the pointer enters it, which RmlUi tells each element entering the hover chain once, or as Navigate gives it the focus, and the sound-click of the innermost element around a click's target that has one. Its path is from its document's, as an image's is, and it is passed over for an element that is disabled, a document no running scene shows, or a path no clip or sound event of the project has, which is logged once
+        // Skipped for a disabled element, a document no running scene shows, or an unknown path, logged
         void QueueSound(Rml::Event& event)
         {
             const bool l_Hover = event.GetId() == Rml::EventId::Mouseover || (event.GetId() == Rml::EventId::Focus && Navigating);
@@ -1019,7 +1019,7 @@ namespace Trinity
             {
                 if (std::ranges::find(UnknownSounds, l_Path) == UnknownSounds.end())
                 {
-                    TR_CORE_WARN("GameUI: an element's {} in {} names {}, which is no clip or sound event of the project, so it plays nothing", l_Attribute, l_Owner->GetSourceURL(), l_Path);
+                    TR_CORE_WARN("GameUI: an element's {} in {} names {}, no clip or sound event, so nothing plays", l_Attribute, l_Owner->GetSourceURL(), l_Path);
                     UnknownSounds.push_back(l_Path);
                 }
 
@@ -1048,7 +1048,7 @@ namespace Trinity
             return a_Document != Documents.end() ? &*a_Document : nullptr;
         }
 
-        // Into a context of its own of this size, shown, with the base style under its own. c_NoDocument when it cannot be, which is logged
+        // Into a context of its own of this size, shown, with the base style. c_NoDocument, logged, if not
         UIDocumentID Load(std::string_view path, ViewID view, Rml::Vector2i size)
         {
             const UIDocumentID l_ID = NextDocument++;
@@ -1092,7 +1092,7 @@ namespace Trinity
             return l_ID;
         }
 
-        // The data models the document's text names, read as RmlUi will read it, so it reads before any script binds into them
+        // Declared from the document's text before it is read, so it reads before any script binds
         static void DeclareModels(Rml::Context& context, std::string_view path)
         {
             Rml::String l_Text;
@@ -1102,7 +1102,7 @@ namespace Trinity
             }
         }
 
-        // Removing the context frees it and its document at once. What they drew is released as the next frame begins
+        // Removing the context frees it and its document at once. Their draws are released next frame
         void Remove(UIDocumentID document)
         {
             const auto a_Document = std::ranges::find(Documents, document, &Document::ID);
@@ -1125,7 +1125,7 @@ namespace Trinity
             Documents.erase(a_Document);
         }
 
-        // The whole key, so the order never depends on how the sort goes, and sorting moves the documents without allocating
+        // The whole key, so the order never depends on how the sort goes. Sorting allocates nothing
         void Sort()
         {
             if (!std::exchange(Sorted, true))
@@ -1172,7 +1172,7 @@ namespace Trinity
             return l_Needs;
         }
 
-        // The view's documents in their order, then, outside Distribution, RmlUi's debugger over them all where it is open
+        // The view's documents in their order, then, outside Distribution, RmlUi's debugger over them all
         void Draw(RHI::CommandList& commands, ViewID view, std::uint32_t width, std::uint32_t height, bool stencil) override
         {
             for (const Document& it_Document : Documents)
@@ -1191,7 +1191,7 @@ namespace Trinity
 #endif
         }
 
-        // One that recorded nothing at its last Update, such as a hidden one, or has no size, draws nothing, and so has no quad
+        // One that recorded nothing at its last Update, or has no size, draws nothing, and so has no quad
         [[nodiscard]] std::optional<WorldUIDocument> FindWorldDocument(const Scene & scene, UUID entity) const override
         {
             const auto a_Entry = std::ranges::find_if(SceneDocuments, [&](const SceneDocument& entry) { return entry.World && entry.Owner == &scene && entry.Entity == entity; });
@@ -1204,7 +1204,7 @@ namespace Trinity
             return WorldUIDocument{ l_Document->ID, l_Document->TextureSize };
         }
 
-        // Each into a texture of its size from the graph's pool, cleared to transparent, with a stencil target of its size for one that clips through a mask. The list it plays back is the document's own, which nothing changes until the next Update, after the graph has run
+        // Each into a pooled texture of its size, cleared to transparent, with a stencil target if it clips
         void AddWorldPasses(FrameGraph & graph) override
         {
             WorldPasses.clear();
@@ -1265,7 +1265,7 @@ namespace Trinity
             return a_Pass != WorldPasses.end() ? a_Pass->Index : RHI::c_NoBindlessIndex;
         }
 
-        // A fixed size is its own, and a dynamic one is laid out in the largest there is, then takes from the context's top left to the body's bottom right, so a margin on the body is kept around it, and its absolute positioning lets it shrink to its content where it sets no size
+        // A dynamic size is laid out in the largest there is, then shrinks to the body's bottom right
         void UpdateWorld(Document & document)
         {
             const UIWorldSettings& l_Settings = document.WorldSettings;
@@ -1293,14 +1293,14 @@ namespace Trinity
             Rendering.End();
         }
 
-        // A world document draws when its last Update recorded something into a texture of some size, and the shaders are there to draw it
+        // When its last Update recorded something into a texture of some size, and the shaders are there
         [[nodiscard]] bool Draws(const Document & document) const
         {
             return Rendering.CanDraw() && document.TextureSize.x != 0 && document.TextureSize.y != 0 && !document.DrawList.Commands.empty();
         }
 
 #if !defined(TR_DISTRIBUTION)
-        // Each document the debugger goes through over the view, in its order, until the visitor returns true: the view's screen documents, the topmost first, then the world documents as they draw, hidden ones too
+        // Screen documents, topmost first, then world documents, hidden ones too, until the visitor is true
         template<typename Visitor>
         void VisitDebuggable(ViewID view, Visitor && visitor) const
         {
@@ -1321,7 +1321,7 @@ namespace Trinity
             }
         }
 
-        // The debugger on the document, over the view, its context made of the view's size and RmlUi's debugger started in it the first time, or closed for c_NoDocument, when it is neither laid out nor drawn and takes no input, keeping its windows as they were for the next time it opens. False, logged, when the debugger cannot start, and it stays closed
+        // Closed for c_NoDocument, keeping its windows for next time. False, logged, when it cannot start
         bool Inspect(UIDocumentID document, ViewID view, Rml::Vector2i size)
         {
             const Document* l_Target = FindDocument(document);
@@ -1389,7 +1389,7 @@ namespace Trinity
             DebuggerHost->ProcessMouseLeave();
         }
 
-        // The pointer goes to the open debugger first, over the view it is open on: it has the pointer where it has an element under it, or while a press that began there is held, and takes that press and the wheel from the game and the documents. Whether it has the pointer
+        // The open debugger has the pointer where it has an element under it, or while its press is held
         bool PointDebugger(ViewID view, int modifiers)
         {
             if (DebuggerHost == nullptr || DebuggerTarget == c_NoDocument || view != DebuggerView)
@@ -1426,7 +1426,7 @@ namespace Trinity
             return l_Over || std::ranges::any_of(DebuggerPresses, std::identity());
         }
 
-        // Laid out over the view at the window's DPI scale once the documents are, the outlines and boxes it shows in the one it inspects having been drawn into that document's own list as it drew
+        // Laid out after the documents, at the window's DPI scale. Its outlines are in the document's list
         void UpdateDebugger(Renderer & renderer, float dpiScale)
         {
             const std::uint32_t l_Width = DebuggerTarget != c_NoDocument && renderer.HasView(DebuggerView) ? renderer.GetSceneWidth(DebuggerView) : 0;
@@ -1490,7 +1490,7 @@ namespace Trinity
         TR_CORE_INFO("GameUI: RmlUi {} started", Rml::GetVersion());
     }
 
-    // RmlUi ends every context with its documents, and releases what it made, before the interfaces go. What it still holds then is in its own statics, kept until the process ends, so it is counted as untagged, as every other static's memory is
+    // What RmlUi still holds after shutdown is in its own statics, so it is counted as untagged
     GameUI::~GameUI()
     {
         InputActionsRuntime::SetUIHandler(nullptr);
@@ -1519,7 +1519,7 @@ namespace Trinity
         const MemoryTagStats l_Statics = Memory::UntagScopedAllocations(MemoryTag::GameUI);
         if (l_Statics.LiveAllocations != 0)
         {
-            TR_CORE_INFO("GameUI: {} in {} allocation(s) that RmlUi keeps in its statics until the process ends are counted as untagged", Memory::FormatBytes(l_Statics.CurrentBytes), l_Statics.LiveAllocations);
+            TR_CORE_INFO("GameUI: {} in {} allocation(s) RmlUi keeps in its statics count as untagged", Memory::FormatBytes(l_Statics.CurrentBytes), l_Statics.LiveAllocations);
         }
 
         s_Instance = nullptr;
@@ -1565,7 +1565,7 @@ namespace Trinity
             return;
         }
 
-        // Hidden, it lets the pointer go, so shown again it hovers nothing until the pointer next reaches it where it is, rather than where it last was
+        // Hidden, it lets the pointer go, so shown again it hovers nothing until the pointer reaches it
         const MemoryTagScope l_Scope(MemoryTag::GameUI);
         if (visible)
         {
@@ -1661,7 +1661,7 @@ namespace Trinity
         ShowDocuments(scene, std::nullopt);
     }
 
-    // The hierarchy is walked only when two screen documents share a sort order, which is all its order decides. A world document is the scene's, whichever view, or none, it is shown through, so a scene shown twice in a frame keeps one of each
+    // The hierarchy is walked only when two screen documents share a sort order
     void GameUI::ShowDocuments(Scene& scene, std::optional<ViewID> view)
     {
         SceneRegistry& l_Registry = scene.GetRegistry();
@@ -1699,7 +1699,7 @@ namespace Trinity
                 continue;
             }
 
-            // The scene's own first, which may be one its scripts had loaded before any view showed it, then a screen document the view kept from the scene it showed before, as one on an entity kept across scenes is
+            // The scene's own first, then a screen document the view kept from the scene it showed before
             const UUID l_EntityID = it_ID.ID;
             auto a_Entry = std::ranges::find_if(m_State->SceneDocuments, [&](const State::SceneDocument& entry) { return entry.Entity == l_EntityID && entry.World == l_World && entry.Owner == &scene && (l_World || entry.View == *view || entry.View == c_NoView); });
             if (a_Entry == m_State->SceneDocuments.end() && !l_World)
@@ -1743,7 +1743,7 @@ namespace Trinity
         }
     }
 
-    // A screen document over no view yet is loaded into a context of one pixel, which takes its view's size once a view takes it
+    // A screen document over no view yet is loaded into a context of one pixel, until a view takes it
     bool GameUI::Refresh(std::size_t entry, const UIDocumentComponent& component)
     {
         State::SceneDocument& l_Entry = m_State->SceneDocuments[entry];
@@ -1970,7 +1970,7 @@ namespace Trinity
         return l_Focus != nullptr ? std::string(l_Focus->GetId()) : std::string();
     }
 
-    // The interactive view's documents: its screen documents, top first, then the world documents of the scene running there, as its camera last drew them. The pointer goes to the document a button pressed in while it is held, and otherwise to the topmost screen document with an element under it, the documents below losing it, and a press there is the UI's. Where no screen document has one, the cursor's ray through the view goes on into the scene, and the first world document it meets with an element under it takes the pointer, those sorted with the sprites tried topmost first and the rest from the nearest, one sorted by depth being hidden by a nearer collider or by the nearer surface the view's depth was read back at under the cursor. A pointer code gives drives the world documents in place of the mouse, with its own press, and the mouse then has the screen documents alone. A press on no element takes the focus away from every document. A text field with the focus takes every key and the text typed, and otherwise Navigate moves the focus: from none to the first element of the topmost screen document that has one, or with none, of the nearest world document in view, and past a world document's last element, or before its first, to the world document that way on the view. Submit presses what has the focus and Cancel sends it a cancel event, which takes the focus away unless the element or its document stops it. While an element has the focus, every source of the UI map is the UI's. Outside Distribution, RmlUi's debugger, while it is open over the view, has the pointer before every document where it has an element under it
+    // Pointer: the debugger, then screen documents top first, then world ones. Then keys and Navigate
     void GameUI::ProcessInput(Timestep timestep)
     {
         if (!m_State->Started || !m_State->InputView)
@@ -2235,7 +2235,7 @@ namespace Trinity
             }
         }
 
-        // With nothing focused, the topmost screen document with an element that takes the focus gives it to its first, or with none, the nearest world document in view. An element's own nav property says where it goes, as RmlUi takes the arrows, and otherwise Down and Right go to the next element in document order and Up and Left to the one before, from a world document's last on to the world document that way on the view, and otherwise round from the last to the first. The element the focus moves to sounds its sound-hover
+        // An element's nav property wins. Else document order, wrapping, or on to the next world document
         m_State->Navigating = l_Move;
         if (l_Move && l_Element == nullptr)
         {
@@ -2388,7 +2388,7 @@ namespace Trinity
         return Rml::LoadFontFace(Rml::String(path), fallback);
     }
 
-    // A view with no targets yet, or none at all, draws nothing, and its documents' lists are left empty. The scene documents ShowScene did not see this frame go first
+    // A view with no targets draws nothing. Scene documents ShowScene did not see this frame go first
     void GameUI::Update(Timestep timestep)
     {
         if (!m_State->Started)
@@ -2402,12 +2402,12 @@ namespace Trinity
         m_State->System.Advance(std::chrono::duration<double>(timestep.GetDuration()).count());
         m_State->Rendering.BeginFrame();
 
-        // Every runtime that ran since has taken the events and sounds of the frame before, and those of this frame wait for the next
+        // Every runtime has taken last frame's events and sounds by now. This frame's wait for the next
         std::erase_if(m_State->Events, [this](const State::QueuedEvent& queued) { return queued.Frame < m_State->FrameCount; });
         std::erase_if(m_State->Sounds, [this](const State::QueuedSound& queued) { return queued.Frame < m_State->FrameCount; });
         ++m_State->FrameCount;
 
-        // A screen document of a scene whose scripts run stays for them over no view, and is taken by the next view to show the scene
+        // A screen document of a scene whose scripts run stays over no view, for the next view to take
         std::erase_if(m_State->SceneDocuments, [this](State::SceneDocument& entry)
         {
             if (std::exchange(entry.Shown, false))
@@ -2462,7 +2462,7 @@ namespace Trinity
                 continue;
             }
 
-            // Over no view, as its scene's scripts hold it while no view shows the scene, it keeps its layout and draws nothing until a view takes it
+            // Over no view, it keeps its layout and draws nothing until a view takes it
             if (it_Document.View == c_NoView)
             {
                 it_Document.DrawList.Clear();
@@ -2526,7 +2526,7 @@ namespace Trinity
     }
 
 #if !defined(TR_DISTRIBUTION)
-    // From the one it is on to the next, or from closed to the first. Open over another view, it starts again from that view's first
+    // From the one it is on to the next, or from closed to the first. Another view starts at its first
     UIDocumentID GameUI::CycleDebugger(ViewID view)
     {
         if (!m_State->Started)

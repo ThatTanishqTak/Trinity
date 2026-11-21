@@ -11,7 +11,7 @@ namespace Trinity
         return m_Time;
     }
 
-    // As a link from the document is resolved wherever the UI reads one, so the build walk finds what RmlUi will read
+    // Resolved as the UI resolves a link everywhere, so the build walk finds what RmlUi will read
     void GameUISystemInterface::JoinPath(Rml::String& translatedPath, const Rml::String& documentPath, const Rml::String& path)
     {
         translatedPath = UIAssets::ResolveLink(documentPath, path);

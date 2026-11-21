@@ -79,7 +79,7 @@ namespace Trinity
         const Expected<FileBuffer, FileError> l_PixelShader = FileSystem::ReadFile(std::format("/engine/shaders/ImGui.PixelMain.{}", l_Extension));
         if (!l_VertexShader || !l_PixelShader)
         {
-            TR_CORE_INFO("ImGui: no {} shaders under /engine/shaders, so the UI is built and its textures kept, but nothing is drawn", l_Extension);
+            TR_CORE_INFO("ImGui: no {} shaders under /engine/shaders, so the UI is built but not drawn", l_Extension);
 
             return;
         }
@@ -115,7 +115,7 @@ namespace Trinity
         TR_CORE_INFO("ImGui: the renderer created {}, updated {} and destroyed {} texture(s)", m_CreatedTextures, m_UpdatedTextures, m_DestroyedTextures);
     }
 
-    // A texture that ImGui no longer uses in any frame is destroyed at once, since the device's release queue keeps it until the frames in flight have finished
+    // Destroyed at once: the device's release queue keeps it until the frames in flight have finished
     void ImGuiRenderer::UpdateTextures(RHI::CommandList& commands)
     {
         TR_PROFILE_FUNCTION();
@@ -193,7 +193,7 @@ namespace Trinity
         ++m_CreatedTextures;
     }
 
-    // Small uploads come from the upload ring. One too large for it, such as a whole atlas, gets its own staging buffer, destroyed at once and kept by the release queue until the copy has run
+    // Small uploads use the upload ring. One too large, such as a whole atlas, gets a staging buffer
     void ImGuiRenderer::UploadTexture(RHI::CommandList& commands, RHI::TextureHandle destination, ImTextureData& texture, const ImTextureRect& rect, RHI::ResourceState before)
     {
         if (!destination || rect.w == 0 || rect.h == 0)
@@ -272,7 +272,7 @@ namespace Trinity
         return a_Entry != m_Textures.end() ? a_Entry->Texture : RHI::TextureHandle{};
     }
 
-    // Draws inside the output pass with its full viewport. Every command gets its own scissor, vertex base and texture, and the scissor covers the output again afterwards
+    // Every command gets its own scissor, vertex base and texture. The scissor is reset afterwards
     void ImGuiRenderer::Render(RHI::CommandList& commands, const ImDrawData& drawData)
     {
         TR_PROFILE_FUNCTION();
@@ -358,7 +358,7 @@ namespace Trinity
                 const float l_MaxX = std::min((it_Command.ClipRect.z - l_ClipOffset.x) * l_ClipScale.x, l_Width);
                 const float l_MaxY = std::min((it_Command.ClipRect.w - l_ClipOffset.y) * l_ClipScale.y, l_Height);
                 const ImTextureID l_Texture = it_Command.GetTexID();
-                // In whole pixels, so a clip under a pixel across, at a fractional DPI scale, can come to none, under which D3D12's debug layer warns of the draw
+                // In whole pixels, so a clip under a pixel across can be empty, which D3D12's debug layer warns of
                 const std::int32_t l_Left = static_cast<std::int32_t>(l_MinX);
                 const std::int32_t l_Top = static_cast<std::int32_t>(l_MinY);
                 const std::int32_t l_Right = static_cast<std::int32_t>(l_MaxX);

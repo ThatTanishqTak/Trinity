@@ -243,7 +243,7 @@ namespace Trinity
             const GameUIVector<std::pair<Rml::String, UIDataType>>& m_Fields;
         };
 
-        // A value or a list bound into a model, and the links that reach it from the documents showing its model. A list's cells are its rows', one after another
+        // A value or a list bound into a model, with the links that reach it. A list's cells are row by row
         struct Variable
         {
             Model* Owner = nullptr;
@@ -269,7 +269,7 @@ namespace Trinity
             std::uint32_t Slot = 0;
         };
 
-        // A name a document's context bound into one of its models, which reaches a variable while one is bound to it
+        // A name a document's context bound into one of its models, reaching a variable while one is bound
         struct Link
         {
             Rml::String Model;
@@ -279,7 +279,7 @@ namespace Trinity
             Variable* Target = nullptr;
         };
 
-        // A value through its link, which reads as nothing while none is bound to it. What a control writes there marks it changed in the other documents showing it, as RmlUi marks it in this one
+        // Reads as nothing while none is bound. A control's write marks it changed in the other documents
         class ValueLinkDefinition final : public Rml::VariableDefinition
         {
         public:
@@ -366,7 +366,7 @@ namespace Trinity
             GameUIVector<Scope<Link>> Links;
         };
 
-        // A handle names its slot in its low half and the slot's generation in its high half, which starts at 1, so none is 0
+        // A handle is its slot in the low half and the slot's generation, from 1, in the high: none is 0
         template<typename T>
         struct Slot
         {
@@ -416,7 +416,7 @@ namespace Trinity
         GameUIVector<Slot<Variable>> VariableSlots;
         GameUIVector<Scope<Shown>> Documents;
 
-        // The link the document's context has for the name, bound into the model there, made by the first value of that name, and kept for the context's life
+        // Made by the first value of that name in the model there, and kept for the context's life
         Link* FindLink(Shown& document, const Rml::String& model, const Variable& variable)
         {
             for (const Scope<Link>& it_Link : document.Links)
@@ -451,13 +451,13 @@ namespace Trinity
             }
         }
 
-        // The variable reached from the document, which shows it at the next Update. A name a context bound as a value cannot reach a list there, nor the other way, until the document's context is made again
+        // A name a context bound as a value cannot reach a list there, nor the reverse, until it is remade
         void Connect(Shown& document, Variable& variable)
         {
             Link* l_Link = FindLink(document, variable.Owner->Name, variable);
             if (l_Link->List != variable.List)
             {
-                TR_CORE_WARN("GameUI: data model '{}' of document {} had {} bound as a {}, so it does not show the {} bound now", variable.Owner->Name, document.Document, variable.Name, l_Link->List ? "list" : "value", variable.List ? "list" : "value");
+                TR_CORE_WARN("GameUI: data model '{}' of document {} had {} bound as a {}, so shows no {}", variable.Owner->Name, document.Document, variable.Name, l_Link->List ? "list" : "value", variable.List ? "list" : "value");
 
                 return;
             }
@@ -507,7 +507,7 @@ namespace Trinity
             ModelSlots[model.Slot].Target = nullptr;
         }
 
-        // The model's variable of that name, made with the kind and type asked for, and whether it was made now. Null, logged, for a name RmlUi cannot reach, or one bound before as another kind or type
+        // Whether it was made now. Null, logged, for a name RmlUi cannot reach or one bound as another kind
         std::pair<Variable*, bool> Bind(std::uint64_t model, std::string_view name, bool list, UIDataType type, std::span<const UIDataField> fields)
         {
             Model* l_Model = Resolve(ModelSlots, model);
@@ -518,7 +518,7 @@ namespace Trinity
 
             if (!IsLegalName(name))
             {
-                TR_CORE_WARN("GameUI: '{}' was not bound into data model '{}', as a name is letters, digits and underscores, not starting with a digit", name, l_Model->Name);
+                TR_CORE_WARN("GameUI: '{}' was not bound into data model '{}': use letters, digits and _", name, l_Model->Name);
 
                 return {};
             }
@@ -530,7 +530,7 @@ namespace Trinity
                 const bool l_Same = l_Bound.List == list && (list ? std::ranges::equal(l_Bound.Fields, fields, [](const auto& bound, const UIDataField& field) { return bound.first == field.Name && bound.second == field.Type; }) : l_Bound.Type == type);
                 if (!l_Same)
                 {
-                    TR_CORE_WARN("GameUI: {} of data model '{}' was bound before as another {}, so it is not bound again", name, l_Model->Name, l_Bound.List == list ? (list ? "list" : "type") : "kind");
+                    TR_CORE_WARN("GameUI: {} of data model '{}' was bound before as another {}, so not again", name, l_Model->Name, l_Bound.List == list ? (list ? "list" : "type") : "kind");
 
                     return {};
                 }
@@ -542,7 +542,7 @@ namespace Trinity
             {
                 if (!IsLegalName(it_Field.Name) || std::ranges::count(fields, it_Field.Name, &UIDataField::Name) != 1)
                 {
-                    TR_CORE_WARN("GameUI: list {} of data model '{}' was not bound, as its field '{}' is no name an expression can reach, or is named twice", name, l_Model->Name, it_Field.Name);
+                    TR_CORE_WARN("GameUI: list {} of data model '{}' was not bound: field '{}' is bad or repeated", name, l_Model->Name, it_Field.Name);
 
                     return {};
                 }
@@ -568,7 +568,7 @@ namespace Trinity
             return { &l_Variable, true };
         }
 
-        // The list's cell of that row and field, which logs once a list for a row past its end or a field it has not
+        // Logs once a list for a row past its end or a field it has not
         Cell* FindCell(Variable& list, std::uint32_t row, std::string_view field, std::optional<UIDataType> type)
         {
             const auto a_Field = std::ranges::find(list.Fields, field, &std::pair<Rml::String, UIDataType>::first);
@@ -698,7 +698,7 @@ namespace Trinity
 
         if (!IsLegalName(name))
         {
-            TR_CORE_WARN("GameUI: '{}' is no data model's name, which is letters, digits and underscores, not starting with a digit", name);
+            TR_CORE_WARN("GameUI: '{}' is no data model's name: use letters, digits and _", name);
 
             return 0;
         }
@@ -719,7 +719,7 @@ namespace Trinity
 
     std::uint64_t GameUIData::BindValue(std::uint64_t model, std::string_view name, const UIDataScalar& value)
     {
-        // A new one takes the value given, and one bound before keeps what it holds. Either is shown by the documents showing its model
+        // A new one takes the value given, and one bound before keeps what it holds
         const MemoryTagScope l_Scope(MemoryTag::GameUI);
         const auto [l_Variable, l_Made] = m_State->Bind(model, name, false, value.Type, {});
         if (l_Variable == nullptr)

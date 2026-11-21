@@ -1,6 +1,6 @@
 #pragma once
 
-// Dear ImGui's configuration, read through IMGUI_USER_CONFIG by every file that includes imgui.h, inside the engine and out
+// Read through IMGUI_USER_CONFIG by every file that includes imgui.h, inside the engine and out
 #include "Trinity/Core/Export.hpp"
 
 #define IMGUI_API TRINITY_API

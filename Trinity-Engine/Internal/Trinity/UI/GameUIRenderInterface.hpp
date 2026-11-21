@@ -18,7 +18,7 @@ namespace Trinity
     template<typename T>
     using GameUIVector = std::vector<T, TaggedAllocator<T, MemoryTag::GameUI>>;
 
-    // What one context drew in a frame, in RmlUi's order, which the view's overlay pass plays back. Transforms are kept apart, each command naming the one it set
+    // What one context drew in a frame, in RmlUi's order. Transforms are kept apart, named by command
     struct GameUIDrawList
     {
         enum class CommandType : std::uint8_t
@@ -31,7 +31,7 @@ namespace Trinity
             SetTransform
         };
 
-        // Geometry is drawn at its translation with its texture, or untextured for 0. A scissor is in the context's pixels, left, top, width and height. A transform of c_Identity is none
+        // A texture of 0 is untextured. A scissor is left, top, width, height. c_Identity is no transform
         struct Command
         {
             CommandType Type = CommandType::Geometry;
@@ -60,7 +60,7 @@ namespace Trinity
         }
     };
 
-    // RmlUi's drawing through the RHI. Each context's calls are recorded into its draw list as it renders, for its view's overlay pass to play back in display space, blending colours multiplied by their alpha as RmlUi gives them. Geometry is kept as RmlUi hands it over and goes through the upload ring each frame it is drawn. A texture RmlUi generates, such as a font atlas, is uploaded as the next frame begins, and an image is a project's texture, named by its path in the assets. What RmlUi releases is freed as the next frame begins, so nothing a recorded list names goes before it has been played back. Without the shaders, everything is still recorded and kept, but nothing is drawn
+    // Records each context's calls for its view's overlay pass. What RmlUi releases is freed a frame on
     class GameUIRenderInterface final : public Rml::RenderInterface
     {
     public:
@@ -70,7 +70,7 @@ namespace Trinity
             GameUIVector<int> Indices;
         };
 
-        // A generated texture's texture and pixels are its own, until it is uploaded, and an image's are its asset's
+        // A generated texture's texture and pixels are its own until uploaded. An image's are its asset's
         struct Texture
         {
             RHI::TextureHandle Handle;
@@ -137,7 +137,7 @@ namespace Trinity
 
         RHI::Device& m_Device;
         RHI::SamplerHandle m_Sampler;
-        // Drawn in a pass without a stencil target, then in one with it: not tested, tested against the clip mask, and the mask's own two, which write no colour
+        // Not tested, tested against the clip mask, and the mask's own two, which write no colour
         RHI::PipelineHandle m_DrawPipeline;
         RHI::PipelineHandle m_StencilDrawPipeline;
         RHI::PipelineHandle m_MaskedPipeline;

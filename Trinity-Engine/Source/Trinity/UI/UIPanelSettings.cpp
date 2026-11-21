@@ -13,7 +13,7 @@ namespace Trinity
         constexpr float c_BaseDpi = 96.0f;
     }
 
-    // As UI Toolkit's Panel Settings work it out, so Match goes evenly from the width's ratio to the height's
+    // As UI Toolkit's Panel Settings, so Match goes evenly from the width's ratio to the height's
     float UIPanelSettings::GetScale(std::uint32_t width, std::uint32_t height, float dpiScale) const
     {
         float l_Scale = 1.0f;

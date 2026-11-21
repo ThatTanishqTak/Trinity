@@ -12,7 +12,7 @@ namespace Trinity
 {
     class GameUIData;
 
-    // What UIElement, UIDocument and the data models reach inside GameUI, which no public header may show, as RmlUi's types are the engine's own. Main thread only
+    // What UIElement, UIDocument and the data models reach inside GameUI. Main thread only
     struct GameUIAccess
     {
         // The application's UI, or null when it has none or RmlUi did not start
@@ -23,7 +23,7 @@ namespace Trinity
         [[nodiscard]] static UIElement Wrap(GameUI& ui, Rml::Element* element);
         // The document's body, or null
         [[nodiscard]] static Rml::Element* GetBody(GameUI& ui, UIDocumentID document);
-        // The element of the document with the focus, but neither its body nor its context's root, which stand for none
+        // The document's focused element, but neither its body nor its context's root, which stand for none
         [[nodiscard]] static Rml::Element* GetFocus(GameUI& ui, UIDocumentID document);
         // The data models scripts bind
         [[nodiscard]] static GameUIData& GetData(GameUI& ui);

@@ -16,7 +16,7 @@ namespace Trinity
 {
     namespace
     {
-        // A stylesheet or document whose @font-face sources were resolved is read from its text, and any other file through its handle
+        // One whose @font-face sources were resolved is read from its text, any other through its handle
         struct OpenFile
         {
             Ref<FileReadHandle> Handle;
@@ -31,7 +31,7 @@ namespace Trinity
             return *reinterpret_cast<OpenFile*>(file);
         }
 
-        // Documents name each other, their stylesheets, fonts and images by their paths in the project, which a cooked game's asset table finds where its pack keeps them. Anything else, as the engine's own fonts, is read where it is named
+        // By project path, which a cooked game's asset table finds in its pack. Anything else as named
         const std::string& GetReadPath(const Rml::String& path)
         {
             const AssetRegistry* l_Registry = AssetManager::GetRegistry();
@@ -48,7 +48,7 @@ namespace Trinity
         }
     }
 
-    // A file that cannot be read is 0, which RmlUi reports with its path. A stylesheet, or a document with its style blocks, is read whole, its @font-face sources resolved from the path RmlUi named it by
+    // 0 for a file that cannot be read. A stylesheet or document is read whole, font sources resolved
     Rml::FileHandle GameUIFileInterface::Open(const Rml::String& path)
     {
         if (HasFontFaces(path))
@@ -107,7 +107,7 @@ namespace Trinity
         return *l_Read;
     }
 
-    // As fseek does, a place past the end is kept, where a read gives nothing, and one before the start is refused
+    // As fseek: a place past the end is kept, where a read gives nothing. Before the start is refused
     bool GameUIFileInterface::Seek(Rml::FileHandle file, long offset, int origin)
     {
         OpenFile& l_File = GetFile(file);

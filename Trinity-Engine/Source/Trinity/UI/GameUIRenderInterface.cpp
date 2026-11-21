@@ -40,7 +40,7 @@ namespace Trinity
 
         constexpr std::array<float, 16> c_IdentityTransform{ 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
 
-        // The view's pixels, with Y down, to clip space with Y up, after the element's transform, whose W is kept so a perspective divides as it should. Depth is always 0, so nothing is clipped by it
+        // The view's pixels, Y down, to clip space, Y up. W is kept for perspective. Depth is always 0
         void SetClipTransform(PushData& push, const std::array<float, 16>& transform, std::uint32_t width, std::uint32_t height)
         {
             const float l_X = 2.0f / static_cast<float>(width);
@@ -80,7 +80,7 @@ namespace Trinity
         CreatePipelines(displayFormat, stencilFormat);
     }
 
-    // RmlUi has released everything it made by the time it shuts down, so what is left over is reported rather than freed, as the GameUI tag would show it anyway
+    // RmlUi has released everything by shutdown, so anything left over is reported, not freed
     GameUIRenderInterface::~GameUIRenderInterface()
     {
         BeginFrame();
@@ -97,7 +97,7 @@ namespace Trinity
         m_Device.DestroySampler(m_Sampler);
     }
 
-    // A device without the stencil format draws what a clip mask would clip unclipped, which only a transformed element's overflow needs
+    // Without the stencil format, what a clip mask would clip draws unclipped: a transformed overflow
     void GameUIRenderInterface::CreatePipelines(RHI::Format displayFormat, RHI::Format stencilFormat)
     {
         const std::string_view l_Extension = m_Device.GetInfo().API == GraphicsAPI::D3D12 ? "dxil" : "spv";
@@ -105,7 +105,7 @@ namespace Trinity
         const Expected<FileBuffer, FileError> l_PixelShader = FileSystem::ReadFile(std::format("/engine/shaders/GameUI.PixelMain.{}", l_Extension));
         if (!l_VertexShader || !l_PixelShader)
         {
-            TR_CORE_INFO("GameUI: no {} shaders under /engine/shaders, so documents are laid out and recorded, but nothing is drawn", l_Extension);
+            TR_CORE_INFO("GameUI: no {} shaders under /engine/shaders, so documents are not drawn", l_Extension);
 
             return;
         }
@@ -130,7 +130,7 @@ namespace Trinity
 
         if (!m_Device.IsFormatSupported(stencilFormat, RHI::TextureUsage::DepthStencil))
         {
-            TR_CORE_WARN("GameUI: this device has no {} target, so what a transformed element clips is drawn unclipped", RHI::ToString(stencilFormat));
+            TR_CORE_WARN("GameUI: this device has no {} target, so transformed elements draw unclipped", RHI::ToString(stencilFormat));
 
             return;
         }
@@ -157,7 +157,7 @@ namespace Trinity
 
         if (!m_StencilDrawPipeline || !m_MaskedPipeline || !m_MaskReplacePipeline || !m_MaskIncrementPipeline)
         {
-            TR_CORE_ERROR("GameUI: the clip mask pipelines could not be created, so what a transformed element clips is drawn unclipped");
+            TR_CORE_ERROR("GameUI: no clip mask pipelines were made, so transformed elements draw unclipped");
             for (RHI::PipelineHandle* it_Pipeline : { &m_StencilDrawPipeline, &m_MaskedPipeline, &m_MaskReplacePipeline, &m_MaskIncrementPipeline })
             {
                 m_Device.DestroyPipeline(std::exchange(*it_Pipeline, RHI::PipelineHandle{}));
@@ -238,7 +238,7 @@ namespace Trinity
         GameUIVector<std::byte>().swap(texture.Pixels);
     }
 
-    // The list's geometry goes into the upload ring together, after a triangle covering the view, which clears the clip mask. RmlUi's clip masks are its OpenGL renderer's: Set clears the stencil to 0 and writes 1 where the geometry is, SetInverse clears to 1 and writes 0, Intersect adds 1 where the geometry is, and what is clipped draws where the stencil holds the count so far
+    // As RmlUi's OpenGL renderer: Set writes 1, SetInverse 0, Intersect adds 1. Draws test the count
     void GameUIRenderInterface::Draw(RHI::CommandList& commands, const GameUIDrawList& list, std::uint32_t width, std::uint32_t height, bool stencil) const
     {
         TR_PROFILE_FUNCTION();
@@ -309,7 +309,7 @@ namespace Trinity
             }
         };
 
-        // RmlUi's scissor clamped to the view, which is empty where an element that clips lies outside the view or has no size, such as a list scrolled below the bottom or a drawer closed to no height, as RmlUi still draws the backgrounds and borders inside it
+        // Clamped to the view. Empty where a clipping element lies outside it or has no size
         bool l_Hidden = false;
         const auto a_ApplyScissor = [&]()
         {
@@ -318,7 +318,7 @@ namespace Trinity
             commands.SetScissor(l_Rect);
         };
 
-        // An image whose asset failed, or a generated texture that could not be made, draws nothing, and nothing is drawn under an empty scissor, which would write nothing anyway and which D3D12's debug layer warns of at every draw
+        // Nothing is drawn under an empty scissor, which D3D12's debug layer warns of at every draw
         const auto a_DrawGeometry = [&](const GameUIDrawList::Command& command)
         {
             if (l_Hidden)
@@ -467,7 +467,7 @@ namespace Trinity
         }
     }
 
-    // A project's texture by its path, which a document names as a file beside it, such as ../Textures/Logo.png from /assets/UI/Menu.rml, as the registry knows each file by its path in the virtual file system. One not loaded yet is loaded at once, so the document lays out at the image's size from its first frame. 0 for anything else, which RmlUi reports once and draws nothing for
+    // A project's texture by its path, loaded at once so layout has its size. 0 for anything else
     Rml::TextureHandle GameUIRenderInterface::LoadTexture(Rml::Vector2i& dimensions, const Rml::String& source)
     {
         const AssetRegistry* l_Registry = AssetManager::GetRegistry();
