@@ -82,7 +82,7 @@ namespace
         std::size_t m_Position = 0;
     };
 
-    // Assimp reads the model, and whatever it names, through Trinity's file system, so a model is read from wherever its mount is. Every file read goes into the content hash, so a changed .mtl imports the model again
+    // Assimp reads through Trinity's file system. Every file read goes into the content hash
     class TrinityIOSystem final : public Assimp::IOSystem
     {
     public:
@@ -186,7 +186,7 @@ namespace
 
         std::unique_ptr<Assimp::Importer> Importer;
         const aiScene* Scene = nullptr;
-        // Assimp splits a mesh by material, so a mesh asset is the list of assimp meshes a node holds, and nodes holding the same list share it
+        // Assimp splits a mesh by material, so a mesh asset is the list of assimp meshes a node holds
         std::vector<std::vector<unsigned int>> MeshGroups;
         std::map<const aiNode*, std::size_t> NodeGroups;
         std::vector<MaterialTextures> Materials;
@@ -214,7 +214,7 @@ namespace
         return l_Extension;
     }
 
-    // Nodes parents first, as BuildHierarchy walks them, so a node's place in the list is its source index
+    // Nodes parents first, as BuildHierarchy walks them, so a node's place is its source index
     std::vector<const aiNode*> GetNodes(const aiNode* root)
     {
         std::vector<const aiNode*> l_Nodes;
@@ -261,7 +261,7 @@ namespace
         const bool l_Valid = std::ranges::all_of(l_Axes, [](std::int32_t axis) { return axis >= 0 && axis < 3; }) && l_Coord != l_Up && l_Up != l_Front && l_Coord != l_Front;
         if (!l_Valid)
         {
-            TR_WARN("Models: {} names its axes as right {}, up {} and front {}, which are not three different axes, so they are taken as they are", path, l_Coord, l_Up, l_Front);
+            TR_WARN("Models: {} has axes right {}, up {}, front {}, not all different, so kept as is", path, l_Coord, l_Up, l_Front);
         }
         else
         {
@@ -284,7 +284,7 @@ namespace
         }
     }
 
-    // COLLADA gives its unit in metres and its up axis in the first <asset>, which assimp leaves unread when told not to apply them
+    // COLLADA gives its unit and up axis in the first <asset>, which assimp leaves unread here
     void ReadColladaUnits(std::string_view text, ModelSource& source, std::string_view path)
     {
         const std::size_t l_Unit = text.find("<unit");
@@ -320,7 +320,7 @@ namespace
         }
         else if (l_Axis != "Y_UP")
         {
-            TR_WARN("Models: {} has <up_axis> {}, which is not X_UP, Y_UP or Z_UP, so it is taken as Y up", path, l_Axis);
+            TR_WARN("Models: {} has <up_axis> {}, not X_UP, Y_UP or Z_UP, so it is taken as Y up", path, l_Axis);
         }
     }
 
@@ -394,7 +394,7 @@ Trinity::Expected<ModelSource::BuiltMesh, std::string> AssimpSource::BuildMesh(s
     return ModelReading::MergePrimitives(std::move(l_Primitives));
 }
 
-// The file's physically based values where it has them, and otherwise what its Phong values come to: the diffuse colour as base colour, roughness from the specular exponent as Blinn-Phong's lobe matches GGX's, no metal, and an opacity below one blended. A diffuse texture is not tinted by the diffuse colour, as most tools draw it
+// Physically based values where the file has them, else from Phong: roughness from the exponent
 Trinity::MaterialData AssimpSource::BuildMaterial(std::size_t material, const std::function<Trinity::UUID(const TextureUse&)>& resolve) const
 {
     const aiMaterial& l_Source = *Scene->mMaterials[material];
@@ -465,7 +465,7 @@ Trinity::MaterialData AssimpSource::BuildMaterial(std::size_t material, const st
     return l_Material;
 }
 
-// Assimp's root is the file's scene, and has no place of its own when it holds no mesh, so its children are the model's roots, with its transform folded into theirs. Each root goes through the conversion. A node's source index is its place among all of assimp's nodes, parents first, the root included
+// Assimp's root is the file's scene, so its children are the model's roots, its transform folded in
 Trinity::ModelData AssimpSource::BuildHierarchy(const glm::mat4& conversion, std::span<const Trinity::UUID> meshes, std::span<const std::vector<Trinity::UUID>> meshMaterials) const
 {
     const std::vector<const aiNode*> l_Nodes = GetNodes(Scene->mRootNode);
@@ -509,7 +509,7 @@ Trinity::ModelData AssimpSource::BuildHierarchy(const glm::mat4& conversion, std
 
 namespace ModelReading
 {
-    // FBX, OBJ and COLLADA through assimp, told to leave units and axes as the file has them, so the conversion is the importer's to make and the settings can override it. The textures a material names are found in the file, beside the model by their relative path, or beside it by their file name, as exporters write absolute paths from the machine they ran on
+    // Assimp leaves units and axes alone, so the importer converts. Textures are found by path or name
     std::shared_ptr<ModelSource> ReadWithAssimp(const Trinity::AssetRecord& record, ModelImporter::Plan& plan)
     {
         const std::shared_ptr<AssimpSource> l_Source = std::make_shared<AssimpSource>();
@@ -578,7 +578,7 @@ namespace ModelReading
 
         if (l_Skinned)
         {
-            TR_WARN("Models: {} has skinned meshes, which are imported in their bind pose until skinning is", record.Path);
+            TR_WARN("Models: {} has skinned meshes, which are imported in their bind pose for now", record.Path);
         }
 
         std::map<std::pair<int, ModelImporter::TextureUsage>, std::string> l_EmbeddedKeys;
@@ -603,7 +603,7 @@ namespace ModelReading
 
                 if (l_TexCoord > 1)
                 {
-                    TR_WARN("Models: material {} of {} samples {} with UV set {}, and only two are imported, so it uses the first", it_Material, record.Path, l_Path.C_Str(), l_TexCoord);
+                    TR_WARN("Models: material {} of {} samples {} with UV set {}, past two, so uses the first", it_Material, record.Path, l_Path.C_Str(), l_TexCoord);
                     l_TexCoord = 0;
                 }
 
@@ -612,7 +612,7 @@ namespace ModelReading
                 {
                     if (l_Embedded->mHeight != 0 || l_Embedded->pcData == nullptr || l_Embedded->mWidth == 0)
                     {
-                        TR_WARN("Models: {} holds {} as raw texels, which are not imported yet, so material {} goes without", record.Path, l_Path.C_Str(), it_Material);
+                        TR_WARN("Models: {} holds {} as raw texels, not imported yet, so material {} goes without", record.Path, l_Path.C_Str(), it_Material);
 
                         return l_Slot;
                     }
@@ -648,7 +648,7 @@ namespace ModelReading
 
                 if (!l_File || !Trinity::FileSystem::Exists(*l_File))
                 {
-                    TR_WARN("Models: material {} of {} names {}, which is neither in the file nor beside it, so it goes without", it_Material, record.Path, l_Path.C_Str());
+                    TR_WARN("Models: material {} of {} names {}, not in the file or beside it: goes without", it_Material, record.Path, l_Path.C_Str());
 
                     return l_Slot;
                 }
@@ -666,7 +666,7 @@ namespace ModelReading
             l_Textures.Emissive = a_Slot({ aiTextureType_EMISSION_COLOR, aiTextureType_EMISSIVE }, ModelImporter::TextureUsage::Color);
             if (!l_Textures.MetallicRoughness.Use && (l_Material.GetTextureCount(aiTextureType_METALNESS) > 0 || l_Material.GetTextureCount(aiTextureType_DIFFUSE_ROUGHNESS) > 0))
             {
-                TR_WARN("Models: material {} of {} has separate metalness and roughness textures, which are not packed into one yet, so it goes without them", it_Material, record.Path);
+                TR_WARN("Models: material {} of {} has separate metalness and roughness textures: skipped", it_Material, record.Path);
             }
         }
 

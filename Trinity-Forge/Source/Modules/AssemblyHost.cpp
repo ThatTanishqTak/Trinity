@@ -124,10 +124,10 @@ namespace @NAME@
         return l_Escaped;
     }
 
-    // A save often writes a file more than once, and an editor may save several at once, so a build waits this long after the last change. A build from an IDE writes its assembly and then its PDB, which a load waits for too
+    // A save often writes a file more than once, so a build waits this long after the last change
     constexpr std::chrono::milliseconds c_SettleTime{ 500 };
 
-    // A file dotnet build reads: the sources, the project and the props and targets beside it, but not the props Forge writes itself
+    // A file dotnet build reads: sources, the project and its props and targets, but not Forge's props
     bool IsBuildInput(const std::filesystem::path& path)
     {
         constexpr std::array<std::string_view, 4> c_Extensions{ ".cs", ".csproj", ".props", ".targets" };
@@ -142,7 +142,7 @@ namespace @NAME@
         return std::ranges::find(c_Extensions, l_Extension) != c_Extensions.end();
     }
 
-    // The copy and its PDB. Windows keeps a copy open while a context that was not collected still holds it, or a debugger its PDB, and both go with a later project open
+    // The copy and its PDB. Windows keeps one open while a context or a debugger still holds it
     void RemoveCopy(const std::filesystem::path& copy)
     {
         if (copy.empty())
@@ -161,7 +161,7 @@ AssemblyHost::~AssemblyHost()
     Close();
 }
 
-// A project with scripts builds them once as it opens, which does nothing but load them when nothing changed since the last build. Copies an earlier Forge left are removed first
+// A project with scripts builds them once as it opens. An earlier Forge's copies go first
 void AssemblyHost::Open(Trinity::Project& project)
 {
     Close();
@@ -174,7 +174,7 @@ void AssemblyHost::Open(Trinity::Project& project)
     RemoveStaleCopies();
     if (!IsSupported())
     {
-        TR_WARN("Forge: {} has the C# scripts {}, which cannot build or load, since C# is off. The log says why when Forge starts", project.GetName(), project.GetAssemblyName());
+        TR_WARN("Forge: {} has the C# scripts {}, which cannot build or load, since C# is off", project.GetName(), project.GetAssemblyName());
 
         return;
     }
@@ -250,7 +250,7 @@ void AssemblyHost::Update()
         StartBuild();
     }
 
-    // A build Forge did not run, such as an IDE's, once its files have settled. Forge's own builds load as they end, so the output they leave is the build loaded already
+    // A build Forge did not run, such as an IDE's, once its files have settled
     if (m_OutputChangedAt && l_Now - *m_OutputChangedAt >= c_SettleTime && !m_Build.IsRunning())
     {
         m_OutputChangedAt.reset();
@@ -268,7 +268,7 @@ bool AssemblyHost::Create(Trinity::Project& project)
 {
     if (!IsSupported())
     {
-        TR_ERROR("Forge: C# is off, so a C# project cannot be created. The log says why when Forge starts");
+        TR_ERROR("Forge: C# is off, so a C# project cannot be created. The log says why at start");
 
         return false;
     }
@@ -320,7 +320,7 @@ void AssemblyHost::RequestBuild()
     }
 }
 
-// Scripts that cannot be watched still build when asked, and an output that cannot be watched still loads Forge's own builds
+// Scripts that cannot be watched still build when asked, and Forge's own builds still load
 void AssemblyHost::Watch()
 {
     if (Trinity::Expected<Trinity::DirectoryWatcher, std::string> l_Sources = Trinity::DirectoryWatcher::Watch(m_Project->GetScriptsDirectory()))
@@ -364,7 +364,7 @@ void AssemblyHost::WriteLocalProps() const
     l_File << l_Text;
     if (!l_File)
     {
-        TR_WARN("Forge: {} could not be written, so an IDE does not know which Trinity-ScriptCore to build against", ToUtf8(l_Path));
+        TR_WARN("Forge: {} could not be written, so an IDE cannot find Trinity-ScriptCore", ToUtf8(l_Path));
     }
 }
 
@@ -401,7 +401,7 @@ void AssemblyHost::StartBuild()
     m_Build.Start(std::move(l_Request));
 }
 
-// The scripts running now go only once the build is copied, and are loaded again when the build cannot load in their place. A build tried already, such as one that changed nothing, or Forge's own build seen again in the output, is not tried again
+// The scripts running go only once the build is copied. A build tried already is not tried again
 void AssemblyHost::Load(const std::filesystem::path& built)
 {
     std::error_code l_Error;
@@ -442,7 +442,7 @@ void AssemblyHost::Load(const std::filesystem::path& built)
     RemoveCopy(l_Previous);
 }
 
-// Under the next number no file there has, since a context that was not collected, or a debugger, may still hold an older copy. The copy's record of its PDB names the PDB copied beside it, so a debugger finds the symbols of the build that runs there, and never holds the build's own PDB, which the next build writes
+// Under the next unused number, since an older copy may be held. Its PDB record names its own copy
 std::optional<std::filesystem::path> AssemblyHost::CopyBuild(const std::filesystem::path& built)
 {
     const std::filesystem::path l_Directory = GetCopyDirectory();
@@ -469,7 +469,7 @@ std::optional<std::filesystem::path> AssemblyHost::CopyBuild(const std::filesyst
     const std::filesystem::path l_BuiltPdb = std::filesystem::path(built).replace_extension(".pdb");
     if (std::filesystem::exists(l_BuiltPdb, l_Error) && (!PortableExecutable::SetPdbName(*l_Image, ToUtf8(l_Pdb.filename())) || !std::filesystem::copy_file(l_BuiltPdb, l_Pdb, l_Error)))
     {
-        TR_WARN("Forge: the PDB of {} could not be copied beside the scripts, so a debugger finds no symbols for them and their stack traces have no lines", m_Project->GetAssemblyName());
+        TR_WARN("Forge: the PDB of {} could not be copied, so debuggers and traces lack lines", m_Project->GetAssemblyName());
     }
 
     if (!PortableExecutable::WriteImage(l_Copy, *l_Image))
@@ -509,7 +509,7 @@ bool AssemblyHost::Unload()
     return Trinity::ManagedScripts::UnloadAssembly();
 }
 
-// Every copy of these scripts there, which a debugger may still hold, so those that cannot be removed stay until a later open
+// Every copy of these scripts there. Those a debugger still holds stay until a later open
 void AssemblyHost::RemoveStaleCopies() const
 {
     std::error_code l_Error;

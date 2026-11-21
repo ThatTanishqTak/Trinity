@@ -63,7 +63,7 @@ std::filesystem::path GameRunner::GetFolder() const
     return IsRunning() ? m_Running->Executable.parent_path() : std::filesystem::path();
 }
 
-// The engine's console lines are [HH:MM:SS.mmm], the channel padded to 7, a space, the level padded to 8, a space, then the text
+// The engine's console lines: [HH:MM:SS.mmm], channel padded to 7, level padded to 8, then the text
 std::pair<Trinity::LogLevel, std::string_view> GameRunner::ReadLine(std::string_view line)
 {
     constexpr std::size_t c_LevelWidth = 8;
@@ -95,7 +95,7 @@ std::pair<Trinity::LogLevel, std::string_view> GameRunner::ReadLine(std::string_
     return { a_Level->second, l_Text < l_Rest.size() ? l_Rest.substr(l_Text) : std::string_view() };
 }
 
-// Run blocks until the game ends, is stopped or is left, so it has a thread of its own rather than a job's, which would hold one of the job system's workers for as long as the game plays
+// Run blocks until the game ends, so it has a thread of its own rather than a job system worker
 void GameRunner::Run(Running& running)
 {
     Trinity::ProcessOptions l_Options;

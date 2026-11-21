@@ -37,7 +37,7 @@ namespace
         return std::string(reinterpret_cast<const char*>(l_Text.data()), l_Text.size());
     }
 
-    // The compiler Forge was built with, whose Visual Studio builds its modules while it is there, as a version's toolchain names the same one
+    // The compiler Forge was built with, whose Visual Studio builds its modules while it is there
     std::filesystem::path GetForgeCompiler()
     {
 #if defined(TR_FORGE_CXX_COMPILER)
@@ -47,7 +47,7 @@ namespace
 #endif
     }
 
-    // Found once a session, since vcvars64.bat takes seconds: the Visual Studio of the compiler Forge was built with, at its toolset, while it is there, as Hub checks for each version
+    // Found once a session, since vcvars64.bat takes seconds: the Visual Studio of Forge's compiler
     Trinity::Expected<Trinity::Process::Environment, std::string> GetBuildEnvironment(const std::atomic<bool>* cancel)
     {
         static std::mutex s_Mutex;
@@ -94,7 +94,7 @@ namespace
         return std::nullopt;
     }
 
-    // A tree configured with another generator, or against another folder's engine, is made again, since CMake will not change either in place. One whose configuring failed is configured again
+    // A tree configured with another generator or engine is made again, as CMake cannot change either
     bool NeedsConfigure(const std::filesystem::path& buildDirectory, const std::filesystem::path& engineDirectory, std::string_view generator)
     {
         std::error_code l_Error;
@@ -111,7 +111,7 @@ namespace
             return true;
         }
 
-        // A tree configured against another folder's engine, a version moved or another version, is made afresh, as its cache holds that folder's toolchain and paths
+        // A tree configured against another folder's engine is made afresh, as its cache holds those paths
         const std::optional<std::string> l_Engine = ReadCacheValue(l_Cache, "Trinity_DIR:PATH");
         if (!l_Engine || FromUtf8(*l_Engine).lexically_normal() != engineDirectory.lexically_normal())
         {
@@ -123,7 +123,7 @@ namespace
         return !std::filesystem::exists(buildDirectory / (generator == "Ninja" ? "build.ninja" : "Makefile"), l_Error);
     }
 
-    // The tools, then configuring when the tree needs it, then the build. False at the first step that fails, which has said why
+    // The tools, then configuring when the tree needs it, then the build. False at the first failure
     bool BuildModule(const ModuleBuild::Request& request, const std::atomic<bool>& cancel, BuildOutput& output)
     {
         const Trinity::Expected<Trinity::Process::Environment, std::string> l_Environment = GetBuildEnvironment(&cancel);
@@ -149,7 +149,7 @@ namespace
 #if defined(TR_PLATFORM_WINDOWS)
         if (l_Ninja.empty())
         {
-            output.LogError(std::format("Build: Ninja was not found on the PATH Visual Studio's environment gives, which its C++ CMake tools put there. Install them, or put ninja.exe on the PATH"));
+            output.LogError(std::format("Build: Ninja was not found on the PATH. Install Visual Studio's C++ CMake tools, or put ninja.exe on the PATH"));
 
             return false;
         }
@@ -160,7 +160,7 @@ namespace
         std::error_code l_Error;
         if (!std::filesystem::exists(l_Engine / "TrinityConfig.cmake", l_Error))
         {
-            output.LogError(std::format("Build: {} has no TrinityConfig.cmake beside the engine, so nothing can be built against it. Configure Trinity again, which writes it", ToUtf8(l_Engine)));
+            output.LogError(std::format("Build: {} has no TrinityConfig.cmake beside the engine. Configure Trinity again, which writes it", ToUtf8(l_Engine)));
 
             return false;
         }

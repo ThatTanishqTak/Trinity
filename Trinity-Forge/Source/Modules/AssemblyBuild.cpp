@@ -50,7 +50,7 @@ namespace
         return projectDirectory / "Build" / "ScriptsAot";
     }
 
-    // dotnet's messages asked for in English, which the output is read in, and none of its first-run text
+    // dotnet's messages asked for in English, which the output is read in, without first-run text
     bool BuildAssembly(const AssemblyBuild::Request& request, const std::atomic<bool>& cancel, BuildOutput& output)
     {
         Trinity::Process::Environment l_Environment = Trinity::Process::GetEnvironment();
@@ -59,7 +59,7 @@ namespace
         const std::filesystem::path l_DotNet = Trinity::Tools::FindDotNet(l_Environment);
         if (l_DotNet.empty())
         {
-            output.LogError(std::format("Build: the .NET 10 SDK was not found, so the C# scripts cannot be built. Install it from https://dotnet.microsoft.com/download/dotnet/10.0, or point DOTNET_ROOT at it"));
+            output.LogError(std::format("Build: no .NET 10 SDK was found. Install it from https://dotnet.microsoft.com/download/dotnet/10.0 or set DOTNET_ROOT"));
 
             return false;
         }
@@ -68,12 +68,12 @@ namespace
         std::error_code l_Error;
         if (!std::filesystem::exists(l_Scripting / "Trinity-ScriptCore.dll", l_Error) || !std::filesystem::exists(l_Scripting / "Trinity-ScriptGenerator.dll", l_Error))
         {
-            output.LogError(std::format("Build: {} has no Trinity-ScriptCore.dll and Trinity-ScriptGenerator.dll, so nothing can be built against them. Build the Trinity-ScriptCore and Trinity-ScriptGenerator targets", ToUtf8(l_Scripting)));
+            output.LogError(std::format("Build: {} has no Trinity-ScriptCore.dll and Trinity-ScriptGenerator.dll. Build those two targets first", ToUtf8(l_Scripting)));
 
             return false;
         }
 
-        // MSBuild's nodes would outlive the build and hold its output open, so none is left running, and the console logger writes plain lines, which the output is read a line at a time in
+        // No MSBuild node is left running to hold the output open, and the logger writes plain lines
         const std::filesystem::path l_Project = request.ScriptsDirectory / FromUtf8(request.Name + ".csproj");
         std::vector<std::string> l_Arguments{ request.AheadOfTime ? "publish" : "build", ToUtf8(l_Project), "--nologo", "--verbosity", "quiet", "-tl:off", "-clp:NoSummary", "-nodeReuse:false", std::format("-p:TrinityScriptingDirectory={}", ToUtf8(l_Scripting)) };
         if (!request.AheadOfTime)
@@ -82,11 +82,11 @@ namespace
         }
         else
         {
-            // PublishAot and NativeLib are read before any project file is, so they come from here, and the targets beside ScriptCore compile it in and export its way in
+            // PublishAot and NativeLib are read before any project file, so they are passed here
             const std::filesystem::path l_Targets = l_Scripting / "Trinity-ScriptCore.Aot.targets";
             if (!std::filesystem::exists(l_Targets, l_Error))
             {
-                output.LogError(std::format("Build: {} has no Trinity-ScriptCore.Aot.targets, so the scripts cannot be compiled ahead of time. Build the Trinity-ScriptCore target", ToUtf8(l_Scripting)));
+                output.LogError(std::format("Build: {} has no Trinity-ScriptCore.Aot.targets for ahead-of-time compiling. Build the Trinity-ScriptCore target", ToUtf8(l_Scripting)));
 
                 return false;
             }
@@ -163,7 +163,7 @@ void AssemblyBuild::Cancel()
     m_Running.reset();
 }
 
-// C# works in every configuration, and every Forge builds the scripts in Debug, which a debugger steps through line by line and shows every field and local of, and which an IDE builds by default, so Forge loads its builds too
+// Every Forge builds the scripts in Debug, which debuggers step through and IDEs build by default
 std::string_view AssemblyBuild::GetConfiguration()
 {
     return "Debug";

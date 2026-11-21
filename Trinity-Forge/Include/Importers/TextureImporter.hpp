@@ -44,7 +44,7 @@ public:
     static constexpr std::uint32_t c_Version = 2;
     static constexpr std::uint32_t c_MaxUastcLevel = 4;
 
-    // What Import would do, found without encoding: Cached, Failed, or Encoded when the texture needs encoding, with the size of its image and the texels of every level together
+    // What Import would do, found without encoding: Cached, Failed, or Encoded with its size
     struct Plan
     {
         Result Outcome = Result::Failed;

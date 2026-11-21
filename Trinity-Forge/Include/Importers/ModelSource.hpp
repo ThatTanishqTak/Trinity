@@ -15,7 +15,7 @@
 #include <string_view>
 #include <vector>
 
-// What a model file gives the importer, whatever its format. A reader fills it while planning, on a worker, and the cook builds each mesh, material and the hierarchy from it, so nothing the cache already holds is built
+// What a model file gives the importer, whatever its format. Filled while planning, on a worker
 class ModelSource
 {
 public:
@@ -33,7 +33,7 @@ public:
         TextureImportSettings Settings;
     };
 
-    // One mesh asset with a submesh for each part of the file's mesh, and the material each submesh's slot holds
+    // One mesh asset with a submesh for each part of the file's mesh, and each submesh's material
     struct BuiltMesh
     {
         Trinity::MeshData Data;
@@ -51,12 +51,12 @@ public:
     std::vector<std::string> MeshKeys;
     std::vector<std::string> MaterialKeys;
     std::vector<EmbeddedTexture> EmbeddedTextures;
-    // What the file says of itself: metres in one of its units, and the turn that takes its axes to Y up
+    // What the file says of itself: metres in one of its units, and the turn that takes it to Y up
     float UnitScale = 1.0f;
     glm::mat3 Axes{ 1.0f };
 };
 
-// What every reader shares: keys, paths, the finishing of vertex data and the merging of a mesh's parts
+// What every reader shares: keys, paths, the finishing of vertex data and the merging of parts
 namespace ModelReading
 {
     constexpr std::uint64_t c_HashSeed = 14695981039346656037ull;
@@ -87,7 +87,7 @@ namespace ModelReading
     [[nodiscard]] Trinity::Expected<ModelSource::BuiltMesh, std::string> MergePrimitives(std::vector<Primitive> primitives);
     void SetTransform(Trinity::ModelNode& node, const glm::mat4& matrix);
 
-    // Each reads the file and everything it names, sets the plan's content hash and external textures, and gives back what the cook builds from, or nothing when the file cannot be imported
+    // Each reads the file and what it names, and sets the plan's hash. Nothing if it cannot be imported
     [[nodiscard]] std::shared_ptr<ModelSource> ReadGltf(const Trinity::AssetRecord& record, ModelImporter::Plan& plan);
     [[nodiscard]] std::shared_ptr<ModelSource> ReadWithAssimp(const Trinity::AssetRecord& record, ModelImporter::Plan& plan);
 }

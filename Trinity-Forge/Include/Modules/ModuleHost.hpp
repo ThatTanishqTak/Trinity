@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-// The open project's C++ game module: its Source folder watched, built on a job once the project opens and once its files stop changing, and reloaded after each good build. A good build is copied to Cache/Modules under a number of its own, with its PDB under the same number, and the copy is what loads, so a build never waits for the module to unload, a failed one leaves it running, and a debugger holding one copy's PDB keeps nothing from the next build
+// Source is watched, built on a job and reloaded. Each good build loads as a numbered copy in Cache
 class ModuleHost
 {
 public:
@@ -31,12 +31,12 @@ public:
     // On the main thread, once a frame
     void Update();
 
-    // Source/CMakeLists.txt and a source for the module, from templates, each written only when it is not there, and the module named after the project. The project is saved by the caller. Then it builds
+    // Writes Source/CMakeLists.txt and a source, each if missing, named after the project, then builds
     [[nodiscard]] bool Create(Trinity::Project& project);
     // Built at the next Update, or once the build running ends
     void RequestBuild();
 
-    // The first is called while the module is still loaded, before anything of it is unregistered, and the second once a module loaded in its place has registered, so whatever runs the module's code can let go of it and take up the new one
+    // The first is called before the module is unregistered, the second once the new one registered
     void SetReloadCallbacks(std::function<void()> beforeUnload, std::function<void()> afterLoad)
     {
         m_BeforeUnload = std::move(beforeUnload);
@@ -48,7 +48,7 @@ public:
 
     [[nodiscard]] static bool IsSupported() { return ModuleBuild::IsSupported(); }
     [[nodiscard]] bool IsBuilding() const { return m_Build.IsRunning(); }
-    // The build running or waiting to, or else the last that ran to its end. A cancelled one leaves the one before it
+    // The build running or waiting to, or else the last that ran to its end, not a cancelled one
     [[nodiscard]] BuildStatus GetStatus() const;
     // The lines the last build that ran to its end logged at error
     [[nodiscard]] const std::vector<std::string>& GetErrorLines() const { return m_LastErrorLines; }
@@ -78,7 +78,7 @@ private:
     std::function<void()> m_BeforeUnload;
     std::function<void()> m_AfterLoad;
     std::function<void()> m_BuildStarting;
-    // The console variables the loaded module made, by name, and the values set on them as it unloaded, which the module loaded next gets
+    // The console variables the loaded module made, and their values, which the next module gets
     std::vector<std::string> m_ModuleVariables;
     std::vector<std::pair<std::string, std::string>> m_KeptValues;
     // When a source last changed, which a build waits to settle

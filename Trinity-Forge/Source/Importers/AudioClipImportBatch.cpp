@@ -13,7 +13,7 @@ AudioClipImportBatch::~AudioClipImportBatch()
     }
 }
 
-// A clip with no header cooked yet is held in the asset manager until its import ends, so nothing reads the file before it exists
+// A clip with no header cooked yet is held in the asset manager until its import ends
 void AudioClipImportBatch::Start(std::vector<Trinity::AssetRecord> records)
 {
     TR_ASSERT(!m_Running, "An audio clip import batch is already running");
@@ -35,7 +35,7 @@ void AudioClipImportBatch::Start(std::vector<Trinity::AssetRecord> records)
     Trinity::JobSystem::Submit([l_Running] { Run(*l_Running); }, &m_Jobs);
 }
 
-// On the main thread, once a frame. Each finished clip is loaded by everything holding it, and the report comes back once the batch is over
+// On the main thread, once a frame. Finished clips load, and the report comes once the batch ends
 std::optional<AudioClipImportReport> AudioClipImportBatch::Update()
 {
     if (!m_Running)
@@ -122,7 +122,7 @@ void AudioClipImportBatch::Run(Running& running)
     running.Done.store(true, std::memory_order_release);
 }
 
-// A held clip loads now, and one already loaded is loaded again if it was cooked again, so its next play takes its new load type
+// A held clip loads now, and one already loaded is loaded again if it was cooked again
 void AudioClipImportBatch::TakeFinished()
 {
     std::vector<Finished> l_Finished;

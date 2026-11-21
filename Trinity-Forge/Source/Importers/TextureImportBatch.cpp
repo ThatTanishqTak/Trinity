@@ -21,7 +21,7 @@ TextureImportBatch::~TextureImportBatch()
     }
 }
 
-// On the job system, one texture at a time, since the encoder already uses every core. A texture with nothing cooked yet is held in the asset manager until its import ends, so nothing reads the file before it exists, and a sprite shows the placeholder meanwhile
+// One texture at a time, since the encoder uses every core. An uncooked one is held until imported
 void TextureImportBatch::Start(std::vector<Trinity::AssetRecord> records)
 {
     TR_ASSERT(!m_Running, "A texture import batch is already running");
@@ -44,7 +44,7 @@ void TextureImportBatch::Start(std::vector<Trinity::AssetRecord> records)
     Trinity::JobSystem::Submit([l_Running] { Run(*l_Running); }, &m_Jobs);
 }
 
-// On the main thread, once a frame. Each finished texture is loaded by everything holding it, and the report comes back once the batch is over
+// On the main thread, once a frame. Finished ones load, and the report comes once the batch is over
 std::optional<TextureImportReport> TextureImportBatch::Update()
 {
     if (!m_Running)
@@ -124,7 +124,7 @@ TextureImportBatch::Progress TextureImportBatch::GetProgress() const
     return l_Progress;
 }
 
-// First every texture is planned, which reads its file but encodes nothing, so the whole amount of work is known before the first encode starts
+// Every texture is planned first, which encodes nothing, so the whole work is known up front
 void TextureImportBatch::Run(Running& running)
 {
     struct ToEncode

@@ -11,7 +11,7 @@
 #include <string_view>
 #include <vector>
 
-// One build of a project's C++ module, on a job, against an engine package, Forge's own for the module it loads or the Distribution package for a game's player, with the compiler the engine was built with and the CMake on the PATH. The module is configured when it has not been, or was for another Forge, and built with Ninja. Its warnings and errors go to the log with their files and lines as they come, the rest of the output at trace, and a summary at the end
+// One build of a project's C++ module, on a job, against an engine package, with CMake and Ninja
 class ModuleBuild
 {
 public:
@@ -22,7 +22,7 @@ public:
         std::filesystem::path SourceDirectory;
         // This configuration's build tree
         std::filesystem::path BuildDirectory;
-        // Debug, Release or Distribution, as the engine package beside EngineDirectory was built, and what the build makes there, a module Forge loads or a game's player
+        // Debug, Release or Distribution, as the engine package beside EngineDirectory was built
         std::string Configuration;
         std::filesystem::path EngineDirectory;
         std::filesystem::path Output;
@@ -55,7 +55,7 @@ public:
 
     [[nodiscard]] bool IsRunning() const { return m_Running != nullptr; }
 
-    // Debug or Release. Distribution Forge has a static engine, which cannot load a module, so it builds none
+    // Debug or Release. Distribution Forge has a static engine, which cannot load a module
     [[nodiscard]] static std::string_view GetConfiguration();
     [[nodiscard]] static bool IsSupported();
     // Forge's own package, beside its engine

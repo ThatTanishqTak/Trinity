@@ -8,7 +8,7 @@ TextureReimporter::~TextureReimporter()
     Finish();
 }
 
-// One texture at a time, since the encoder already uses every core. Applying again before an import has started replaces the settings it will use
+// One texture at a time. Applying again before an import starts replaces the settings it will use
 void TextureReimporter::Queue(const Trinity::AssetRecord& record)
 {
     const auto a_Queued = std::ranges::find(m_Queued, record.ID, &Trinity::AssetRecord::ID);
@@ -27,7 +27,7 @@ void TextureReimporter::Queue(const Trinity::AssetRecord& record)
     }
 }
 
-// On the main thread. A finished texture is loaded again by everything holding it, which keeps the old one until the new one is ready
+// On the main thread. A finished texture is loaded again, keeping the old one until it is ready
 void TextureReimporter::Update()
 {
     if (!m_Running || !m_Running->Finished.load(std::memory_order_acquire))
@@ -45,7 +45,7 @@ void TextureReimporter::Update()
     StartNext();
 }
 
-// What has not started is dropped, since its settings are already in its .meta and the next scan imports it anyway. The import running is finished
+// What has not started is dropped, as the next scan imports it. The import running is finished
 void TextureReimporter::Finish()
 {
     m_Queued.clear();

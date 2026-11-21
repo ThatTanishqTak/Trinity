@@ -103,7 +103,7 @@ namespace
         return std::string(l_File.substr(0, std::min(l_File.find_last_of('.'), l_File.size())));
     }
 
-    // Metres and Y up from what the file says of itself, or from the settings where they say otherwise. Z up turns (x, y, z) into (x, z, -y)
+    // Metres and Y up from the file, or the settings if they say otherwise. Z up maps to (x, z, -y)
     glm::mat4 GetConversion(const ModelSource& source, const ModelImportSettings& settings)
     {
         const glm::mat3 l_ZUp(1.0f, 0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f);
@@ -131,7 +131,7 @@ Trinity::AssetSettings ModelImporter::MakeSettings(const ModelImportSettings& se
     return l_Settings;
 }
 
-// A missing setting takes its default. One that cannot be read does too, with a warning naming the file
+// A missing setting takes its default. An unreadable one does too, with a warning naming the file
 ModelImportSettings ModelImporter::ReadSettings(const Trinity::AssetRecord& record)
 {
     ModelImportSettings l_Settings;
@@ -141,7 +141,7 @@ ModelImportSettings ModelImporter::ReadSettings(const Trinity::AssetRecord& reco
         const std::from_chars_result l_Parsed = std::from_chars(l_Scale->data(), l_Scale->data() + l_Scale->size(), l_Value);
         if (l_Parsed.ec != std::errc() || l_Parsed.ptr != l_Scale->data() + l_Scale->size() || !(l_Value > 0.0f))
         {
-            TR_WARN("Models: {} has {}: {}, which is neither {} nor a positive number, so the file's own units are used", record.Path, c_UnitScaleSetting, *l_Scale, c_Auto);
+            TR_WARN("Models: {} has {}: {}, not {} or a positive number, so the file's units are used", record.Path, c_UnitScaleSetting, *l_Scale, c_Auto);
         }
         else
         {
@@ -154,7 +154,7 @@ ModelImportSettings ModelImporter::ReadSettings(const Trinity::AssetRecord& reco
         const auto a_Axis = std::ranges::find_if(c_UpAxes, [l_Axis](ModelUpAxis axis) { return ::ToString(axis) == *l_Axis; });
         if (a_Axis == c_UpAxes.end())
         {
-            TR_WARN("Models: {} has {}: {}, which is not Auto, Y or Z, so the file's own axes are used", record.Path, c_UpAxisSetting, *l_Axis);
+            TR_WARN("Models: {} has {}: {}, which is not Auto, Y or Z, so the file's axes are used", record.Path, c_UpAxisSetting, *l_Axis);
         }
         else
         {
@@ -167,7 +167,7 @@ ModelImportSettings ModelImporter::ReadSettings(const Trinity::AssetRecord& reco
         const auto a_Collision = std::ranges::find_if(c_Collisions, [l_Collision](ModelCollision collision) { return ::ToString(collision) == *l_Collision; });
         if (a_Collision == c_Collisions.end())
         {
-            TR_WARN("Models: {} has {}: {}, which is not None, ConvexHulls, TriangleMeshes or Both, so both are cooked", record.Path, c_CollisionSetting, *l_Collision);
+            TR_WARN("Models: {} has {}: {}, not None, ConvexHulls, TriangleMeshes or Both: using Both", record.Path, c_CollisionSetting, *l_Collision);
         }
         else
         {
@@ -209,7 +209,7 @@ Trinity::MaterialData ModelImporter::ApplyMaterialOverrides(const Trinity::Asset
     const Trinity::Expected<Trinity::MaterialData, std::string> l_Applied = Trinity::ApplyMaterialFields(imported, l_Fields);
     if (!l_Applied)
     {
-        TR_WARN("Models: the overrides of {} in {}'s .meta cannot be applied, since {}, so it stays as imported", material, model.Path, l_Applied.GetError());
+        TR_WARN("Models: the overrides of {} in {}'s .meta cannot be applied, since {}", material, model.Path, l_Applied.GetError());
 
         return imported;
     }
@@ -217,7 +217,7 @@ Trinity::MaterialData ModelImporter::ApplyMaterialOverrides(const Trinity::Asset
     return *l_Applied;
 }
 
-// Kept in the order the fields are written, after the settings that are not this material's overrides
+// Kept in the order the fields are written, after the settings that are not its overrides
 Trinity::AssetSettings ModelImporter::MakeMaterialOverrides(const Trinity::AssetRecord& model, std::string_view material, const Trinity::MaterialData& imported, const Trinity::MaterialData& edited)
 {
     Trinity::AssetSettings l_Settings;
@@ -236,7 +236,7 @@ Trinity::AssetSettings ModelImporter::MakeMaterialOverrides(const Trinity::Asset
     return l_Settings;
 }
 
-// A material whose imported file is missing is left to the next import, which a missing file brings about
+// A material whose imported file is missing is left to the next import, which that brings about
 std::vector<Trinity::UUID> ModelImporter::RefreshMaterials(const Trinity::AssetRecord& model)
 {
     std::vector<Trinity::UUID> l_Written;
@@ -313,7 +313,7 @@ std::optional<Trinity::AssetSettings> ModelImporter::PruneMaterialOverrides(cons
         }
         else
         {
-            TR_WARN("Models: {} no longer has the material {} overrides, so the override is dropped from its .meta", model.Path, it_Setting.Key);
+            TR_WARN("Models: {} no longer has the material {} overrides, so the override is dropped", model.Path, it_Setting.Key);
         }
     }
 
@@ -325,7 +325,7 @@ std::string ModelImporter::GetCacheKeyPath(Trinity::UUID id)
     return std::format("{}/Models/{}.key", Trinity::Project::c_CacheMount, id);
 }
 
-// The model's files, its settings, its sub-assets' keys and UUIDs, the textures beside it, both importers' versions, since a texture it embeds is encoded as the texture importer encodes, and the collision shapes', which Jolt's version is in
+// The files, settings, sub-asset keys and UUIDs, textures beside it, and the importers' versions
 std::string ModelImporter::GetCacheKey(const Trinity::AssetRecord& record, const Plan& plan, std::span<const Trinity::UUID> externalTextures)
 {
     std::uint64_t l_SubAssets = ModelReading::c_HashSeed;
@@ -391,7 +391,7 @@ std::string ModelImporter::GetCollisionKey(std::string_view meshKey, Trinity::Co
     return std::format("{}{}", Trinity::GetCollisionShapeAssetType(kind), meshKey.substr(std::min(meshKey.find('.'), meshKey.size())));
 }
 
-// glTF through fastgltf and everything else through assimp. The sub-assets come in one order for every format: meshes, the convex hulls and collision meshes the settings ask for, materials, then the textures the file holds
+// Sub-assets come in one order for every format: meshes, collision shapes, materials, textures
 ModelImporter::Plan ModelImporter::PlanImport(const Trinity::AssetRecord& record)
 {
     TR_PROFILE_FUNCTION();
@@ -448,7 +448,7 @@ ModelImporter::Plan ModelImporter::PlanImport(const Trinity::AssetRecord& record
     return l_Plan;
 }
 
-// Embedded textures first, since they take the time, each skipped when its own key says the cache already holds it. Each mesh's collision shapes are cooked from the mesh as it is built. One Jolt cannot make, such as the hull of points all in a line, still gets a file, which fails to load with the reason, so the model is not imported again for it. The key is written last, so a cook cut short is cooked again
+// Embedded textures first, since they take the time. The key is written last, so a cut cook redoes
 ModelImporter::Cooked ModelImporter::Cook(const Trinity::AssetRecord& record, const Plan& plan, std::span<const Trinity::UUID> externalTextures, const std::atomic<bool>& stop)
 {
     TR_PROFILE_FUNCTION();
@@ -567,7 +567,7 @@ ModelImporter::Cooked ModelImporter::Cook(const Trinity::AssetRecord& record, co
             const Trinity::CookedCollisionShape l_Shape = Trinity::CookCollisionShape(it_Kind, l_Mesh->Data);
             if (!l_Shape.Error.empty())
             {
-                TR_WARN("Models: {} of {} has no shape, since {}, so colliders using it collide with nothing", l_ShapeKey, record.Path, l_Shape.Error);
+                TR_WARN("Models: {} of {} has no shape, since {}, so colliders using it hit nothing", l_ShapeKey, record.Path, l_Shape.Error);
             }
 
             if (a_Write(l_ShapeID, Trinity::GetCookedCollisionShapePath(l_ShapeID), l_Shape.File) && l_Shape.Error.empty())
@@ -606,7 +606,7 @@ ModelImporter::Cooked ModelImporter::Cook(const Trinity::AssetRecord& record, co
     l_Cooked.Outcome = a_Write({}, GetCacheKeyPath(record.ID), std::as_bytes(std::span(l_Key))) ? Result::Imported : Result::Failed;
 
     const auto l_Milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - l_Start).count();
-    TR_INFO("Models: imported {} into {} mesh(es), {} convex hull(s), {} collision mesh(es), {} material(s) and {} node(s), with {} texture(s) encoded, {} from the cache and {} beside it, in {} ms", record.Path, std::ranges::count_if(l_Meshes, [](Trinity::UUID id) { return id.IsValid(); }), l_Shapes[static_cast<std::size_t>(Trinity::CollisionShapeKind::ConvexHull)], l_Shapes[static_cast<std::size_t>(Trinity::CollisionShapeKind::Mesh)], l_Materials.size(), l_Model.Nodes.size(), l_Cooked.TexturesEncoded, l_Cooked.TexturesCached, externalTextures.size(), l_Milliseconds);
+    TR_INFO("Models: imported {}: mesh {}, hulls {}/{}, mat {}, node {}, tex {}/{}/{}, {} ms", record.Path, std::ranges::count_if(l_Meshes, [](Trinity::UUID id) { return id.IsValid(); }), l_Shapes[static_cast<std::size_t>(Trinity::CollisionShapeKind::ConvexHull)], l_Shapes[static_cast<std::size_t>(Trinity::CollisionShapeKind::Mesh)], l_Materials.size(), l_Model.Nodes.size(), l_Cooked.TexturesEncoded, l_Cooked.TexturesCached, externalTextures.size(), l_Milliseconds);
 
     return l_Cooked;
 }

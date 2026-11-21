@@ -66,7 +66,7 @@ namespace
         return { ToUtf8(Trinity::Process::GetExecutablePath()), ToUtf8(Trinity::Process::GetExecutableDirectory()), ToUtf8(project.GetFilePath()) };
     }
 
-    // Launching Forge on the project, and attaching to a Forge running, which VS Code asks to pick from the processes, for each language the project has. C# runs in .NET's debugger, and C++ in Visual Studio's on Windows and in GDB, or LLDB on macOS, elsewhere
+    // Launching Forge on the project, and attaching to a running Forge, for each language it has
     std::string MakeLaunchJson(const Trinity::Project& project)
     {
         const Launch l_Launch = GetLaunch(project);
@@ -106,7 +106,7 @@ namespace
         return std::format("{}\n{{\n  \"version\": \"0.2.0\",\n  \"configurations\": [\n{}\n  ]\n}}\n", c_Marker, l_Joined);
     }
 
-    // Forge started as a program of the C# project's, with Visual Studio's debugger on its native code as well as its managed code, which Rider leaves to its own choice. The project's path is quoted, since the arguments are one line split as a shell would
+    // Forge started as the C# project's program. The path is quoted, as arguments split as a shell's
     std::string MakeLaunchSettings(const Trinity::Project& project)
     {
         const Launch l_Launch = GetLaunch(project);
@@ -140,7 +140,7 @@ namespace
         l_File << text;
         if (!l_File)
         {
-            TR_WARN("Forge: {} could not be written, so an IDE has no settings to debug the scripts in Forge with", ToUtf8(path));
+            TR_WARN("Forge: {} could not be written, so an IDE has no settings to debug scripts with", ToUtf8(path));
 
             return;
         }

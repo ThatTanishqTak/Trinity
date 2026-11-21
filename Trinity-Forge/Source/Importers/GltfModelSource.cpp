@@ -50,7 +50,7 @@ namespace
         return {};
     }
 
-    // Every element inside its buffer view, which PlanImport has checked lies inside its buffer, as fastgltf reads without checking
+    // Every element inside its buffer view, which PlanImport has checked, as fastgltf reads unchecked
     bool IsReadable(const fastgltf::Asset& asset, std::size_t accessorIndex, std::initializer_list<fastgltf::AccessorType> types)
     {
         if (accessorIndex >= asset.accessors.size())
@@ -320,7 +320,7 @@ Trinity::MaterialData GltfSource::BuildMaterial(std::size_t material, const std:
     return l_Material;
 }
 
-// Parents before children from the default scene's roots, or every node no other node holds when the model has no scenes. A node reached twice is created once. A root goes through the conversion, and keeps its own translation, rotation and scale exactly when there is none to make
+// Parents before children from the default scene's roots. A node reached twice is created once
 Trinity::ModelData GltfSource::BuildHierarchy(const glm::mat4& conversion, std::span<const Trinity::UUID> meshes, std::span<const std::vector<Trinity::UUID>> meshMaterials) const
 {
     std::vector<std::size_t> l_Roots;
@@ -421,7 +421,7 @@ Trinity::ModelData GltfSource::BuildHierarchy(const glm::mat4& conversion, std::
 
 namespace ModelReading
 {
-    // The file and every buffer beside it are read, and checked as far as fastgltf trusts them, so cooking reads nothing it has not checked. Images beside it are only named, since they are textures of their own
+    // The file and its buffers are read and checked, so cooking reads nothing unchecked
     std::shared_ptr<ModelSource> ReadGltf(const Trinity::AssetRecord& record, ModelImporter::Plan& plan)
     {
         const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_File = Trinity::FileSystem::ReadFile(record.Path);
@@ -464,7 +464,7 @@ namespace ModelReading
                 const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_Bytes = l_Path ? Trinity::FileSystem::ReadFile(*l_Path) : Trinity::Expected<Trinity::FileBuffer, Trinity::FileError>(Trinity::Unexpected{ Trinity::FileError::NotFound });
                 if (!l_Bytes || l_Bytes->size() < l_URI->fileByteOffset || l_Bytes->size() - l_URI->fileByteOffset < l_Buffer.byteLength)
                 {
-                    TR_ERROR("Models: {} names {} for buffer {}, which is not a file of at least {} bytes beside it", record.Path, l_URI->uri.string(), it_Buffer, l_Buffer.byteLength);
+                    TR_ERROR("Models: {} names {} for buffer {}, not a file of at least {} bytes beside it", record.Path, l_URI->uri.string(), it_Buffer, l_Buffer.byteLength);
 
                     return nullptr;
                 }
@@ -538,7 +538,7 @@ namespace ModelReading
             const std::size_t l_ImageIndex = l_Texture != nullptr ? l_Texture->imageIndex.value_or(l_Asset.images.size()) : l_Asset.images.size();
             if (l_ImageIndex >= l_Asset.images.size())
             {
-                TR_WARN("Models: texture {} of {} has no PNG or JPEG image, so materials using it go without", info.textureIndex, record.Path);
+                TR_WARN("Models: texture {} of {} has no PNG or JPEG image, so its materials go without", info.textureIndex, record.Path);
 
                 return;
             }
@@ -549,7 +549,7 @@ namespace ModelReading
                 const std::optional<std::string> l_Path = l_URI->uri.isLocalPath() ? ResolvePath(record.Path, l_URI->uri.path()) : std::nullopt;
                 if (!l_Path)
                 {
-                    TR_WARN("Models: {} names {} for image {}, which is not a file inside the project's Assets, so materials using it go without", record.Path, l_URI->uri.string(), l_ImageIndex);
+                    TR_WARN("Models: {} names {} for image {}, outside the project's Assets, so it is skipped", record.Path, l_URI->uri.string(), l_ImageIndex);
 
                     return;
                 }
@@ -561,7 +561,7 @@ namespace ModelReading
 
             if (l_Source->EmbeddedImages[l_ImageIndex].empty())
             {
-                TR_WARN("Models: image {} of {} could not be found in the file, so materials using it go without", l_ImageIndex, record.Path);
+                TR_WARN("Models: image {} of {} could not be found in the file, so it is left out", l_ImageIndex, record.Path);
 
                 return;
             }
@@ -613,7 +613,7 @@ namespace ModelReading
 
         if (l_Transformed)
         {
-            TR_WARN("Models: {} moves or scales some textures with KHR_texture_transform, which is not imported yet, so they are sampled as they are", record.Path);
+            TR_WARN("Models: {} uses KHR_texture_transform, which is not imported yet, so is ignored", record.Path);
         }
 
         plan.ContentHash = l_Hash;

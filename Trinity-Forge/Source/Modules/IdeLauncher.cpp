@@ -55,7 +55,7 @@ namespace
     }
 
 #if defined(TR_PLATFORM_WINDOWS)
-    // The program a launcher script starts, the first quoted path in it ending in .exe, so the IDE runs as itself, with no cmd.exe between it and its arguments. Toolbox writes rider.cmd so
+    // The first quoted .exe path in a launcher script, so the IDE runs as itself, without cmd.exe
     std::filesystem::path ReadLauncherScript(const std::filesystem::path& script)
     {
         std::ifstream l_File(script, std::ios::binary);
@@ -82,7 +82,7 @@ namespace
         return {};
     }
 
-    // The newest of the folders in the parent whose names start so, by name, which puts the latest version last
+    // The newest of the parent's folders whose names start so, by name, the latest version last
     std::filesystem::path FindNewestFolder(const std::filesystem::path& parent, std::string_view prefix, const std::filesystem::path& program)
     {
         std::error_code l_Error;
@@ -101,7 +101,7 @@ namespace
     }
 #endif
 
-    // vswhere, which every Visual Studio installer puts in the same place, names the newest install's devenv.exe
+    // vswhere, which every Visual Studio installer puts in the same place, names the newest devenv.exe
     std::filesystem::path FindVisualStudio([[maybe_unused]] const Trinity::Process::Environment& environment)
     {
 #if defined(TR_PLATFORM_WINDOWS)
@@ -193,7 +193,7 @@ namespace
         const std::filesystem::path& l_Program = IdeLauncher::Find(editor);
         if (l_Program.empty())
         {
-            TR_ERROR("Forge: {} is not installed here, so {} was not opened. Pick another editor under Scripts > Script Editor", IdeLauncher::ToString(editor), ToUtf8(opened));
+            TR_ERROR("Forge: {} is not installed here, so {} was not opened. Pick another editor", IdeLauncher::ToString(editor), ToUtf8(opened));
 
             return false;
         }
@@ -339,7 +339,7 @@ namespace IdeLauncher
         return editor == ScriptEditor::System || !Find(editor).empty();
     }
 
-    // Visual Studio opens the file in the instance running, or a new one, and goes to the line through its command window. Rider and VS Code load the solution or folder with it
+    // Visual Studio opens the file in a running instance and goes to the line by its command window
     bool OpenFile(ScriptEditor editor, const std::filesystem::path& file, std::uint32_t line, const std::filesystem::path& workspace)
     {
         const std::string l_File = ToUtf8(file);
@@ -395,7 +395,7 @@ namespace IdeLauncher
         return Launch(editor, l_Arguments, workspace);
     }
 
-    // Visual Studio's picker is the just-in-time debugger it installs in System32, which attaches the instance chosen in it
+    // Visual Studio's picker is the just-in-time debugger it installs in System32
     bool AttachDebugger(ScriptEditor editor, std::uint32_t processID, const std::filesystem::path& workspace)
     {
         const std::string l_Process = std::format("Forge (process {})", processID);
@@ -403,7 +403,7 @@ namespace IdeLauncher
         {
             case ScriptEditor::System:
             {
-                TR_ERROR("Forge: the system's program has no debugger, so none was attached. Pick Visual Studio, Rider or VS Code under Scripts > Script Editor, or attach a debugger to process {}", processID);
+                TR_ERROR("Forge: the system's program has no debugger. Pick an IDE or attach to process {}", processID);
 
                 return false;
             }
@@ -416,7 +416,7 @@ namespace IdeLauncher
 #endif
                 if (l_Picker.empty() || !IsAvailable(editor))
                 {
-                    TR_ERROR("Forge: Visual Studio's debugger is not installed here, so none was attached. In Visual Studio, use Debug > Attach to Process with Native and Managed (.NET Core, .NET 5+) code, and pick process {}", processID);
+                    TR_ERROR("Forge: Visual Studio's debugger is not installed. Attach by hand to process {}", processID);
 
                     return false;
                 }
@@ -429,7 +429,7 @@ namespace IdeLauncher
                     return false;
                 }
 
-                TR_INFO("Forge: Visual Studio's debugger picker is attaching to {}. Choose the instance with the scripts open, and to debug both languages, Manually choose the debugging engines with Native and Managed (.NET Core, .NET 5+)", l_Process);
+                TR_INFO("Forge: Visual Studio's debugger picker is attaching to {}. Choose its instance", l_Process);
 
                 return true;
             }
@@ -438,7 +438,7 @@ namespace IdeLauncher
                 const std::filesystem::path& l_Program = Find(editor);
                 if (l_Program.empty())
                 {
-                    TR_ERROR("Forge: Rider is not installed here, so no debugger was attached to {}. Pick another editor under Scripts > Script Editor", l_Process);
+                    TR_ERROR("Forge: Rider is not installed here, so no debugger was attached to {}", l_Process);
 
                     return false;
                 }
@@ -463,7 +463,7 @@ namespace IdeLauncher
                     return false;
                 }
 
-                TR_INFO("Forge: VS Code cannot be asked to attach, so in Run and Debug pick Attach to Forge: C# or Attach to Forge: C++, then process {}", processID);
+                TR_INFO("Forge: in VS Code's Run and Debug pick Attach to Forge: C# or C++, process {}", processID);
 
                 return true;
             }

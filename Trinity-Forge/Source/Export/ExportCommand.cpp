@@ -24,7 +24,7 @@ namespace
 #if defined(TR_PLATFORM_WINDOWS)
     constexpr std::string_view c_ExecutableExtension = ".exe";
     constexpr std::string_view c_EngineLibrary = "Trinity-Engine.dll";
-    // Microsoft's C++ runtime, as Trinity's Release build copies it from Visual Studio's redistributable folder
+    // Microsoft's C++ runtime, as Trinity's Release build copies it from Visual Studio's redist folder
     constexpr std::array<std::string_view, 4> c_MsvcRuntimePrefixes{ "msvcp140", "vcruntime140", "concrt140", "vccorlib140" };
 #elif defined(TR_PLATFORM_MACOS)
     constexpr std::string_view c_ExecutableExtension = "";
@@ -33,7 +33,7 @@ namespace
     constexpr std::string_view c_ExecutableExtension = "";
     constexpr std::string_view c_EngineLibrary = "libTrinity-Engine.so";
 #endif
-    // Forge's own shaders and the RHI's tests, which Forge's CMakeLists names, are compiled beside the engine's, and no game draws with them. Nor does a Distribution player draw ImGui, which it has none of, while a Development one draws its overlay with it
+    // Forge's own shaders and the RHI's tests, which no game draws with. Only Development draws ImGui
 #if defined(TR_UNSHIPPED_SHADERS)
     constexpr std::string_view c_UnshippedShaders = TR_UNSHIPPED_SHADERS;
 #else
@@ -58,7 +58,7 @@ namespace
         return state == BuildState::Pending || state == BuildState::Building;
     }
 
-    // Whether the path is the folder or lies in it, compared as written, the paths being whole and normal
+    // Whether the path is the folder or lies in it, compared as written, both being whole and normal
     bool IsWithin(const std::filesystem::path& path, const std::filesystem::path& folder)
     {
         const std::filesystem::path::iterator l_Differs = std::mismatch(folder.begin(), folder.end(), path.begin(), path.end()).first;
@@ -66,7 +66,7 @@ namespace
         return l_Differs == folder.end() || (std::next(l_Differs) == folder.end() && l_Differs->empty());
     }
 
-    // A folder named as the output folder is, and as a staging or previous one beside it: its last part, without the separator a typed path may end with
+    // A folder's last part, without the separator a typed path may end with
     std::filesystem::path WithoutTrailingSeparator(std::filesystem::path path)
     {
         return path.has_filename() || !path.has_parent_path() || path == path.root_path() ? path : path.parent_path();
@@ -233,7 +233,7 @@ std::vector<std::string> ExportCommand::CheckSettings(const Trinity::Project& pr
         }
     }
 
-    // A platform this version carries no player for cannot be built, which a project made in another version, or with a platform of a later milestone written in, can name
+    // A platform this version carries no player for cannot be built, though a project can name one
     const Trinity::TargetPlatform* l_Platform = Trinity::TargetPlatforms::Find(l_Settings.Platform);
     const std::vector<std::string> l_Platforms = GetPlatforms();
     if (std::ranges::find(l_Platforms, l_Settings.Platform) == l_Platforms.end())
@@ -253,12 +253,12 @@ std::vector<std::string> ExportCommand::CheckSettings(const Trinity::Project& pr
         return l_Problems;
     }
 
-    // An export replaces its folder whole, so it may be neither the project's folder, nor one that holds it, nor one of the folders the project keeps its own files in
+    // An export replaces its folder whole, so it may not be, hold, or lie in the project's own folders
     const std::filesystem::path l_Output = WithoutTrailingSeparator(project.GetExportDirectory());
     const std::filesystem::path l_Project = WithoutTrailingSeparator(project.GetDirectory().lexically_normal());
     if (IsWithin(l_Project, l_Output))
     {
-        l_Problems.push_back(std::format("The output folder {} holds the project, and an export replaces its folder whole. Choose a folder of its own, such as Builds", ToUtf8(l_Output)));
+        l_Problems.push_back(std::format("The output folder {} holds the project, and an export replaces its folder. Choose one of its own, such as Builds", ToUtf8(l_Output)));
     }
     else
     {
@@ -267,7 +267,7 @@ std::vector<std::string> ExportCommand::CheckSettings(const Trinity::Project& pr
         {
             if (IsWithin(l_Output, WithoutTrailingSeparator(it_Folder.lexically_normal())))
             {
-                l_Problems.push_back(std::format("The output folder {} is in the project's {} folder, and an export replaces its folder whole. Choose a folder of its own, such as Builds", ToUtf8(l_Output), ToUtf8(it_Folder.filename())));
+                l_Problems.push_back(std::format("The output folder {} is in the project's {} folder, and an export replaces its folder. Choose one such as Builds", ToUtf8(l_Output), ToUtf8(it_Folder.filename())));
 
                 break;
             }
@@ -277,7 +277,7 @@ std::vector<std::string> ExportCommand::CheckSettings(const Trinity::Project& pr
     return l_Problems;
 }
 
-// Read again for each export, since Trinity's build of another configuration may finish while Forge runs
+// Read again for each export, since another configuration's build may finish while Forge runs
 Trinity::Expected<std::filesystem::path, std::string> ExportCommand::GetTrinityDirectory(std::string_view configuration)
 {
     const std::filesystem::path l_Version = Trinity::Process::GetExecutableDirectory().parent_path().parent_path();
@@ -390,7 +390,7 @@ std::optional<float> ExportCommand::GetProgress() const
     return static_cast<float>(l_Written) / static_cast<float>(m_PackFiles);
 }
 
-// A project that did not open, a module or scripts that did not build, and settings that cannot make a game end it with the reason, as a failed stage does. Its own builds start once Forge's have ended, so the two never run at once
+// A failed stage ends it with the reason. Its builds start once Forge's have ended, never at once
 void ExportCommand::Update()
 {
     m_Game.Update();
@@ -555,7 +555,7 @@ void ExportCommand::Update()
     }
 }
 
-// A Distribution export links the module into a player against Trinity's Distribution package, in its own build tree beside Forge's, and a Development one builds the module for Release against Release's package, for the Release player with the shared engine to load beside the pack, as Forge loads it. A project without one takes the prebuilt player, which also shows that the build is there, as configuring Trinity writes its package whether or not the configuration was built
+// Distribution links the module into a player. Development builds it for the Release player to load
 void ExportCommand::StartPlayer()
 {
     m_Stage = Stage::BuildingPlayer;
@@ -619,7 +619,7 @@ void ExportCommand::StartScripts()
     m_Compiler.Start(std::move(l_Request));
 }
 
-// What the build reaches is gathered and cooked here, as templates are found through the serializer's resolver on the main thread, and written on a job
+// Gathered and cooked here, as templates need the main thread's resolver, then written on a job
 void ExportCommand::StartPacking()
 {
     m_Stage = Stage::Packing;
@@ -706,7 +706,7 @@ void ExportCommand::StartPacking()
     }, &m_PackJobs);
 }
 
-// The player named for the product, with its icon and version on Windows, the scripts' library and the shaders for the export's graphics APIs, then on Windows the Agility SDK runtime where D3D12SDKPath points and GameInput's redistributable, which Microsoft asks a game to ship, all from Trinity's build of Distribution, or of Release for a Development Build, which also takes the shared engine and the module's build beside it, on Windows nethost, which the engine links though a player never starts .NET, and the C++ runtime the engine and the module link, and the ImGui shaders and fonts its overlay draws with
+// The player, the scripts' library, the shaders, and on Windows the Agility SDK and GameInput
 bool ExportCommand::CopyFiles()
 {
     const Trinity::ExportSettings& l_Export = m_Session.GetProject()->GetExportSettings();
@@ -757,7 +757,7 @@ bool ExportCommand::CopyFiles()
 
         if (l_Runtime.empty())
         {
-            TR_WARN("Export: Trinity's Release build has no copy of Microsoft's C++ runtime in {}, so a Development player needs the Visual C++ Redistributable installed. Configure Trinity again with Visual Studio's C++ tools, which finds it", ToUtf8(l_Trinity));
+            TR_WARN("Export: no Microsoft C++ runtime in {}, so Development players need it installed", ToUtf8(l_Trinity));
         }
 #endif
     }
@@ -792,7 +792,7 @@ bool ExportCommand::CopyFiles()
         }
     }
 
-    // The faces a Development player's overlay draws with, and the licence they are given under, which asks to go with them
+    // The faces a Development player's overlay draws with, and their licence, which must go with them
     if (m_Development)
     {
         const std::filesystem::path l_Fonts = l_Trinity / "Engine" / "fonts";
@@ -808,7 +808,7 @@ bool ExportCommand::CopyFiles()
 
         if (l_Faces.empty())
         {
-            TR_WARN("Export: Trinity's Release build has no fonts in {}, so the Development overlay draws with ImGui's own", ToUtf8(l_Fonts));
+            TR_WARN("Export: no fonts in {}, so the Development overlay draws with ImGui's own", ToUtf8(l_Fonts));
         }
 
         std::ranges::sort(l_Faces);
@@ -827,7 +827,7 @@ bool ExportCommand::CopyFiles()
         const std::filesystem::path l_Agility = l_Trinity / "D3D12" / "D3D12Core.dll";
         if (!std::filesystem::exists(l_Agility, l_Error))
         {
-            TR_WARN("Export: Trinity's build has no D3D12 Agility SDK runtime at {}, so the game draws with the D3D12 runtime Windows has. Scripts/Bootstrap.ps1 downloads it", ToUtf8(l_Agility));
+            TR_WARN("Export: no D3D12 Agility SDK runtime at {}, so the game uses Windows' own D3D12", ToUtf8(l_Agility));
         }
         else if (!CopyFile(l_Agility, std::filesystem::path("D3D12") / "D3D12Core.dll", "D3D12 Agility SDK"))
         {
@@ -838,7 +838,7 @@ bool ExportCommand::CopyFiles()
     const std::filesystem::path l_GameInput = l_Trinity / "Redist" / "GameInputRedist.msi";
     if (!std::filesystem::exists(l_GameInput, l_Error))
     {
-        TR_WARN("Export: Trinity's build has no GameInput redistributable at {}, so a player without GameInput installed has no gamepads. Scripts/Bootstrap.ps1 downloads it", ToUtf8(l_GameInput));
+        TR_WARN("Export: no GameInput redistributable at {}: players without it have no gamepads", ToUtf8(l_GameInput));
     }
     else if (!CopyFile(l_GameInput, std::filesystem::path("Redist") / "GameInputRedist.msi", "GameInput redistributable"))
     {
@@ -849,7 +849,7 @@ bool ExportCommand::CopyFiles()
     return true;
 }
 
-// A Windows player, a PE image, is given its version and the icon the settings name, which a player of another platform has no place for, so it goes in as it is
+// A Windows player, a PE image, is given its version and icon. Any other goes in as it is
 bool ExportCommand::CopyPlayer(const std::filesystem::path& to)
 {
     std::optional<std::vector<char>> l_Image = PortableExecutable::ReadImage(m_Player);
@@ -869,7 +869,7 @@ bool ExportCommand::CopyPlayer(const std::filesystem::path& to)
     const Trinity::ExportSettings& l_Export = l_Project.GetExportSettings();
     if (!PlayerResources::ParseVersion(l_Export.Version).Numeric)
     {
-        TR_WARN("Export: the version {} does not start with a number, so Windows shows the file's version as 0.0.0.0. A version such as 1.0 or 1.2.3-beta gives its numbers", l_Export.Version);
+        TR_WARN("Export: the version {} does not start with a number, so Windows shows 0.0.0.0", l_Export.Version);
     }
 
     std::vector<PortableExecutable::Resource> l_Resources{ PlayerResources::MakeVersion(l_Export, ToUtf8(to.filename())) };
@@ -925,7 +925,7 @@ bool ExportCommand::CopyFile(const std::filesystem::path& from, const std::files
     return true;
 }
 
-// A game Build And Run started from the folder is closed first. The output folder is moved aside, the staging folder takes its place, and only then is the old one removed, so a rename that fails, as Windows refuses one while a game started some other way runs from the folder, puts the old one back
+// The output is moved aside, staging takes its place, then the old goes, so a failed rename undoes
 bool ExportCommand::ReplaceOutput()
 {
     const std::filesystem::path& l_Output = *m_Folder;
@@ -973,7 +973,7 @@ bool ExportCommand::ReplaceOutput()
     return true;
 }
 
-// The folder's files by kind, in the order they were written, then what the pack holds by the folder each file lies in
+// The folder's files by kind, in the order written, then the pack's contents by folder
 void ExportCommand::Report(const PackSummary& pack) const
 {
     const std::filesystem::path& l_Output = *m_Folder;
@@ -1001,7 +1001,7 @@ void ExportCommand::Report(const PackSummary& pack) const
         TR_INFO("Export:   {}: {} in {} file(s)", it_Kind, Trinity::Memory::FormatBytes(it_Count.second), it_Count.first);
     }
 
-    TR_INFO("Export: {} holds {} asset(s) from {} scene(s), {} file(s) of {} in {}, {} of them compressed, {} from the cache", c_PackFileName, m_Assets, m_Scenes, pack.Files, Trinity::Memory::FormatBytes(pack.Bytes), Trinity::Memory::FormatBytes(pack.PackBytes), pack.Compressed, pack.Cached);
+    TR_INFO("Export: {}: {} assets, {} scenes, {} files of {} in {}, {} compressed, {} cached", c_PackFileName, m_Assets, m_Scenes, pack.Files, Trinity::Memory::FormatBytes(pack.Bytes), Trinity::Memory::FormatBytes(pack.PackBytes), pack.Compressed, pack.Cached);
     for (const auto& [it_Kind, it_Count] : m_PackKinds)
     {
         TR_INFO("Export:   {}: {} in {} file(s)", it_Kind, Trinity::Memory::FormatBytes(it_Count.second), it_Count.first);

@@ -105,7 +105,7 @@ namespace
         return l_Frame;
     }
 
-    // As an icon holds a bitmap: its header at twice the height, for the colours and the mask below them, then the colours as BGRA from the bottom row up, then the mask, a bit set where nothing is drawn
+    // As an icon holds a bitmap: a header at twice the height, BGRA rows bottom up, then the mask
     std::vector<char> EncodeBitmap(const std::vector<std::uint8_t>& frame, std::uint32_t size)
     {
         const std::uint32_t l_MaskRow = (size + 31) / 32 * 4;
@@ -164,7 +164,7 @@ namespace
         return l_Bytes;
     }
 
-    // One block of VS_VERSIONINFO: its length with the blocks below, its value's length, in characters for text, whether the value is text, its key, then the value and the blocks below, each on 4 bytes
+    // One block of VS_VERSIONINFO: its lengths, whether text, its key, value and children, on 4 bytes
     struct VersionBlock
     {
         std::u16string Key;
@@ -287,7 +287,7 @@ namespace PlayerResources
                 return Trinity::Unexpected{ std::format("its {} px frame could not be encoded", l_Size) };
             }
 
-            // Its width and height, 0 meaning 256, no palette, one plane of 32 bits, its size and which RT_ICON it is
+            // Its width and height, 0 meaning 256, no palette, one plane of 32 bits, its size and its RT_ICON
             Append<std::uint8_t>(l_Group.Data, static_cast<std::uint8_t>(l_Size >= 256 ? 0 : l_Size));
             Append<std::uint8_t>(l_Group.Data, static_cast<std::uint8_t>(l_Size >= 256 ? 0 : l_Size));
             Append<std::uint8_t>(l_Group.Data, 0);

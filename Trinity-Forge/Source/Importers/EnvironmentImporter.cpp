@@ -18,7 +18,7 @@
 
 namespace
 {
-    // zstd decompresses as fast at any level, and an environment is filtered once, so the level favours size
+    // zstd decompresses as fast at any level, and this is filtered once, so the level favours size
     constexpr ktx_uint32_t c_ZstdLevel = 18;
     // VK_FORMAT_R16G16B16A16_SFLOAT
     constexpr ktx_uint32_t c_VkFormatRGBA16Float = 97;
@@ -63,7 +63,7 @@ namespace
         return l_Hash;
     }
 
-    // glTF Sample Viewer's uvToXYZ: a face's texel position, from -1 to 1 across, to a point on the unit cube, with y the other way round from the cubemap's own
+    // glTF Sample Viewer's uvToXYZ: a face's texel, from -1 to 1, to the unit cube, y flipped
     glm::vec3 GetScan(std::uint32_t face, float u, float v)
     {
         switch (face)
@@ -95,7 +95,7 @@ namespace
         }
     }
 
-    // The bits of i mirrored about the binary point, the second coordinate of the Hammersley points glTF Sample Viewer samples with
+    // The bits of i mirrored about the binary point, the Hammersley points' second coordinate
     float RadicalInverse(std::uint32_t bits)
     {
         bits = (bits << 16u) | (bits >> 16u);
@@ -114,7 +114,7 @@ namespace
         float Density = 0.0f;
     };
 
-    // GGX with alpha the square of perceptual roughness, D as the viewer writes it, and the density of the half vector, D / 4 with the view along the normal
+    // GGX with alpha the square of perceptual roughness, and the half vector's density, D / 4
     LocalSample SampleGGX(std::uint32_t index, std::uint32_t count, float roughness)
     {
         const float l_X = static_cast<float>(index) / static_cast<float>(count);
@@ -143,7 +143,7 @@ namespace
         return { glm::normalize(glm::vec3(l_Sine * std::cos(l_Phi), l_Sine * std::sin(l_Phi), l_Cosine)), l_Cosine / c_Pi };
     }
 
-    // glTF Sample Viewer's generateTBN: tangent and bitangent about the normal, from +Y, or +Z or -Z when the normal is +Y or -Y
+    // glTF Sample Viewer's generateTBN: tangent and bitangent about the normal, from +Y, or +Z or -Z
     void GetFrame(const glm::vec3& normal, glm::vec3& tangent, glm::vec3& bitangent)
     {
         glm::vec3 l_Up(0.0f, 1.0f, 0.0f);
@@ -157,7 +157,7 @@ namespace
         bitangent = glm::cross(normal, tangent);
     }
 
-    // The mip a sample reads, so its footprint on the cubemap matches the solid angle its density gives it
+    // The mip a sample reads, so its footprint matches the solid angle its density gives it
     float GetSampleLevel(float density, std::uint32_t samples, std::uint32_t size)
     {
         return 0.5f * std::log2(6.0f * static_cast<float>(size) * static_cast<float>(size) / (static_cast<float>(samples) * density));
@@ -244,7 +244,7 @@ namespace
     }
 }
 
-// The face whose axis the direction is most along, and where on it the direction lands, by the table OpenGL, Vulkan and D3D12 share
+// The face whose axis the direction is most along, by the table OpenGL, Vulkan and D3D12 share
 glm::vec3 EnvironmentImporter::Cubemap::Sample(const glm::vec3& direction, float level) const
 {
     const glm::vec3 l_Magnitude = glm::abs(direction);
@@ -396,7 +396,7 @@ EnvironmentImporter::Cubemap EnvironmentImporter::FromPanorama(std::span<const f
     return l_Cube;
 }
 
-// Mip 0 of the specular cubemap is roughness 0, the radiance itself, and every other is filtered from the whole cubemap. The samples, their densities and the mips they read depend only on the roughness, so each level works them out once
+// Mip 0 is roughness 0, the radiance itself. Each other level works its samples out once
 Trinity::Expected<std::vector<std::byte>, std::string> EnvironmentImporter::Filter(const Cubemap& radiance)
 {
     TR_PROFILE_FUNCTION();
@@ -485,7 +485,7 @@ Trinity::Expected<std::vector<std::byte>, std::string> EnvironmentImporter::Filt
         }
     }, c_RowBatch);
 
-    // Columns are the cosine between normal and view, rows the perceptual roughness, each at its texel's centre, holding the scale and bias the split sum applies to the reflectance
+    // Columns are the cosine of normal and view, rows the roughness: the split sum's scale and bias
     std::vector<std::vector<glm::vec3>> l_Lookup(1);
     l_Lookup[0].resize(GetFaceTexels(c_LookupSize));
     Trinity::JobSystem::ParallelFor(c_LookupSize, [&](std::size_t begin, std::size_t end)
@@ -559,7 +559,7 @@ Trinity::Expected<std::vector<std::byte>, std::string> EnvironmentImporter::Filt
     return l_File;
 }
 
-// Anything that changes the cooked file changes the key: the source and the importer, whose version goes up with any change to how it filters
+// Anything that changes the cooked file changes the key: the source and the importer's version
 std::string EnvironmentImporter::GetCacheKey(std::span<const std::byte> source)
 {
     return std::format("content {:016x}, importer {}", HashBytes(source), c_Version);
@@ -582,7 +582,7 @@ bool EnvironmentImporter::IsCached(Trinity::UUID id, std::string_view key)
     return l_CachedKey && *l_CachedKey == key;
 }
 
-// The key is written after the cooked file, so an import cut short leaves no key and is filtered again
+// The key is written after the cooked file, so an import cut short is filtered again
 EnvironmentImporter::Result EnvironmentImporter::Import(const Trinity::AssetRecord& record)
 {
     TR_PROFILE_FUNCTION();
@@ -635,7 +635,7 @@ EnvironmentImporter::Result EnvironmentImporter::Import(const Trinity::AssetReco
     }
 
     const double l_Seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - l_Start).count();
-    TR_INFO("Environments: {} ({}x{}) filtered into a {} cubemap with {} specular mips in {:.1f} s, {} KiB", record.Path, l_Width, l_Height, c_CubeSize, c_SpecularLevels, l_Seconds, l_File->size() / 1024);
+    TR_INFO("Environments: {} ({}x{}) filtered into a {} cubemap, {} mips, {:.1f} s, {} KiB", record.Path, l_Width, l_Height, c_CubeSize, c_SpecularLevels, l_Seconds, l_File->size() / 1024);
 
     return Result::Filtered;
 }

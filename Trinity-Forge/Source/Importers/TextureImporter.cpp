@@ -22,7 +22,7 @@ namespace
     constexpr ktx_uint32_t c_ZstdLevel = 18;
     constexpr int c_Channels = 4;
 
-    // The VkFormat of the RGBA8 image handed to the Basis encoder, which takes the transfer function from it
+    // The VkFormat of the RGBA8 image handed to the Basis encoder, which takes the transfer from it
     constexpr ktx_uint32_t c_VkFormatRGBA8Unorm = 37;
     constexpr ktx_uint32_t c_VkFormatRGBA8Srgb = 43;
 
@@ -142,7 +142,7 @@ Trinity::AssetSettings TextureImporter::MakeSettings(const TextureImportSettings
     return { { std::string(c_SrgbSetting), settings.Srgb ? "true" : "false" }, { std::string(c_NormalMapSetting), settings.NormalMap ? "true" : "false" }, { std::string(c_MipsSetting), settings.GenerateMips ? "true" : "false" }, { std::string(c_UastcSetting), std::to_string(settings.UastcLevel) }, { std::string(c_FilterSetting), std::string(ToString(settings.Filter)) } };
 }
 
-// A missing setting takes its default. One that cannot be read does too, with a warning naming the file
+// A missing setting takes its default. An unreadable one does too, with a warning naming the file
 TextureImportSettings TextureImporter::ReadSettings(const Trinity::AssetRecord& record)
 {
     TextureImportSettings l_Settings;
@@ -206,7 +206,7 @@ TextureImportSettings TextureImporter::ReadSettings(const Trinity::AssetRecord& 
     return l_Settings;
 }
 
-// Anything that changes the cooked file changes the key: the source, its settings, and the importer, whose version goes up with any change to how it encodes, KTX-Software's included. Only a normal map names it, so other textures keep the keys they had
+// Anything that changes the cooked file changes the key. Only a normal map names KTX-Software's
 std::string TextureImporter::GetCacheKey(std::span<const std::byte> source, const TextureImportSettings& settings)
 {
     return std::format("content {:016x}, srgb {}, mips {}, uastc {}, filter {}{}, importer {}", HashBytes(source), settings.Srgb && !settings.NormalMap, settings.GenerateMips, settings.UastcLevel, ToString(settings.Filter), settings.NormalMap ? ", normal map" : "", c_Version);
@@ -230,7 +230,7 @@ bool TextureImporter::IsCached(Trinity::UUID id, std::string_view key)
     return l_CachedKey && *l_CachedKey == key;
 }
 
-// Reads the source and its header only, so a scan can tell what is left to encode, and how much, before encoding any of it
+// Reads the source and its header only, so a scan can tell what is left to encode, and how much
 TextureImporter::Plan TextureImporter::PlanImport(const Trinity::AssetRecord& record)
 {
     TR_PROFILE_FUNCTION();
@@ -269,7 +269,7 @@ TextureImporter::Plan TextureImporter::PlanImport(const Trinity::AssetRecord& re
     return l_Plan;
 }
 
-// Every mip comes from the full image, filtered in linear light for an sRGB texture, with colours weighted by alpha. A normal map keeps X in red and Y in alpha, as BC5 takes them from UASTC
+// Every mip comes from the full image, filtered in linear light. A normal map keeps X and Y for BC5
 Trinity::Expected<TextureImporter::EncodedTexture, std::string> TextureImporter::Encode(std::span<const std::byte> source, const TextureImportSettings& settings)
 {
     TR_PROFILE_FUNCTION();
@@ -358,7 +358,7 @@ Trinity::Expected<TextureImporter::EncodedTexture, std::string> TextureImporter:
         l_Result = ktxTexture2_DeflateZstd(l_Texture.get(), c_ZstdLevel);
     }
 
-    // The loader reads the filter, and whether this is a normal map, from the file, so a game needs no import settings. KTX2 strings carry their terminating null
+    // The loader reads the filter and the normal map flag from the file. KTX2 strings carry their null
     const auto a_AddValue = [&l_Texture](std::string_view key, std::string_view value)
     {
         const std::string l_Key(key);
@@ -437,7 +437,7 @@ TextureImporter::Result TextureImporter::Import(const Trinity::AssetRecord& reco
     }
 
     const auto l_Milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - l_Start).count();
-    TR_INFO("Textures: encoded {} ({}x{}, {} mip(s), {}, UASTC level {}, {} filtering) into {} in {} ms", record.Path, l_Encoded->Width, l_Encoded->Height, l_Encoded->Levels, l_Settings.NormalMap ? "normal map" : (l_Settings.Srgb ? "sRGB" : "linear"), l_Settings.UastcLevel, ToString(l_Settings.Filter), Trinity::Memory::FormatBytes(l_Encoded->File.size()), l_Milliseconds);
+    TR_INFO("Textures: encoded {} ({}x{}, {} mip(s), {}, UASTC {}, {} filter) into {}, {} ms", record.Path, l_Encoded->Width, l_Encoded->Height, l_Encoded->Levels, l_Settings.NormalMap ? "normal map" : (l_Settings.Srgb ? "sRGB" : "linear"), l_Settings.UastcLevel, ToString(l_Settings.Filter), Trinity::Memory::FormatBytes(l_Encoded->File.size()), l_Milliseconds);
 
     return Result::Encoded;
 }

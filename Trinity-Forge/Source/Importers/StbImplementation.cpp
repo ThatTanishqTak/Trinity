@@ -1,4 +1,4 @@
-// The one translation unit holding stb's implementations, for the formats the asset registry gives the texture importer, and Radiance HDR for the environment importer. The PNG writer makes the large frame of an exported player's icon
+// The one translation unit holding stb's implementations, for the texture and environment importers
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
 #define STBI_ONLY_JPEG

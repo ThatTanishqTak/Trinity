@@ -21,7 +21,7 @@ enum class ModelUpAxis : std::uint8_t
     Z
 };
 
-// The collision shapes cooked for each mesh: none, a convex hull, its triangles as a collision mesh, or both
+// The collision shapes cooked for each mesh: none, a convex hull, a collision mesh, or both
 enum class ModelCollision : std::uint8_t
 {
     None,
@@ -30,7 +30,7 @@ enum class ModelCollision : std::uint8_t
     Both
 };
 
-// What the file says of its units and axes, unless these say otherwise, and the collision shapes cooked beside its meshes. A unit scale is metres in one of the file's units, and Z up is turned to Y up as a right-handed Z-up tool exports it
+// Unit scale is metres in one of the file's units. Z up is turned to Y up as a Z-up tool exports
 struct ModelImportSettings
 {
     std::optional<float> UnitScale;
@@ -53,7 +53,7 @@ struct ModelImportReport
     std::size_t TexturesCached = 0;
 };
 
-// A .gltf, .glb, .fbx, .obj or .dae becomes sub-assets of its file: a mesh for each mesh, with the convex hull and collision mesh its settings ask for, a material for each material, and a texture for each image it embeds and each way a material uses it. An image beside the model is its own texture asset, which the model sets to be encoded as it uses it. The node hierarchy is cooked beside them, in Trinity's metres with Y up. glTF is read with fastgltf and the rest with assimp
+// A .gltf, .glb, .fbx, .obj or .dae becomes sub-assets of its file, read by fastgltf or assimp
 class ModelImporter
 {
 public:
@@ -65,7 +65,7 @@ public:
         Stopped
     };
 
-    // How a material samples a texture, which decides how it is encoded: colour as sRGB, data as linear, and normals as a normal map
+    // How a material samples a texture, which decides its encoding: sRGB colour, linear data, normals
     enum class TextureUsage : std::uint8_t
     {
         Color,
@@ -76,7 +76,7 @@ public:
     static constexpr std::string_view c_Importer = Trinity::c_ModelAssetType;
     static constexpr std::string_view c_MaterialImporter = "Material";
     static constexpr std::uint32_t c_Version = 5;
-    // Between a material's key and a field's name in the key of a .meta setting that overrides it, such as Material.0.blinn3/RoughnessFactor
+    // Between a material's key and a field's name in a .meta override, as Material.0.x/RoughnessFactor
     static constexpr char c_OverrideSeparator = '/';
 
     struct ExternalTexture
@@ -85,7 +85,7 @@ public:
         TextureUsage Usage = TextureUsage::Color;
     };
 
-    // Read on a worker, then taken up on the main thread, which gives the sub-assets their UUIDs, finds the textures beside the model, and decides whether to cook
+    // Read on a worker, then taken up on the main thread, which gives UUIDs and decides whether to cook
     struct Plan
     {
         bool Read = false;
@@ -93,7 +93,7 @@ public:
         std::vector<Trinity::SubAsset> SubAssets;
         std::vector<ExternalTexture> ExternalTextures;
         std::uint64_t ContentHash = 0;
-        // What the last cook left: its key, and whether the file of every sub-asset the record lists, and the model's own, is there
+        // What the last cook left: its key, and whether every sub-asset's file and the model's own is there
         std::string CachedKey;
         bool CookedFilesExist = false;
         std::shared_ptr<const ModelSource> Model;
@@ -114,23 +114,23 @@ public:
     [[nodiscard]] static Trinity::AssetSettings MakeSettings(const ModelImportSettings& settings, const Trinity::AssetRecord& record);
     [[nodiscard]] static ModelImportSettings ReadSettings(const Trinity::AssetRecord& record);
 
-    // A model's material as it was imported, before the .meta's overrides, cooked beside the material so an edit needs no import
+    // A model's material as imported, before the .meta's overrides, cooked so an edit needs no import
     [[nodiscard]] static std::string GetImportedMaterialPath(Trinity::UUID id);
     [[nodiscard]] static std::vector<Trinity::MaterialField> ReadMaterialOverrides(const Trinity::AssetRecord& model, std::string_view material);
     [[nodiscard]] static Trinity::MaterialData ApplyMaterialOverrides(const Trinity::AssetRecord& model, std::string_view material, const Trinity::MaterialData& imported);
-    // The model's settings with the material's overrides replaced by every field in which the edit differs from the import
+    // The model's settings with the material's overrides replaced by every field the edit changes
     [[nodiscard]] static Trinity::AssetSettings MakeMaterialOverrides(const Trinity::AssetRecord& model, std::string_view material, const Trinity::MaterialData& imported, const Trinity::MaterialData& edited);
-    // For a model whose cache is otherwise whole: each cooked material is brought in line with the .meta, which may have changed since, and those rewritten are given back
+    // For a model whose cache is whole: each cooked material is brought in line with the .meta
     [[nodiscard]] static std::vector<Trinity::UUID> RefreshMaterials(const Trinity::AssetRecord& model);
-    // For a model whose cache is otherwise whole: the cooked hierarchy is given the file's name when it has another, as after a rename, or none, as one cooked before it had a name, so its instances' root follows the file. Whether it was written
+    // For a model whose cache is whole: the cooked hierarchy takes the file's name. Whether written
     [[nodiscard]] static bool RefreshName(const Trinity::AssetRecord& model);
-    // The settings without overrides of materials the model no longer has, or nothing when there are none
+    // The settings without overrides of materials the model no longer has, or nothing when none
     [[nodiscard]] static std::optional<Trinity::AssetSettings> PruneMaterialOverrides(const Trinity::AssetRecord& model);
     [[nodiscard]] static std::string GetCacheKeyPath(Trinity::UUID id);
     [[nodiscard]] static std::string GetCacheKey(const Trinity::AssetRecord& record, const Plan& plan, std::span<const Trinity::UUID> externalTextures);
     [[nodiscard]] static std::string_view ToString(TextureUsage usage);
     [[nodiscard]] static std::string GetCookedPath(const Trinity::SubAsset& subAsset);
-    // A mesh's key with the shape's asset type in place of its kind, so Mesh.2.Crate has ConvexHull.2.Crate and CollisionMesh.2.Crate, kept from one import to the next as the mesh's is
+    // A mesh's key with the shape's asset type for its kind, as ConvexHull.2.Crate for Mesh.2.Crate
     [[nodiscard]] static std::string GetCollisionKey(std::string_view meshKey, Trinity::CollisionShapeKind kind);
 
     [[nodiscard]] static Plan PlanImport(const Trinity::AssetRecord& record);

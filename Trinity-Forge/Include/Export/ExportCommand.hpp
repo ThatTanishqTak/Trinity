@@ -22,7 +22,7 @@
 
 class EditorSession;
 
-// Exports the open project as a game a player runs with nothing installed, as its export settings say, from the Build panel or from Forge's --export=<folder>, which then closes Forge with exit code 0, or 1 when it failed. Once every import and Forge's own builds of the module and the scripts have ended, the player is made: a project with a C++ module has it linked into a Distribution player by CMake, against the package of Trinity's Distribution build, and one without takes that build's prebuilt Trinity-Runtime, which needs no compiler. A Development Build instead takes the prebuilt Release player, with its logs, asserts, profiler and overlay, beside the shared Release engine, and the module built for Release, which the player loads as Forge does. Then its C# scripts are compiled ahead of time with NativeAOT, and BuildWalk gathers what the ticked scenes reach, cooking the scenes and prefabs, into Game.trpak with its Game.trgame, written on a job, each file's compressed bytes kept in the project's Build/Export cache by its content, so the next export compresses only what changed. The player goes in named for the product, a Windows one with its icon and version written in, with the scripts' library, the D3D12 Agility SDK runtime, the GameInput redistributable and the engine's shaders for the export's graphics APIs. Everything is written into a staging folder beside the output folder, which then replaces the output folder whole, so an export that fails or is cancelled leaves the last one as it was. Build And Run then starts the game, whose log the Console shows, and an export into the folder a game it started runs from closes that game first, as Windows will not replace the files of a program that runs
+// Exports the project as a game that runs with nothing installed. A failed export leaves the last
 class ExportCommand
 {
 public:
@@ -46,11 +46,11 @@ public:
     ExportCommand(const ExportCommand&) = delete;
     ExportCommand& operator=(const ExportCommand&) = delete;
 
-    // Into the folder, closing Forge once it is exported or has failed when asked to, as --export does, or starting the game once it is exported, as Build And Run does. Nothing while one is under way
+    // Into the folder. closeWhenDone is --export's, run is Build And Run's. Nothing while one runs
     void Start(const std::filesystem::path& folder, bool closeWhenDone = false, bool run = false);
     // Once a frame. Waits while the project imports or builds, then runs each stage in turn
     void Update();
-    // Ends what is running, waits for it, and removes the staging folder, so the output folder is as the last export left it
+    // Ends what is running, waits for it, and removes the staging folder, leaving the last export
     void Cancel();
 
     [[nodiscard]] bool IsRunning() const { return m_Folder.has_value(); }
@@ -63,17 +63,17 @@ public:
     [[nodiscard]] std::optional<float> GetProgress() const;
     [[nodiscard]] double GetSeconds() const { return std::chrono::duration<double>(std::chrono::steady_clock::now() - m_Started).count(); }
 
-    // What stops the project's settings from making a game, each a sentence for the Build panel and the Console: a scene of the build that is missing or is not a scene, no scene ticked, no product or company, which its saves and log go under, an icon that is missing or is not a texture, no graphics API, or an output folder that is missing or would replace the project's own files. Empty when nothing does
+    // What stops the settings from making a game, each a sentence for the Build panel. Empty if none
     [[nodiscard]] static std::vector<std::string> CheckSettings(const Trinity::Project& project, const Trinity::AssetRegistry& registry);
-    // Trinity's build of a configuration in the version Forge is part of, whose folder is two above Forge's own and whose Trinity.trversion names the configurations it holds, or why there is none. Distribution's holds the prebuilt player, the package a game's player is built against and the runtimes copied beside a game, and Release's the same for a Development Build, with the shared engine its player loads
+    // Trinity's build of a configuration in Forge's version, two folders above Forge's own, or why none
     [[nodiscard]] static Trinity::Expected<std::filesystem::path, std::string> GetTrinityDirectory(std::string_view configuration);
-    // The platforms this version of Trinity builds games for, as its manifest lists them, which are the one it runs on until it cross-compiles, or that one alone when it has no manifest to read
+    // The platforms this version builds games for, as its manifest lists them, or its own alone
     [[nodiscard]] static std::vector<std::string> GetPlatforms();
-    // The product's name as the executable's, with .exe on Windows: without the characters Windows refuses in a file name, nor the dots and spaces it drops from the end, and never a device name such as CON. Game when nothing is left
+    // With .exe on Windows, without the characters Windows refuses, and never a device name such as CON
     [[nodiscard]] static std::string GetExecutableName(std::string_view product);
 
 private:
-    // The pack's write, on a job. The flags and the count are read by both threads, and the result written by the job before Done
+    // The pack's write, on a job. Both threads read the flags and the count
     struct Packing
     {
         PackBuilder Builder;
@@ -95,7 +95,7 @@ private:
     void StartPlayer();
     void StartScripts();
     void StartPacking();
-    // Once the pack is written: the player and what goes beside it, then the swap. False once it has failed, which it has said why
+    // Once the pack is written: the player and what goes beside it, then the swap. False once it failed
     [[nodiscard]] bool CopyFiles();
     [[nodiscard]] bool CopyPlayer(const std::filesystem::path& to);
     [[nodiscard]] bool CopyFile(const std::filesystem::path& from, const std::filesystem::path& to, std::string kind);

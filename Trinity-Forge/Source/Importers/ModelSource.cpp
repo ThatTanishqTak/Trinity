@@ -16,7 +16,7 @@ namespace
         return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '_' || character == '-' || character == ' ' || character == '(' || character == ')';
     }
 
-    // Each part of the path onto the parts so far, either slash dividing them. A parent part takes one away, and is refused when allowParent is off or it would leave the mount the path starts in
+    // Each part of the path onto the parts so far. A parent part is refused if it leaves the mount
     bool AppendParts(std::vector<std::string>& parts, std::string_view path, bool allowParent)
     {
         std::size_t l_Start = 0;
@@ -69,7 +69,7 @@ namespace
         return l_Length > 0.0f ? l_Perpendicular / l_Length : glm::vec3(1.0f, 0.0f, 0.0f);
     }
 
-    // Each triangle's tangent and bitangent from its UVs, summed at its corners and made perpendicular to each normal. V runs down the image, as in glTF, and up in tangent space, so it is flipped, as glTF's own tangents are made
+    // From each triangle's UVs, summed at its corners. V is flipped, as glTF's own tangents are made
     std::vector<glm::vec4> GenerateTangents(const ModelReading::Primitive& primitive, const std::vector<glm::vec2>& texCoords)
     {
         std::vector<glm::vec3> l_Tangents(primitive.Positions.size(), glm::vec3(0.0f));
@@ -111,7 +111,7 @@ namespace
         return l_Result;
     }
 
-    // Each submesh's triangles in vertex cache order, then the vertices in the order the triangles first use them, which drops any that none use
+    // Each submesh's triangles in vertex cache order, then the vertices in first-use order
     void Optimize(Trinity::MeshData& mesh)
     {
         const std::size_t l_VertexCount = mesh.Positions.size();
@@ -165,7 +165,7 @@ namespace ModelReading
         return Hash(std::as_bytes(std::span(text)), hash);
     }
 
-    // The index in the file, then how it is used, then its name in characters that read plainly in a .meta and after the '#' of a path
+    // The index in the file, how it is used, then its name in characters safe in a .meta and a path
     std::string MakeKey(std::string_view kind, std::size_t index, std::string_view usage, std::string_view name)
     {
         std::string l_Key = usage.empty() ? std::format("{}.{}", kind, index) : std::format("{}.{}.{}", kind, index, usage);
@@ -183,7 +183,7 @@ namespace ModelReading
         return l_Name.empty() ? l_Key : std::format("{}.{}", l_Key, l_Name);
     }
 
-    // A relative path from the model's folder, refused when it is absolute or leaves the mount it starts in
+    // A relative path from the model's folder, refused if absolute or leaving its mount
     std::optional<std::string> ResolvePath(std::string_view modelPath, std::string_view uri)
     {
         if (uri.empty() || uri.starts_with('/') || uri.starts_with('\\') || uri.find(':') != std::string_view::npos)
@@ -200,7 +200,7 @@ namespace ModelReading
         return JoinParts(l_Parts);
     }
 
-    // A path from the root of the file system with either slash, '.' and '..' taken out, refused when it leaves the mount it starts in
+    // A rooted path with either slash, '.' and '..' taken out, refused if it leaves its mount
     std::optional<std::string> NormalizePath(std::string_view path)
     {
         std::vector<std::string> l_Parts;
@@ -212,7 +212,7 @@ namespace ModelReading
         return JoinParts(l_Parts);
     }
 
-    // One entry for each file, encoded the way its first use asks, which a later use the other way is warned of
+    // One entry for each file, encoded the way its first use asks. A conflicting later use is warned of
     std::size_t AddExternalTexture(ModelImporter::Plan& plan, const std::string& modelPath, const std::string& texturePath, ModelImporter::TextureUsage usage)
     {
         const auto a_Existing = std::ranges::find(plan.ExternalTextures, texturePath, &ModelImporter::ExternalTexture::Path);
@@ -220,7 +220,7 @@ namespace ModelReading
         {
             if (a_Existing->Usage != usage)
             {
-                TR_WARN("Models: {} uses {} as {} and as {}, and it can be encoded only one way, so it stays {}", modelPath, texturePath, ModelImporter::ToString(a_Existing->Usage), ModelImporter::ToString(usage), ModelImporter::ToString(a_Existing->Usage));
+                TR_WARN("Models: {} uses {} as {} and as {}, but encodes only one way, so it stays {}", modelPath, texturePath, ModelImporter::ToString(a_Existing->Usage), ModelImporter::ToString(usage), ModelImporter::ToString(a_Existing->Usage));
             }
 
             return static_cast<std::size_t>(a_Existing - plan.ExternalTextures.begin());
@@ -231,7 +231,7 @@ namespace ModelReading
         return plan.ExternalTextures.size() - 1;
     }
 
-    // Normals made flat where the part has none, which needs a vertex for each corner, then unit length. Tangents are made where it has none, from the UVs the normal map uses, and every tangent is made perpendicular to its normal, since exporters leave them otherwise and the octahedral encoding cannot keep them
+    // Flat normals where the part has none. Tangents are made perpendicular for octahedral encoding
     void FinishPrimitive(Primitive& primitive)
     {
         if (primitive.Normals.empty())
@@ -372,7 +372,7 @@ namespace ModelReading
         return l_Mesh;
     }
 
-    // Shear, which only a parent with non-uniform scale and a rotated child makes, has no place in a node and is dropped, as a Transform drops it
+    // Shear, which only non-uniform scale above a rotated child makes, is dropped, as a Transform does
     void SetTransform(Trinity::ModelNode& node, const glm::mat4& matrix)
     {
         Trinity::TransformComponent l_Transform;

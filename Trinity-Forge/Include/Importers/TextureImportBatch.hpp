@@ -17,7 +17,7 @@
 class TextureImportBatch
 {
 public:
-    // How far the batch has got. Texels count every mip level, so the progress follows the work and not the number of files
+    // How far the batch has got. Texels count every mip level, so progress follows the work
     struct Progress
     {
         std::size_t Textures = 0;

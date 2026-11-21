@@ -10,7 +10,7 @@
 #include <optional>
 #include <vector>
 
-// Environments are filtered on the job system one at a time, since the filter already uses every core, beside the texture and model imports
+// Environments are filtered one at a time, since the filter already uses every core
 class EnvironmentImportBatch
 {
 public:

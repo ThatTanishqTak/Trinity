@@ -10,7 +10,7 @@
 #include <thread>
 #include <utility>
 
-// The game Build And Run starts, as Unity's Build And Run does: run from its folder on a thread of its own, each line it writes logged in the Console as Game: at the level the game logged it at, then how it ended. Stop ends it, as the next export into its folder does, and Forge closing leaves it running, no longer read
+// The game Build And Run starts, on its own thread, each line it writes logged as Game:
 class GameRunner
 {
 public:
@@ -33,11 +33,11 @@ public:
     // The folder the game runs from, empty when none runs
     [[nodiscard]] std::filesystem::path GetFolder() const;
 
-    // A line as a game's log writes it, [time] channel level text, as the text and the level, or the whole line at Info when it is another program's, such as a driver's
+    // A line as a game's log writes it, as its text and level, or the whole line at Info if another's
     [[nodiscard]] static std::pair<Trinity::LogLevel, std::string_view> ReadLine(std::string_view line);
 
 private:
-    // The flags are read by both threads, and Done set by the game's once it has said how the game ended
+    // The flags are read by both threads, and Done set once the game's thread has said how it ended
     struct Running
     {
         std::filesystem::path Executable;

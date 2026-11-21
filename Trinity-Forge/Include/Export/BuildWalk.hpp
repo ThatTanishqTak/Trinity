@@ -9,14 +9,14 @@
 #include <variant>
 #include <vector>
 
-// A file of the build's pack: where it lies there, under /cache once the pack mounts, and where it comes from, a file on disk as the project's cache or Assets folder has it, or bytes cooked as the build is gathered, such as a binary scene
+// Where it lies in the pack, and where it comes from: a file on disk, or bytes cooked as gathered
 struct BuildFile
 {
     std::string PackPath;
     std::variant<std::filesystem::path, std::vector<std::byte>> Source;
 };
 
-// An asset the build reaches but cannot ship, with the path of what names it, or the part of the project that does, and why. A UI file's link to a file the project lacks names no asset, and its reason says which path it links to
+// An asset the build reaches but cannot ship, with the path of what names it, and why
 struct BrokenReference
 {
     Trinity::UUID Asset;
@@ -35,9 +35,9 @@ struct BuildContents
     std::vector<BrokenReference> Broken;
 };
 
-// What a build holds: its scenes, the project's input actions and mixer, and every asset they reach, nested prefabs and models, materials and their textures, clips inside sound events, and UIDocuments' documents with the stylesheets, fonts, images and sounds they link to, found as a running scene finds them, so a game ships only those
+// A build's scenes, input actions and mixer, and every asset they reach, as a running scene does
 namespace BuildWalk
 {
-    // The scenes in the build's order, the first being the one the game starts with. Each is read from its file and flattened as it is cooked, so a prefab it only places ships no file of its own, and prefabs are cooked whole with their nested instances still instances. A scene a script field names is not reached, as a game loads only its build's scenes. Main thread only, as templates are found through the serializer's resolver
+    // Scenes in the build's order, the first starting the game, flattened as cooked. Main thread only
     [[nodiscard]] BuildContents Gather(const Trinity::Project& project, const Trinity::AssetRegistry& registry, std::span<const Trinity::UUID> scenes);
 }

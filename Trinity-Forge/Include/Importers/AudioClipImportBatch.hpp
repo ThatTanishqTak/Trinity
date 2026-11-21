@@ -11,7 +11,7 @@
 #include <optional>
 #include <vector>
 
-// Clips are checked and cooked on the job system one at a time, beside the texture, model and environment imports
+// Clips are checked and cooked on the job system one at a time, beside the other imports
 class AudioClipImportBatch
 {
 public:
@@ -27,7 +27,7 @@ public:
     void Stop();
 
     [[nodiscard]] bool IsRunning() const { return m_Running != nullptr; }
-    // Clips cooked again since Forge started, counted as each is loaded again, so what reads cooked headers knows to read them again
+    // Clips cooked again since Forge started, so what reads cooked headers knows to read them again
     [[nodiscard]] std::uint64_t GetImportedCount() const { return m_ImportedCount; }
 
 private:

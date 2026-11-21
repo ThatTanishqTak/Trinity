@@ -41,7 +41,7 @@ void ModelImportBatch::Start(Trinity::AssetRegistry& registry, std::vector<Trini
     Trinity::JobSystem::Submit([l_Running] { RunPlans(*l_Running); }, &m_Jobs);
 }
 
-// On the main thread, once a frame. The plans are taken up, then the cook started, and the report comes back once the cook is over or nothing needs one
+// On the main thread, once a frame. Plans are taken up, the cook started, then the report comes
 std::optional<ModelImportReport> ModelImportBatch::Update()
 {
     if (!m_Running || !m_Running->Done.load(std::memory_order_acquire))
@@ -128,7 +128,7 @@ void ModelImportBatch::RunCooks(Running& running)
     running.Done.store(true, std::memory_order_release);
 }
 
-// A texture beside a model is set to be encoded as the model uses it, which the texture import that follows picks up. A model whose key, sub-assets and files all match is left as it is, but for materials whose .meta overrides changed since they were cooked. Any other gets its sub-assets' UUIDs, the same ones for keys it had before, and those not cooked yet are held until the cook makes them. Overrides of materials a model no longer has are dropped
+// A model whose key, sub-assets and files all match is left alone. Others get their UUIDs
 void ModelImportBatch::TakePlans()
 {
     Running& l_Running = *m_Running;
@@ -158,7 +158,7 @@ void ModelImportBatch::TakePlans()
             const Trinity::AssetRecord* l_Texture = m_Registry->FindByPath(it_Texture.Path);
             if (l_Texture == nullptr || l_Texture->Importer != TextureImporter::c_Importer)
             {
-                TR_WARN("Models: {} uses {}, which is not a texture in the project, so materials using it go without", l_Planned.Path, it_Texture.Path);
+                TR_WARN("Models: {} uses {}, which is no texture in the project, so it is left out", l_Planned.Path, it_Texture.Path);
                 l_ExternalTextures.emplace_back();
 
                 continue;
@@ -224,7 +224,7 @@ void ModelImportBatch::TakePlans()
     l_Running.Report.Stopped = l_Running.Records.size() - l_Running.Plans.size();
 }
 
-// A held sub-asset is resumed with the rest when the batch ends. One already loaded is loaded again if its file was rewritten
+// A held sub-asset is resumed when the batch ends. One already loaded reloads if rewritten
 void ModelImportBatch::TakeCooked()
 {
     Running& l_Running = *m_Running;

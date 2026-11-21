@@ -13,7 +13,7 @@ EnvironmentImportBatch::~EnvironmentImportBatch()
     }
 }
 
-// An environment with nothing cooked yet is held in the asset manager until its import ends, so nothing reads the file before it exists, and a scene lit by it keeps the ambient light meanwhile
+// An environment with nothing cooked yet is held in the asset manager until its import ends
 void EnvironmentImportBatch::Start(std::vector<Trinity::AssetRecord> records)
 {
     TR_ASSERT(!m_Running, "An environment import batch is already running");
@@ -35,7 +35,7 @@ void EnvironmentImportBatch::Start(std::vector<Trinity::AssetRecord> records)
     Trinity::JobSystem::Submit([l_Running] { Run(*l_Running); }, &m_Jobs);
 }
 
-// On the main thread, once a frame. Each finished environment is loaded by everything holding it, and the report comes back once the batch is over
+// On the main thread, once a frame. Finished ones load, and the report comes once the batch is over
 std::optional<EnvironmentImportReport> EnvironmentImportBatch::Update()
 {
     if (!m_Running)

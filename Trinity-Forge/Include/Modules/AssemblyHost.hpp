@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-// The open project's C# scripts: Scripts is watched, built on a job once the project opens and once its files stop changing, and reloaded after each good build. The build's output is watched as well, so a build from an IDE reloads too, and the build Forge loaded already is not loaded again. Each build that loads is copied to Cache/Scripts under a number of its own, with its PDB under the same number, so the build can write over its files while a copy runs, and a debugger finds the symbols of the copy that runs. A failed build leaves the scripts that run as they are. Scripts/Trinity.Local.props, which names this Forge's Trinity-ScriptCore for an IDE's builds, is written as the project opens
+// Scripts is watched, built on a job and reloaded. Each loaded build is a numbered copy in Cache
 class AssemblyHost
 {
 public:
@@ -31,12 +31,12 @@ public:
     // On the main thread, once a frame
     void Update();
 
-    // Scripts/<name>.csproj, Scripts/Directory.Build.props and a source for the scripts, from templates, and <name>.slnx beside the project file, each written only when it is not there, and the assembly named after the project. The project is saved by the caller. Then it builds
+    // Writes the .csproj, Directory.Build.props, a source and the .slnx, each if missing, then builds
     [[nodiscard]] bool Create(Trinity::Project& project);
     // Built at the next Update, or once the build running ends
     void RequestBuild();
 
-    // The first is called while the scripts are still loaded, before anything of them is unregistered, and the second once scripts loaded in their place have registered, so whatever runs them can let go of the old instances and make new ones
+    // The first is called before the scripts are unregistered, the second once the new ones registered
     void SetReloadCallbacks(std::function<void()> beforeUnload, std::function<void()> afterLoad)
     {
         m_BeforeUnload = std::move(beforeUnload);
@@ -49,7 +49,7 @@ public:
     // Whether .NET is running, so C# scripts can build and load
     [[nodiscard]] static bool IsSupported() { return Trinity::ManagedScripts::IsAvailable(); }
     [[nodiscard]] bool IsBuilding() const { return m_Build.IsRunning(); }
-    // The build running or waiting to, or else the last that ran to its end. A cancelled one leaves the one before it
+    // The build running or waiting to, or else the last that ran to its end, not a cancelled one
     [[nodiscard]] BuildStatus GetStatus() const;
     // The lines the last build that ran to its end logged at error
     [[nodiscard]] const std::vector<std::string>& GetErrorLines() const { return m_LastErrorLines; }

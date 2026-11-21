@@ -8,7 +8,7 @@
 #include <unordered_set>
 #include <vector>
 
-// Where a project's build stands, for the menu bar: none yet, waiting for its sources to settle or for the build before it to end, running, or how the last one that ran to its end went. Its output is the log's lines from FirstLine up to EndLine, so its errors can be shown alone
+// Where a project's build stands, for the menu bar. Its output is the log from FirstLine to EndLine
 enum class BuildState : std::uint8_t
 {
     None,
@@ -27,7 +27,7 @@ struct BuildStatus
     std::uint32_t Warnings = 0;
 };
 
-// Build output read a line at a time. A warning or an error as MSVC, Clang, GCC and the C# compiler write them, or as a tool such as the linker, MSBuild, NuGet or NativeAOT's compiler does, is logged with its file and line, as is CMake's, with the indented lines below it that say what it means. A line repeated, as MSBuild repeats each warning and error, is logged once. Every other line goes to the log at trace, and those that still say they are an error at error
+// Read a line at a time. Warnings and errors are logged with file and line, once. The rest at trace
 class BuildOutput
 {
 public:
@@ -37,12 +37,12 @@ public:
     // A CMake message still open is logged
     void Finish();
 
-    // A line saying the build went wrong, such as a tool it needs that is missing, logged at error and kept with the errors it read, though not counted among them
+    // A line saying the build went wrong, logged at error and kept with its errors, but not counted
     void LogError(std::string text);
 
     [[nodiscard]] std::uint32_t GetErrors() const { return m_Errors; }
     [[nodiscard]] std::uint32_t GetWarnings() const { return m_Warnings; }
-    // Every line the build logged at error, as logged, so its errors can be told from another build's that ran beside it
+    // Every line the build logged at error, so its errors can be told from another build's beside it
     [[nodiscard]] const std::vector<std::string>& GetErrorLines() const { return m_ErrorLines; }
 
 private:

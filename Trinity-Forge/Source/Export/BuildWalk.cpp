@@ -20,7 +20,7 @@ namespace
         return std::string(cachePath.substr(Trinity::Project::c_CacheMount.size() + 1));
     }
 
-    // Where the pack keeps the file of an asset a game reads as the project has it: by its UUID, in a folder for its kind, with its own extension
+    // Where the pack keeps an asset a game reads as the project has it: by UUID, in its kind's folder
     std::string GetPackedSourcePath(const Trinity::AssetRecord& record, std::string_view folder)
     {
         const std::string_view l_Path = record.Path;
@@ -69,7 +69,7 @@ namespace
 
         }
 
-        // An asset to ship, named by what reaches it, each gone through once. A built-in asset is the engine's own, so it ships with no file, and one the registry lacks is listed as broken under each that names it
+        // Each asset is gone through once. A built-in ships no file. One the registry lacks is broken
         void Reach(Trinity::UUID id, std::string_view namedBy)
         {
             if (!id || Trinity::AssetManager::IsBuiltIn(id) || m_Seen.contains(id))
@@ -173,7 +173,7 @@ namespace
             }
         }
 
-        // Read from its file and flattened, so what its instances' prefabs hold ships, and those prefabs only if something else names them
+        // Read from its file and flattened, so its instances' prefabs ship only if named elsewhere
         void VisitScene(const Trinity::AssetRecord& record, std::string_view namedBy)
         {
             const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(record.Path);
@@ -199,7 +199,7 @@ namespace
             Ship(record, l_CookedPath);
         }
 
-        // Cooked whole, its nested instances still instances, so an instance made in the game has the UUIDs one made in Forge has, and so the prefabs nested in it ship too
+        // Cooked whole, nested instances still instances, so an instance made in the game has Forge's UUIDs
         void VisitPrefab(const Trinity::AssetRecord& record, std::string_view namedBy)
         {
             Trinity::Scene* l_Template = Trinity::SceneSerializer::FindPrefabTemplate(record.ID);
@@ -217,7 +217,7 @@ namespace
             Ship(record, l_CookedPath);
         }
 
-        // Reached only as a prefab a script makes instances of, as an instance a scene places is flattened, so its cooked hierarchy ships with what that prefab holds
+        // Reached only as a prefab a script instances, since an instance a scene places is flattened
         void VisitModel(const Trinity::AssetRecord& record, std::string_view namedBy)
         {
             Trinity::Scene* l_Template = Trinity::SceneSerializer::FindPrefabTemplate(record.ID);
@@ -232,7 +232,7 @@ namespace
             ShipCached(record, Trinity::GetCookedModelPath(record.ID), namedBy);
         }
 
-        // A model's material is cooked with its overrides, and one of the project's own ships as its file is
+        // A model's material is cooked with its overrides, and one of the project's own ships as its file
         void VisitMaterial(const Trinity::AssetRecord& record, std::string_view namedBy)
         {
             const std::string l_CookedPath = Trinity::GetCookedMaterialPath(record.ID);
@@ -299,7 +299,7 @@ namespace
             ShipSource(record, GetPackedSourcePath(record, GetPackedSourceFolder(record.Importer)), namedBy);
         }
 
-        // As the game reads it, by its path in the project, which the asset table finds where the pack keeps it, with every file of the project it links to: documents and stylesheets, which are walked in turn, fonts, images, and the clips and sound events its sound attributes name, with the clips of each event. A link to a file outside Assets, as to the engine's own fonts, is the player's, and one to a file the project lacks is listed as broken
+        // Ships by its project path with every file it links to. A link to a missing file is broken
         void VisitUIFile(const Trinity::AssetRecord& record, std::string_view namedBy)
         {
             const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(record.Path);
@@ -331,7 +331,7 @@ namespace
             ShipSource(record, GetPackedSourcePath(record, GetPackedSourceFolder(record.Importer)), namedBy);
         }
 
-        // What a scene or a template names, as a running scene gathers it, with each instance whose prefab is missing listed as broken, since a game could never make it
+        // What a scene or a template names, as a running scene gathers it. A missing prefab is broken
         void ReachContents(Trinity::Scene& scene, std::string_view namedBy, bool instances)
         {
             Trinity::SceneAssets::AssetList l_Assets;
@@ -356,7 +356,7 @@ namespace
             }
         }
 
-        // A file the importer cooked into the project's cache, which a game reads at the same path. False, listed as broken, for one not imported yet
+        // A file the importer cooked, read by a game at the same path. False, broken, if not imported yet
         bool AddCached(const Trinity::AssetRecord& record, const std::string& cachePath, std::string_view namedBy)
         {
             std::filesystem::path l_Native = m_Project.ToNativePath(cachePath);

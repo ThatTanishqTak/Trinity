@@ -15,7 +15,7 @@
 
 namespace
 {
-    // A save often writes a file more than once, and an editor may save several at once, so a build waits this long after the last change
+    // A save often writes a file more than once, so a build waits this long after the last change
     constexpr std::chrono::milliseconds c_SettleTime{ 500 };
 
     constexpr std::string_view c_CMakeListsTemplate = R"(# @NAME@, the C++ game module of @PROJECT@. Forge configures and builds it into Build/<configuration> with the compiler Trinity was built with, and loads it after each good build. To build it elsewhere, such as from an IDE, set Trinity_DIR to the folder of the Forge that opens the project, which holds TrinityConfig.cmake, and CMAKE_TOOLCHAIN_FILE to TrinityToolchain.cmake in it
@@ -141,7 +141,7 @@ ModuleHost::~ModuleHost()
     Close();
 }
 
-// A project with a module builds it once as it opens, which does nothing but load it when nothing changed since the last build. Copies an earlier Forge left are removed first
+// A project with a module builds it once as it opens. An earlier Forge's copies go first
 void ModuleHost::Open(Trinity::Project& project)
 {
     Close();
@@ -155,7 +155,7 @@ void ModuleHost::Open(Trinity::Project& project)
 
     if (!IsSupported())
     {
-        TR_WARN("Forge: {} has the C++ module {}, which this Forge cannot build or load, since its engine is linked statically. Open it in a Debug or Release Forge", project.GetName(), project.GetModuleName());
+        TR_WARN("Forge: {} has the C++ module {}, which a static Forge cannot build or load", project.GetName(), project.GetModuleName());
 
         return;
     }
@@ -223,7 +223,7 @@ bool ModuleHost::Create(Trinity::Project& project)
 {
     if (!IsSupported())
     {
-        TR_ERROR("Forge: this Forge's engine is linked statically, so it cannot build or load a C++ module. Create the module in a Debug or Release Forge");
+        TR_ERROR("Forge: this Forge's engine is linked statically, so it cannot build a C++ module");
 
         return false;
     }
@@ -319,7 +319,7 @@ void ModuleHost::StartBuild()
     m_Build.Start(std::move(l_Request));
 }
 
-// The module running now goes only once the build is copied, and is loaded again when the build cannot load in its place
+// The module running goes only once the build is copied, and is loaded again if the build cannot
 void ModuleHost::Load(const std::filesystem::path& built)
 {
     const std::optional<std::filesystem::path> l_Copy = CopyBuild(built);
@@ -348,7 +348,7 @@ void ModuleHost::Load(const std::filesystem::path& built)
     RemoveCopy(l_Previous);
 }
 
-// Under the next number no file there has, since a debugger may still hold an older copy's PDB. The copy's record of its PDB names the PDB copied beside it, which the debugger finds there
+// Under the next unused number, since a debugger may hold an older PDB. Its record names its own
 std::optional<std::filesystem::path> ModuleHost::CopyBuild(const std::filesystem::path& built)
 {
     const std::filesystem::path l_Directory = GetCopyDirectory();
@@ -377,7 +377,7 @@ std::optional<std::filesystem::path> ModuleHost::CopyBuild(const std::filesystem
     {
         if (!PortableExecutable::SetPdbName(*l_Image, ToUtf8(l_Pdb.filename())) || !std::filesystem::copy_file(l_BuiltPdb, l_Pdb, l_Error))
         {
-            TR_WARN("Forge: the PDB of {} could not be copied beside the module, so a debugger finds no symbols for this build", m_Project->GetModuleName());
+            TR_WARN("Forge: the PDB of {} could not be copied, so a debugger finds no symbols for it", m_Project->GetModuleName());
         }
     }
 
@@ -392,7 +392,7 @@ std::optional<std::filesystem::path> ModuleHost::CopyBuild(const std::filesystem
     return l_Copy;
 }
 
-// The variables the module made are those there are now and were not before it loaded. The module's own load function runs before whatever runs its code is told it is back
+// The module's variables are those new since it loaded. Its load function runs before the callback
 bool ModuleHost::LoadCopy(const std::filesystem::path& copy)
 {
     const std::vector<std::string> l_Before = GetVariableNames();
@@ -404,12 +404,12 @@ bool ModuleHost::LoadCopy(const std::filesystem::path& copy)
         return false;
     }
 
-    // A module that says which version of the module API it was built against must have this one, or what it registers could not be read the way it was written
+    // A module must be built against this version of the module API, or what it registers is unreadable
     if (const Trinity::GameModule::ApiVersionFunction l_Version = l_Library->GetFunction<Trinity::GameModule::ApiVersionFunction>(Trinity::GameModule::c_ApiVersionFunction))
     {
         if (const std::uint32_t l_Built = l_Version(); l_Built != Trinity::GameModule::c_ApiVersion)
         {
-            TR_ERROR("Forge: {} was built for version {} of the module API, and this Forge has version {}, so it is not loaded. Building it again builds it for this one", m_Project->GetModuleName(), l_Built, Trinity::GameModule::c_ApiVersion);
+            TR_ERROR("Forge: {} was built for module API version {}, not this Forge's {}. Rebuild it", m_Project->GetModuleName(), l_Built, Trinity::GameModule::c_ApiVersion);
 
             return false;
         }
@@ -441,7 +441,7 @@ bool ModuleHost::LoadCopy(const std::filesystem::path& copy)
     return true;
 }
 
-// What the module's own code allocated is counted under Game, so a module that frees all it took leaves nothing there once it is gone
+// What the module's code allocated is counted under Game, so a clean module leaves nothing there
 void ModuleHost::Unload()
 {
     if (!m_Library.IsLoaded())
@@ -471,7 +471,7 @@ void ModuleHost::Unload()
     }
 }
 
-// Read-only variables take their values from the command line as they are made, so only the others are kept
+// Read-only variables take their values from the command line, so only the others are kept
 void ModuleHost::KeepVariables()
 {
     m_KeptValues.clear();
@@ -485,7 +485,7 @@ void ModuleHost::KeepVariables()
     }
 }
 
-// A kept value goes to the new module's variable of the same name, unless it no longer reads as that variable's type
+// A kept value goes to the new module's variable of the same name, if it still reads as its type
 void ModuleHost::RestoreVariables()
 {
     std::size_t l_Restored = 0;
@@ -513,7 +513,7 @@ void ModuleHost::RestoreVariables()
     }
 }
 
-// Every copy of this module there, which a debugger may still hold, so those that cannot be removed stay until a later open
+// Every copy of this module there. Those a debugger still holds stay until a later open
 void ModuleHost::RemoveStaleCopies() const
 {
     std::error_code l_Error;

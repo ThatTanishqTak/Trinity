@@ -47,7 +47,7 @@ namespace
         return alignment == 0 ? value : (value + alignment - 1) / alignment * alignment;
     }
 
-    // Where an image's headers lie: the COFF header, the optional header, its data directories and the section table
+    // Where an image's headers lie: the COFF header, the optional header, directories and sections
     struct Headers
     {
         std::size_t File = 0;
@@ -161,7 +161,7 @@ namespace
         return static_cast<std::size_t>(address - sections[*l_Section].VirtualAddress) + sections[*l_Section].RawOffset;
     }
 
-    // One entry of a resource directory: what it names, and where what it points to lies from the table's start, a directory below when Subdirectory
+    // One entry of a resource directory: what it names, and the offset of what it points to
     struct TableEntry
     {
         PortableExecutable::ResourceID Name;
@@ -216,7 +216,7 @@ namespace
         return l_Entries;
     }
 
-    // A name before a number, as the table has its named entries first, names in the order of their units and numbers rising, which Windows searches them in
+    // A name before a number, names in the order of their units and numbers rising, as Windows searches
     bool IsBefore(const PortableExecutable::ResourceID& left, const PortableExecutable::ResourceID& right)
     {
         if (left.Name.empty() != right.Name.empty())
@@ -227,7 +227,7 @@ namespace
         return left.Name.empty() ? left.Number < right.Number : left.Name < right.Name;
     }
 
-    // The table Windows finds resources through, three levels deep, by type, name and language, then each resource's data entry, then the names, then the data, each piece on 8 bytes. Every offset is from the table's start but the data's, which is an address once loaded, the table being loaded at the address given. No time is written, so the same resources always give the same bytes
+    // Three levels by type, name and language, then data entries, names and data. No time is written
     std::vector<char> WriteTable(std::vector<PortableExecutable::Resource> resources, std::uint32_t address)
     {
         std::ranges::stable_sort(resources, [](const PortableExecutable::Resource& left, const PortableExecutable::Resource& right)
@@ -383,7 +383,7 @@ namespace
         return l_Table;
     }
 
-    // As Windows' CheckSumMappedFile adds it: the file's 16-bit words, folded as they are added, with the checksum's own place as zeros, then the file's length
+    // As Windows' CheckSumMappedFile: 16-bit words folded as added, the checksum's place as zeros
     std::uint32_t ComputeChecksum(const std::vector<char>& image, std::size_t checksum)
     {
         std::uint64_t l_Sum = 0;
@@ -549,7 +549,7 @@ namespace PortableExecutable
         return l_Resources;
     }
 
-    // The resource section and the relocations, which linkers put last, are written again after the sections before them, the new table first, so nothing else moves. An image without relocations has the table last, and one without resources gains a section for them
+    // Resources and relocations, which linkers put last, are rewritten after the rest, so nothing moves
     Trinity::Expected<void, std::string> SetResources(std::vector<char>& image, std::span<const Resource> resources)
     {
         const std::optional<Headers> l_Headers = ReadHeaders(image);
@@ -587,7 +587,7 @@ namespace PortableExecutable
             return Trinity::Unexpected{ std::string("its resources or relocations lie outside a section of their own") };
         }
 
-        // The two must be the last sections, in rising addresses, with nothing else pointing into them and nothing in the file past them
+        // The two must be the last sections, in rising addresses, with nothing pointing into or past them
         const std::size_t l_Kept = l_Sections.size() - (l_ResourceSection ? 1 : 0) - (l_RelocationSection ? 1 : 0);
         const bool l_Rising = std::ranges::is_sorted(l_Sections, {}, &Section::VirtualAddress);
         if (!l_Rising || (l_ResourceSection && *l_ResourceSection < l_Kept) || (l_RelocationSection && *l_RelocationSection < l_Kept))
@@ -639,7 +639,7 @@ namespace PortableExecutable
             return Trinity::Unexpected{ std::string("its headers have no room for another section") };
         }
 
-        // The new image: what comes before the two as it was, then the table, then the relocations as they were
+        // The new image: what comes before the two as it was, then the table, then the relocations
         const std::uint32_t l_ResourceAddress = l_KeptEnd;
         const std::vector<char> l_Table = WriteTable(std::move(*l_Merged), l_ResourceAddress);
         std::vector<char> l_Image(image.begin(), image.begin() + static_cast<std::ptrdiff_t>(l_KeptFileEnd));

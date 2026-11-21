@@ -38,7 +38,7 @@ namespace
         return l_Number;
     }
 
-    // MSBuild ends each line it passes on with the project it came from, in brackets, which says nothing the file does not
+    // MSBuild ends each line it passes on with its project in brackets, which adds nothing
     std::string WithoutProject(std::string line)
     {
         while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
@@ -66,7 +66,7 @@ void BuildOutput::Read(std::string_view text)
     const std::string l_Line = WithoutProject(std::string(text));
     if (m_CMake)
     {
-        // CMake indents its message below its first line, with blank lines around it, and ends it with a line that is not indented
+        // CMake indents its message below its first line, and ends it with a line that is not indented
         if (l_Line.empty())
         {
             return;
@@ -85,7 +85,7 @@ void BuildOutput::Read(std::string_view text)
     }
 
     static const std::regex c_CMake(R"(^CMake (Error|Warning)(?: \(dev\))?(?: at (.+?):(\d+)(?: \([^)]*\))?)?:\s*(.*)$)");
-    // NativeAOT's compiler says Trim analysis warning or AOT analysis warning where the others say warning
+    // NativeAOT's compiler says Trim analysis warning or AOT analysis warning where others say warning
     static const std::regex c_Msvc(R"(^\s*(.+?)\((\d+)(?:,(\d+))?\)\s*:\s*(?:(?:Trim|AOT) analysis )?(fatal error|error|warning)\s*([A-Za-z]+\d+)?\s*:\s*(.*)$)");
     static const std::regex c_Tool(R"(^\s*(.+?)\s*:\s*(?:(?:Trim|AOT) analysis )?(fatal error|error|warning)\s+([A-Z]+\d+)\s*:\s*(.*)$)");
     static const std::regex c_Gnu(R"(^(.+?):(\d+):(?:(\d+):)?\s*(fatal error|error|warning):\s*(.*)$)");
@@ -137,7 +137,7 @@ void BuildOutput::Finish()
     }
 }
 
-// As Build: Source/Player.cpp(12,5): error C2065: message, the file relative to the project when it is in it
+// As Build: Source/Player.cpp(12,5): error C2065: message, the file relative to the project
 void BuildOutput::Report(const Diagnostic& diagnostic)
 {
     std::string l_Text = "Build: ";
@@ -178,7 +178,7 @@ void BuildOutput::Report(const Diagnostic& diagnostic)
     }
 }
 
-// A relative path is the build tree's, where the compilers run. A tool that names itself, such as MSBUILD or LINK, is shown as it is
+// A relative path is the build tree's. A tool that names itself, such as LINK, is shown as it is
 std::string BuildOutput::ShowPath(std::string_view text) const
 {
     std::filesystem::path l_Path = FromUtf8(text);

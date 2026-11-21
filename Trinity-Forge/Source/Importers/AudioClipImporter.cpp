@@ -66,7 +66,7 @@ namespace
         return l_Hash;
     }
 
-    // Anything that changes what is cooked changes the key: the source, its settings, and the importer, whose version goes up with any change to how it cooks or to the engine's header
+    // Anything that changes what is cooked changes the key: the source, its settings and the importer
     std::string GetCacheKey(std::span<const std::byte> source, const AudioClipImportSettings& settings)
     {
         return std::format("content {:016x}, load type {}, preload {}, importer {}", HashBytes(source), GetSettingName(settings.LoadType), settings.Preload, AudioClipImporter::c_Version);
@@ -89,7 +89,7 @@ Trinity::AssetSettings AudioClipImporter::MakeSettings(const AudioClipImportSett
     return { { std::string(c_LoadTypeSetting), std::string(GetSettingName(settings.LoadType)) },{ std::string(c_PreloadSetting), settings.Preload ? "true" : "false" } };
 }
 
-// A missing setting takes its default. One that cannot be read does too, with a warning naming the file
+// A missing setting takes its default. An unreadable one does too, with a warning naming the file
 AudioClipImportSettings AudioClipImporter::ReadSettings(const Trinity::AssetRecord& record)
 {
     AudioClipImportSettings l_Settings;
@@ -98,7 +98,7 @@ AudioClipImportSettings AudioClipImporter::ReadSettings(const Trinity::AssetReco
         const std::optional<Trinity::AudioLoadType> l_Value = ParseLoadType(*l_LoadType);
         if (!l_Value)
         {
-            TR_WARN("Audio: {} has {}: {}, which is not DecompressOnLoad, CompressedInMemory or Streaming, so it is read as {}", record.Path, c_LoadTypeSetting, *l_LoadType, GetSettingName(l_Settings.LoadType));
+            TR_WARN("Audio: {} has {}: {}, which is no load type, so it is read as {}", record.Path, c_LoadTypeSetting, *l_LoadType, GetSettingName(l_Settings.LoadType));
         }
 
         l_Settings.LoadType = l_Value.value_or(l_Settings.LoadType);
@@ -141,7 +141,7 @@ std::string AudioClipImporter::FormatLength(std::uint64_t frames, std::uint32_t 
     return std::format("{}:{:02}.{:03}", l_Milliseconds / 60000, l_Milliseconds / 1000 % 60, l_Milliseconds % 1000);
 }
 
-// The samples go first, then the header, and the key last, so an import cut short leaves no key and cooks again. Samples the cache already holds byte for byte are left as they are, so applying new settings or reimporting never writes over a file a clip streaming in a preview holds open
+// Samples, then the header, and the key last, so an import cut short cooks again
 AudioClipImporter::Result AudioClipImporter::Import(const Trinity::AssetRecord& record)
 {
     TR_PROFILE_FUNCTION();
@@ -199,7 +199,7 @@ AudioClipImporter::Result AudioClipImporter::Import(const Trinity::AssetRecord& 
         return Result::Failed;
     }
 
-    // Another file put in the source's place may have been another encoding, whose samples are under their own extension
+    // Another file put in the source's place may be another encoding, under its own extension
     for (const Trinity::AudioEncoding it_Encoding : c_Encodings)
     {
         if (it_Encoding != l_Header->Encoding)
@@ -209,7 +209,7 @@ AudioClipImporter::Result AudioClipImporter::Import(const Trinity::AssetRecord& 
     }
 
     const auto l_Milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - l_Start).count();
-    TR_INFO("Audio: imported {} ({}, {} channel(s) at {} Hz, {}, decoded as {}, {}{}) in {} ms", record.Path, Trinity::ToString(l_Header->Encoding), l_Header->Channels, l_Header->SampleRate, FormatLength(l_Header->Frames, l_Header->SampleRate), Trinity::ToString(l_Header->Format), Trinity::ToString(l_Settings.LoadType), l_Settings.Preload ? ", preloaded" : "", l_Milliseconds);
+    TR_INFO("Audio: imported {} ({}, {} channel(s), {} Hz, {}, decoded as {}, {}{}) in {} ms", record.Path, Trinity::ToString(l_Header->Encoding), l_Header->Channels, l_Header->SampleRate, FormatLength(l_Header->Frames, l_Header->SampleRate), Trinity::ToString(l_Header->Format), Trinity::ToString(l_Settings.LoadType), l_Settings.Preload ? ", preloaded" : "", l_Milliseconds);
 
     return Result::Imported;
 }

@@ -70,19 +70,19 @@ namespace
         stream.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
     }
 
-    // The cache's folder for this zstd at this level, since another version or level compresses into other bytes
+    // The cache's folder for this zstd at this level, since another compresses into other bytes
     std::filesystem::path GetCacheFolder(const std::filesystem::path & cacheDirectory)
     {
         return cacheDirectory / std::format("zstd-{}-{}", ZSTD_versionString(), PackBuilder::c_CompressionLevel);
     }
 
-    // A file's entry, by its content's hash and size: its compressed bytes, or an empty file saying it is stored as it is, since compressing it saves too little
+    // By content hash and size: its compressed bytes, or an empty file if it is stored as it is
     std::filesystem::path GetCachePath(const std::filesystem::path & folder, std::uint64_t hash, std::uint64_t size, bool stored)
     {
         return folder / std::format("{:016x}-{:x}.{}", hash, size, stored ? "stored" : "zst");
     }
 
-    // Written beside its place and renamed into it, so an entry is whole or missing. One that cannot be written is left out, and the file is compressed again next time
+    // Written beside its place and renamed into it, so an entry is whole or missing
     void WriteCacheEntry(const std::filesystem::path & path, std::span<const std::byte> bytes)
     {
         std::filesystem::path l_Temporary = path;
@@ -148,7 +148,7 @@ std::optional<std::string> PackBuilder::MakeKey(std::string_view packPath) const
         return std::nullopt;
     }
 
-    // A file cannot also be a folder: nothing may sit below the new path, and none of the folders above it may be a file
+    // A file cannot also be a folder: nothing may sit below the new path, or be a file above it
     const std::string l_AsDirectory = l_Key + "/";
     if (const auto a_Below = m_Files.lower_bound(l_AsDirectory); a_Below != m_Files.end() && a_Below->first.starts_with(l_AsDirectory))
     {
@@ -315,7 +315,7 @@ Trinity::Expected<PackSummary, std::string> PackBuilder::WriteTo(const std::file
         l_Entry.PathSize = static_cast<std::uint32_t>(it_Path.size());
         l_Paths += it_Path;
 
-        // From the cache when it holds the file's content, an entry being checked by decompressing it, since a pack made from a damaged one would be damaged too. Otherwise compressed, and kept there
+        // From the cache if it holds the content, checked by decompressing it. Else compressed and kept
         std::span<const std::byte> l_Stored = l_Bytes;
         if (!l_Bytes.empty())
         {
