@@ -26,7 +26,7 @@ namespace
     constexpr std::string_view c_DockSpaceName = "Forge dock space";
     constexpr const char* c_PanelSettingsName = "ForgePanels";
     constexpr std::size_t c_HistoryMenuEntries = 30;
-    // The backgrounds lean this far towards the preferences' Play Mode Tint while a copy plays, and further while it is paused
+    // The backgrounds lean this far towards the Play Mode Tint while a copy plays, further if paused
     constexpr float c_PlayingTint = 0.18f;
     constexpr float c_PausedTint = 0.3f;
     // A notice stays this long, fading over the end of it, in text this much larger than the UI's
@@ -77,7 +77,7 @@ namespace
         return std::string(l_Text.begin(), l_Text.end());
     }
 
-    // A scene's name and the folder it is in, inside its root, from its project path, as Main and Scenes for /assets/Scenes/Main.trscene
+    // A scene's name and its folder, as Main and Scenes for /assets/Scenes/Main.trscene
     std::pair<std::string_view, std::string_view> SplitScenePath(std::string_view path)
     {
         const std::size_t l_Slash = path.rfind('/');
@@ -89,7 +89,7 @@ namespace
         return { l_Name, l_Root == std::string_view::npos ? std::string_view() : l_Folder.substr(l_Root + 1) };
     }
 
-    // From the first primary camera in hierarchy order, the one Renderer2D shows. A scene without one shows at exposure 1 with no curve
+    // From the first primary camera in hierarchy order. Without one, exposure 1 and no curve
     Trinity::ToneMapping GetSceneToneMapping(Trinity::Scene& scene)
     {
         const Trinity::SceneRegistry& l_Registry = scene.GetRegistry();
@@ -142,7 +142,7 @@ void ForgeLayer::OnAttach()
     Trinity::Scope<GamePanel> l_Game = Trinity::CreateScope<GamePanel>(m_Session);
     m_GamePanel = l_Game.get();
     m_Panels.push_back(std::move(l_Game));
-    // A double-click or F in the Hierarchy frames in the Scene panel, as in Unity, and the Scene panel outlines what the Hierarchy's search matches while the Hierarchy is open
+    // A double-click or F in the Hierarchy frames in the Scene panel, which outlines search matches
     Trinity::Scope<HierarchyPanel> l_Hierarchy = Trinity::CreateScope<HierarchyPanel>(m_Session);
     m_HierarchyPanel = l_Hierarchy.get();
     m_HierarchyPanel->SetFrameSelection([this](bool follow) { m_ViewportPanel->RequestFrame(follow); });
@@ -152,7 +152,7 @@ void ForgeLayer::OnAttach()
     m_PropertiesPanel = l_Properties.get();
     m_Panels.push_back(std::move(l_Properties));
 
-    // Docked as a tab behind Properties, as is the Build panel, which exports through the same command as --export
+    // Docked as a tab behind Properties, as is the Build panel, which exports as --export does
     Trinity::Scope<ProjectSettingsPanel> l_ProjectSettings = Trinity::CreateScope<ProjectSettingsPanel>(m_Session);
     m_ProjectSettings = l_ProjectSettings.get();
     m_Panels.push_back(std::move(l_ProjectSettings));
@@ -163,14 +163,14 @@ void ForgeLayer::OnAttach()
     Trinity::Scope<ConsolePanel> l_Console = Trinity::CreateScope<ConsolePanel>();
     m_Console = l_Console.get();
     m_Console->SetOpenLocation([this](std::string_view path, std::uint32_t line) { static_cast<void>(m_Session.OpenScript(path, line)); });
-    // A stopped script's badge in Properties brings the Console forward, to the exception that stopped it
+    // A stopped script's badge in Properties brings the Console forward, to its exception
     m_PropertiesPanel->SetShowConsole([this]
     {
         m_Console->SetOpen(true);
         m_Console->RequestFocus();
     });
     m_Panels.push_back(std::move(l_Console));
-    // The Console's Clear on Play and Clear on Build. A build starting beside one still running leaves the other's lines be
+    // The Console's Clear on Play and Clear on Build. A build beside one still running clears nothing
     m_Session.SetBeforePlay([this]
     {
         if (m_Console->IsClearingOnPlay())
@@ -204,7 +204,7 @@ void ForgeLayer::OnAttach()
     // Docked after the Console, so it is the tab the default layout shows
     Trinity::Scope<ContentBrowserPanel> l_ContentBrowser = Trinity::CreateScope<ContentBrowserPanel>(m_Session);
     m_ContentBrowser = l_ContentBrowser.get();
-    // Find References In Scene shows its finds in the Hierarchy's search, bringing the Hierarchy forward
+    // Find References In Scene shows its finds in the Hierarchy's search, bringing it forward
     m_ContentBrowser->SetFindReferences([this](std::string search)
     {
         m_HierarchyPanel->SetSearch(std::move(search));
@@ -234,7 +234,7 @@ void ForgeLayer::OnAttach()
     });
     m_Panels.push_back(std::move(l_ContentBrowser));
 
-    // ImGui reads imgui.ini before its first frame, which is after this, so the panels get their saved state
+    // ImGui reads imgui.ini before its first frame, which is after this, so panels get their state
     ImGuiSettingsHandler l_Handler;
     l_Handler.TypeName = c_PanelSettingsName;
     l_Handler.TypeHash = ImHashStr(c_PanelSettingsName);
@@ -245,7 +245,7 @@ void ForgeLayer::OnAttach()
     ImGui::AddSettingsHandler(&l_Handler);
 }
 
-// Before ImGui's frame begins, so a native file dialog never blocks with a frame open. A playing copy steps after the session's work, and world transforms are brought up to date then, for the Viewport to draw and pick with. The Game panel's UI documents, then the Scene panel's world documents, follow their scenes last, before the game UI lays out
+// Before ImGui's frame begins, so a native file dialog never blocks with a frame open
 void ForgeLayer::OnUpdate(Trinity::Timestep timestep)
 {
     m_Session.Update();
@@ -271,11 +271,11 @@ void ForgeLayer::OnEvent(Trinity::Event& event)
     }
 }
 
-// After the UI has had its say this frame and before the Renderer builds its graph, so an exposure dragged in the Properties panel shows in the same frame. Transforms are brought up to date first, since the UI may have changed them. The Scene panel's view is the main one, collected first, and the Content Browser's thumbnails, each in a view of its own, last
+// After the UI and before the Renderer builds its graph, so a dragged exposure shows this frame
 void ForgeLayer::OnPrepareRender([[maybe_unused]] Trinity::RHI::CommandList& commands)
 {
     m_Session.GetScene().UpdateWorldTransforms();
-    // In prefab mode the Game panel goes on showing the scene, whose instances a save of the prefab makes again
+    // In prefab mode the Game panel goes on showing the scene
     if (Trinity::Scene& l_Main = m_Session.GetMainScene(); &l_Main != &m_Session.GetScene())
     {
         l_Main.UpdateWorldTransforms();
@@ -288,7 +288,7 @@ void ForgeLayer::OnPrepareRender([[maybe_unused]] Trinity::RHI::CommandList& com
     m_ContentBrowser->PrepareThumbnails();
 }
 
-// Drawn whether or not the Scene panel is open, so the scene target holds the scene when the panel opens again. Transforms are brought up to date again, since the UI may have changed the scene since OnUpdate
+// Drawn whether or not the Scene panel is open, so the scene target is current when it reopens
 void ForgeLayer::OnRender(Trinity::RHI::CommandList& commands)
 {
     m_Session.GetScene().UpdateWorldTransforms();
@@ -301,7 +301,7 @@ void ForgeLayer::OnBuildFrameGraph(Trinity::FrameGraph& graph, [[maybe_unused]] 
     m_ImportTest.OnBuildFrameGraph(graph);
 }
 
-// The menu bar comes first, so the dock space fits in the space below it. Shortcuts are read from ImGui, since layer events are the scene's while the Viewport has them. The Game panel comes to the front as a copy starts playing, and the Scene panel as it stops
+// The menu bar comes first, so the dock space fits below it. Shortcuts are read from ImGui
 void ForgeLayer::OnImGuiRender()
 {
     const bool l_Playing = m_Session.IsPlaying();
@@ -319,7 +319,7 @@ void ForgeLayer::OnImGuiRender()
 
     PauseOnError();
     PushPlayTint();
-    // The Scene panel gives the scene its input back while it is hovered or focused, and a closed panel leaves it with none
+    // The Scene panel gives the scene its input back while hovered or focused. Closed, it gives none
     m_ImGui.SetSceneInput(false, false);
 
     // F1 shows and hides the demo window, though not while a text field takes the keyboard
@@ -339,7 +339,7 @@ void ForgeLayer::OnImGuiRender()
         it_Panel->Draw();
     }
 
-    // The scene reads the keyboard and mouse as the Game panel lets it, and the gamepads while Forge has the focus, though not while Listen waits for one to bind
+    // The scene reads the keyboard and mouse as the Game panel lets it, and gamepads with focus
     Trinity::SceneInputFilter l_SceneInput = m_GamePanel->TakeSceneFilter();
     l_SceneInput.Gamepads = !m_InputActionsPanel->IsListening();
     Trinity::Input::SetSceneFilter(l_SceneInput);
@@ -366,7 +366,7 @@ void ForgeLayer::OnImGuiRender()
     ImGui::PopStyleColor(std::exchange(m_TintedColors, 0));
 }
 
-// Over everything while an export runs, as Unity's build progress is, so nothing it reads is edited under it: what it is doing, how far along where that can be told, how long it has taken, and Cancel or Escape, which leave the output folder as the last export left it. It waits for any other popup to close, since opening it would close that one, and comes back once a popup that took its place has closed
+// Over everything while an export runs, as Unity's build progress. Cancel keeps the last export
 void ForgeLayer::DrawExportPopup()
 {
     const bool l_Running = m_Export.IsRunning();
@@ -409,7 +409,7 @@ void ForgeLayer::DrawExportPopup()
     ImGui::EndPopup();
 }
 
-// From the File menu or Ctrl+B, with the Build panel brought forward when the settings stop it, so what stops it shows
+// From the File menu or Ctrl+B. The Build panel comes forward when the settings stop it
 void ForgeLayer::BuildAndRun()
 {
     if (!m_BuildPanel->Build(true))
@@ -419,7 +419,7 @@ void ForgeLayer::BuildAndRun()
     }
 }
 
-// Unity's status bar along the main window's foot, before the dock space so the panels fit above it: the last line logged at Info or above in its level's colour, which brings the Console forward when clicked, and at the right end what runs in the background, with how far along it is
+// Unity's status bar: the last line logged at Info or above, and at the right background work
 void ForgeLayer::DrawStatusBar()
 {
     ReadStatusLine();
@@ -497,7 +497,7 @@ void ForgeLayer::DrawStatusBar()
     ImGui::End();
 }
 
-// The last line at Info or above, its text copied only when it is not the one already shown. The history is let go of before anything is drawn, since drawing may log, and nothing found, as after the Console's Clear, empties the bar
+// The history is let go of before drawing, since drawing may log. Nothing found empties the bar
 void ForgeLayer::ReadStatusLine()
 {
     const Trinity::LogHistory::Reader l_History = Trinity::LogHistory::Read();
@@ -523,7 +523,7 @@ void ForgeLayer::ReadStatusLine()
     m_StatusSequence = 0;
 }
 
-// The Console's Error Pause, as in Unity: a playing scene pauses once an error is logged, whether the Console is open or not. Lines are looked at once each, from the newest back to the last looked at, and those logged while nothing plays are passed over, so an old error never pauses the next Play. The pause is asked for once the history is let go of, since it may log
+// As Unity's Error Pause. Lines logged while nothing plays are skipped, so old errors never pause
 void ForgeLayer::PauseOnError()
 {
     if (!m_Console->IsPausingOnError() || !m_Session.IsPlaying() || m_Session.IsPaused())
@@ -546,7 +546,7 @@ void ForgeLayer::PauseOnError()
             l_Error = l_History[it_Index - 1].Level >= Trinity::LogLevel::Error;
         }
 
-        // Read again under the lock, which every line and every clear takes, so nothing logged meanwhile is passed over
+        // Read again under the lock every line and clear takes, so nothing logged meanwhile is missed
         m_ErrorScanSequence = Trinity::LogHistory::GetNextSequence();
     }
 
@@ -556,7 +556,7 @@ void ForgeLayer::PauseOnError()
     }
 }
 
-// Unity's notification: the session's last notice over the middle of the main window for a moment, fading as it goes
+// Unity's notification: the session's last notice over the middle of the main window, fading
 void ForgeLayer::DrawNotice()
 {
     const std::optional<EditorSession::Notice>& l_Notice = m_Session.GetNotice();
@@ -588,7 +588,7 @@ void ForgeLayer::DrawNotice()
     l_DrawList.AddText(l_Font, l_Size, ImVec2(l_Min.x + l_Padding.x, l_Min.y + l_Padding.y), ImGui::GetColorU32(ImGuiCol_Text, l_Opacity), l_Notice->Text.c_str());
 }
 
-// While a copy plays, the backgrounds lean towards the Play Mode Tint, blue unless the preferences say otherwise, further while it is paused, so it is plain at a glance that nothing done now stays
+// While a copy plays, the backgrounds lean towards the Play Mode Tint, further while paused
 void ForgeLayer::PushPlayTint()
 {
     if (!m_Session.IsPlaying())
@@ -612,7 +612,7 @@ bool ForgeLayer::OnCloseRequested()
     return m_Session.RequestClose();
 }
 
-// Not while a field is typed into, nor while anything is being dragged, such as a gizmo, whose command is still open, nor while a popup is up, such as the texture import's, nor while the Input Actions panel listens for the input to bind. Ctrl+P plays and stops, and while a copy plays, nothing edits the scene, though Ctrl+C copies the playing entity and Undo and Redo take back an asset's edits
+// Not while typing, dragging, in a popup, or while Input Actions listens. Ctrl+P plays and stops
 void ForgeLayer::ReadShortcuts()
 {
     if (ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) || m_InputActionsPanel->IsListening())
@@ -683,7 +683,7 @@ void ForgeLayer::ReadShortcuts()
     }
     else if (l_Playing)
     {
-        // Create Empty, Paste, Duplicate and Delete would edit the scene, and the history takes no edit of it while a copy plays
+        // Create Empty, Paste, Duplicate and Delete would edit the scene, locked while a copy plays
     }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_N) && m_Session.HasProject())
     {
@@ -695,7 +695,7 @@ void ForgeLayer::ReadShortcuts()
     }
     else if (m_ContentBrowser->IsFocused() || m_InputActionsPanel->IsFocused() || m_AudioMixerPanel->IsFocused() || m_SoundEventPanel->IsFocused())
     {
-        // Duplicate and Delete are the browser's own while it has focus, as they are the Input Actions, Audio Mixer and Sound Event panels', and Copy and Paste are left to them
+        // Duplicate and Delete are the focused panel's own, and Copy and Paste are left to them
     }
     else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V) && m_Session.HasCopiedEntity() && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
     {
@@ -845,7 +845,7 @@ void ForgeLayer::DrawMenuBar()
     ImGui::EndMainMenuBar();
 }
 
-// At the right of the menu bar, one for each kind of script the project has: a spinner while it builds or waits to, red with its error count when the last build failed, which shows those errors in the Console when clicked, and green when it is up to date
+// One for each kind of script: a spinner while building, red with its error count, else green
 void ForgeLayer::DrawBuildStatus()
 {
     const Trinity::Project* l_Project = m_Session.GetProject();
@@ -873,7 +873,7 @@ void ForgeLayer::DrawBuildStatus()
         l_Indicators.push_back({ "C#", "C# scripts", m_Session.GetAssembly().GetStatus(), &m_Session.GetAssembly().GetErrorLines() });
     }
 
-    // A project without scripts has none to show, and the cursor is not moved right for nothing, which ImGui takes as stretching the menu bar
+    // A project without scripts has none. Moving the cursor for nothing would stretch the menu bar
     if (l_Indicators.empty())
     {
         return;
@@ -956,7 +956,7 @@ void ForgeLayer::DrawBuildStatus()
 
         ImGui::PushStyleColor(ImGuiCol_Text, l_Color);
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-        // By its language rather than by a ### suffix, which after C# would read as ## and cut the label short at C
+        // By its language rather than a ### suffix, which after C# would read as ## and cut the label
         ImGui::PushID(it_Indicator.Label);
         const bool l_Clicked = ImGui::Button(a_Text(it_Indicator).c_str());
         ImGui::PopID();
@@ -971,7 +971,7 @@ void ForgeLayer::DrawBuildStatus()
     }
 }
 
-// Centred in the menu bar: Play, which resumes a paused copy, Pause, held down while paused, Step, which pauses and takes one fixed step, and Stop
+// Centred in the menu bar: Play, which resumes a paused copy, Pause, Step and Stop
 void ForgeLayer::DrawPlayControls()
 {
     const bool l_Playing = m_Session.IsPlaying();
@@ -1001,7 +1001,7 @@ void ForgeLayer::DrawPlayControls()
         return l_Pressed;
     };
 
-    // Held down while it waits for the scripts to build, as Unity's is while they compile, and saying why it is refused while a build has failed
+    // Held down while it waits for the scripts to build, and saying why while a build has failed
     const bool l_Waiting = m_Session.IsWaitingForBuild();
     const std::string l_Failed = l_Playing ? std::string() : m_Session.GetFailedBuilds();
     // Greyed in prefab mode, which has no scene to play
@@ -1028,7 +1028,7 @@ void ForgeLayer::DrawPlayControls()
     }
 }
 
-// Undo and Redo name the command they act on. Every edit to the scene goes through the history, so it can be undone, and the project's settings are saved as they change. While a copy plays, nothing here edits the scene, Undo and Redo take back only an asset's edits, and Copy takes the playing entity, to paste once it stops
+// Undo and Redo name their command. While a copy plays, only an asset's edits are undone
 void ForgeLayer::DrawEditMenu()
 {
     CommandStack& l_History = m_Session.GetHistory();
@@ -1099,7 +1099,7 @@ void ForgeLayer::DrawEditMenu()
     }
 }
 
-// Unity's GameObject menu. Each new entity goes among the roots at the spawn point, but Create Empty Child's, which goes under the selection at its origin, and an empty one is renamed in the Hierarchy at once. Not while a copy plays. Unpack Prefab and Unpack Prefab Completely last
+// Unity's GameObject menu. New entities go among the roots at the spawn point. Not while playing
 void ForgeLayer::DrawEntityMenu()
 {
     const bool l_Editable = m_Session.HasProject() && !m_Session.IsPlaying();
@@ -1172,7 +1172,7 @@ void ForgeLayer::CreateEmpty(Trinity::UUID parent)
     }
 }
 
-// The project's scenes opened or saved lately, newest first, as Unity's Open Recent Scene lists them: each by name, with its folder beside it, as it is now, the open one ticked. One the project no longer has is greyed and marked, with Remove from List, as Unity Hub keeps a missing project
+// As Unity's Open Recent Scene: newest first, the open one ticked. A missing one is greyed
 void ForgeLayer::DrawRecentScenesMenu()
 {
     const std::vector<EditorSession::RecentScene>& l_Scenes = m_Session.GetRecentScenes();
@@ -1224,7 +1224,7 @@ void ForgeLayer::DrawRecentScenesMenu()
     }
 }
 
-// Only the project's language: a C++ project's module, or a C# project's own project and solution. A Forge with a static engine cannot build or load a module, and one without .NET has no C#, and each says why when its items are hovered
+// Only the project's language. A Forge that cannot build it says why when its items are hovered
 void ForgeLayer::DrawScriptsMenu()
 {
     const Trinity::Project* l_Project = m_Session.GetProject();
@@ -1326,7 +1326,7 @@ void ForgeLayer::DrawScriptsMenu()
         ImGui::EndMenu();
     }
 
-    // The script editor's debugger, attached to this Forge, whose process ID is shown for attaching one by hand
+    // The script editor's debugger, attached to this Forge, whose process ID is shown too
     ImGui::Separator();
     const std::string l_ProcessID = std::to_string(Trinity::Process::GetCurrentID());
     const bool l_CanAttach = l_Project != nullptr && m_Session.GetScriptEditor() != ScriptEditor::System;
@@ -1354,7 +1354,7 @@ void ForgeLayer::DrawScriptsMenu()
     }
 }
 
-// The commands around the current position, oldest at the top, with those that would be redone greyed. Picking one undoes or redoes to just after it, and Start undoes everything the history holds
+// Oldest at the top, redoable ones greyed. Picking one undoes or redoes to just after it
 void ForgeLayer::DrawHistoryMenu()
 {
     CommandStack& l_History = m_Session.GetHistory();
@@ -1404,7 +1404,7 @@ void ForgeLayer::DrawHistoryMenu()
     }
 }
 
-// imgui.ini keeps each user's layout, and the default is built when it has none, such as on the first run, or on View > Reset Layout
+// imgui.ini keeps each user's layout. The default is built when it has none, or on Reset Layout
 void ForgeLayer::DrawDockSpace()
 {
     const ImGuiID l_DockSpace = ImHashStr(c_DockSpaceName.data(), c_DockSpaceName.size());
@@ -1422,7 +1422,7 @@ void ForgeLayer::DrawDockSpace()
     ImGui::DockSpaceOverViewport(l_DockSpace, ImGui::GetMainViewport());
 }
 
-// A panel added to Forge after the user's imgui.ini was saved has no place in it, so it joins the node of a panel with the same slot rather than floating. A new tab would be selected as it appears, so the Scene and Properties panels are brought back in front of any that joins them
+// A panel newer than the user's imgui.ini joins the node of a panel with the same slot
 void ForgeLayer::DockNewPanels()
 {
     for (const Trinity::Scope<Panel>& it_Panel : m_Panels)
@@ -1449,7 +1449,7 @@ void ForgeLayer::DockNewPanels()
     }
 }
 
-// Hierarchy on the left, Properties on the right in front of Project Settings, the Scene and Game panels as tabs in the centre with the Scene panel in front, and the Console below them. Every panel opens again, including any floating in windows of their own
+// Hierarchy left, Properties right, Scene and Game as centre tabs, Console below. All reopen
 void ForgeLayer::BuildDefaultLayout(std::uint32_t dockSpace)
 {
     ImGui::DockBuilderRemoveNode(dockSpace);
@@ -1475,7 +1475,7 @@ void ForgeLayer::BuildDefaultLayout(std::uint32_t dockSpace)
     TR_INFO("Forge: default layout built");
 }
 
-// With no project open, the projects opened lately over the empty editor, as Unity Hub and Godot's project manager list them, newest first, under New Project and Open Project: each by name, with its folder and when it was last opened, a click opening it. One whose file is gone is greyed and marked, and a click on it, as a right-click on any, offers Remove from List. As a floating window it stays over the docked panels, which never come in front of one, and under a menu, a dialog or the About window
+// With no project open: recent projects, newest first, under New Project and Open Project
 void ForgeLayer::DrawStartScreen()
 {
     if (m_Session.HasProject())
@@ -1585,7 +1585,7 @@ void ForgeLayer::DrawStartScreen()
     ImGui::End();
 }
 
-// The version and the commit it was built from, the graphics backend and adapter, and the fonts and scale the UI is drawn with
+// The version and commit, the graphics backend and adapter, and the UI's fonts and scale
 void ForgeLayer::DrawAboutWindow()
 {
     if (!ImGui::Begin(m_AboutTitle.c_str(), &m_ShowAbout, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking))
@@ -1621,7 +1621,7 @@ void ForgeLayer::DrawAboutWindow()
     ImGui::End();
 }
 
-// imgui.ini holds one [ForgePanels][Open] section, with an ID=1 or ID=0 line for each panel, the Scene panel's own settings: its overlay, gizmo and snap toggle, the Game panel's aspect choice and whether it shows Stats, the Content Browser's thumbnail size or list, and the Console's Collapse, Clear options, Error Pause and the height of the pane under its list. The script editor and whether Play waits for a debugger, which the preferences keep now, are read from one written before them into preferences not saved yet
+// imgui.ini's [ForgePanels][Open] section: an ID=1 or ID=0 line a panel, then panels' settings
 void* ForgeLayer::OpenPanelSettings([[maybe_unused]] ImGuiContext* context, ImGuiSettingsHandler* handler, [[maybe_unused]] const char* name)
 {
     return handler->UserData;

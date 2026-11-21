@@ -41,7 +41,7 @@ namespace
         return a_Size != PrefabThumbnails::c_Sizes.end() ? *a_Size : PrefabThumbnails::c_Sizes.back();
     }
 
-    // As F frames the whole scene in the Scene panel: through the 3D editor camera at its first angle around the meshes' bounds and the sprites' quads, or with sprites alone through the 2D editor camera around their quads, head-on. Nothing for an instance with neither, a mesh that failed to load drawing nothing
+    // As F frames the scene: the 3D editor camera around meshes and sprites, or head-on for sprites
     std::optional<Trinity::RenderView> FrameInstance(Trinity::Scene& scene, std::uint32_t size)
     {
         constexpr std::array<glm::vec2, 4> c_SpriteCorners{ glm::vec2(-0.5f, -0.5f), glm::vec2(0.5f, -0.5f), glm::vec2(0.5f, 0.5f), glm::vec2(-0.5f, 0.5f) };
@@ -99,7 +99,7 @@ namespace
             return std::nullopt;
         }
 
-        // The editor camera's projection holds its place, so its view is the world's own axes, as the Scene panel's is in 2D
+        // The editor camera's projection holds its place, so its view is the world's own axes
         EditorCamera l_Camera;
         l_Camera.Frame(glm::vec2(l_Minimum), glm::vec2(l_Maximum), l_Size);
         Trinity::RenderView l_View = Trinity::RenderView::FromMatrices(glm::mat4(1.0f), l_Camera.GetViewProjection(l_Size), true);
@@ -114,7 +114,7 @@ PrefabThumbnails::~PrefabThumbnails()
     Clear();
 }
 
-// A prefab asked for again in the same frame, as a search can list it twice, is drawn as large as the last asked
+// A prefab asked for twice in a frame, as a search can list it, is drawn as large as last asked
 std::uint32_t PrefabThumbnails::Find(Trinity::UUID prefab, float pixels)
 {
     Entry& l_Entry = m_Entries[prefab];
@@ -136,7 +136,7 @@ std::uint32_t PrefabThumbnails::Find(Trinity::UUID prefab, float pixels)
     return l_Target ? l_Application.GetDevice().GetShaderResourceIndex(l_Target) : Trinity::RHI::c_NoBindlessIndex;
 }
 
-// A view let go of is released once no frame in flight still shows it, so one the UI drew this frame can go before the frame is rendered
+// A view let go of is released once no frame in flight shows it, so it can go before this frame
 void PrefabThumbnails::EndFrame()
 {
     Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
@@ -206,7 +206,7 @@ void PrefabThumbnails::Clear()
     m_Asked.clear();
 }
 
-// The instance made again once its template is, and drawn again once what it shows has changed or it is shown at another size, as soon as every mesh in it has loaded, since they frame it. Until then the picture it had stays. Whether this took one of the frame's draws
+// Made again once its template is, and drawn again once what it shows changes. Whether it drew
 bool PrefabThumbnails::Update(Trinity::UUID prefab, Entry& entry, Trinity::Renderer& renderer)
 {
     const Trinity::Scene* l_Template = m_Session.FindPrefabTemplate(prefab);
@@ -255,7 +255,7 @@ bool PrefabThumbnails::Update(Trinity::UUID prefab, Entry& entry, Trinity::Rende
     return true;
 }
 
-// Through the session's resolver, which finds each prefab nested in it as the scene's instances find it. What it draws with is held before what the last instance drew with is let go of, so an asset both use is not loaded again, and the last picture stays until this one is drawn. One that cannot be made is logged once for each version of its template, and keeps its icon
+// What it draws with is held before the last instance's is let go, so shared assets stay loaded
 void PrefabThumbnails::MakeInstance(Trinity::UUID prefab, Entry& entry, Trinity::Renderer& renderer)
 {
     Trinity::Scope<Trinity::Scene> l_Instance = Trinity::CreateScope<Trinity::Scene>();
@@ -301,7 +301,7 @@ void PrefabThumbnails::MakeInstance(Trinity::UUID prefab, Entry& entry, Trinity:
     entry.Camera.reset();
 }
 
-// Nothing to draw, as for a model not imported yet, which keeps its icon until its template is found
+// Nothing to draw, as for a model not imported yet, which keeps its icon until then
 void PrefabThumbnails::Forget(Entry& entry, Trinity::Renderer& renderer)
 {
     DestroyView(entry, renderer);
@@ -328,7 +328,7 @@ void PrefabThumbnails::DestroyView(Entry& entry, Trinity::Renderer& renderer)
     entry.Shown = false;
 }
 
-// As the renderer draws a mesh: once it is ready and its GPU copy made. One that failed, or is not a mesh, draws nothing, so it is waited for no longer
+// As the renderer draws a mesh: once ready with its GPU copy. A failed one is waited for no longer
 bool PrefabThumbnails::AreMeshesLoaded(const Entry& entry)
 {
     return std::ranges::none_of(entry.Meshes, [](const Trinity::AssetRef<Trinity::MeshAsset>& mesh)
@@ -340,7 +340,7 @@ bool PrefabThumbnails::AreMeshesLoaded(const Entry& entry)
     });
 }
 
-// A material still loading draws as the default, and a texture still loading as its placeholder, so the picture is drawn again as each arrives
+// A material or texture still loading draws as a placeholder, so the picture redraws as it arrives
 PrefabThumbnails::Signature PrefabThumbnails::Sign(const Entry& entry)
 {
     Signature l_Signature;

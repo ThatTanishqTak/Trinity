@@ -9,7 +9,7 @@
 
 namespace
 {
-    // The eye's height over the plane is taken as at least this, so the cells stop shrinking just above it
+    // The eye's height over the plane is taken as at least this, so cells stop shrinking just above it
     constexpr float c_MinimumHeight = 0.01f;
     // The grid fades out this many times the eye's height away, and never nearer than the minimum
     constexpr float c_FadeHeights = 100.0f;
@@ -45,7 +45,7 @@ EditorGrid3D::~EditorGrid3D()
     }
 }
 
-// Tested against the scene's depth and never writing it, with the depth each pixel writes being the plane's
+// Tested against the scene's depth and never writing it. Each pixel's depth is the plane's
 void EditorGrid3D::Draw(Trinity::RHI::CommandList& commands, const Trinity::RenderView& view, Trinity::RHI::Format colorFormat, std::uint32_t sampleCount)
 {
     const Trinity::RHI::PipelineHandle l_Pipeline = GetPipeline(colorFormat, sampleCount);
@@ -81,7 +81,7 @@ float EditorGrid3D::GetSpacing(const glm::vec3& eye)
     return std::pow(10.0f, std::floor(GetLogHeight(eye)) - 1.0f);
 }
 
-// One for each colour format and sample count the scene is drawn at, made when first needed. Missing shaders are reported once, and the grid is not drawn
+// One for each colour format and sample count, made when first needed. Missing shaders log once
 Trinity::RHI::PipelineHandle EditorGrid3D::GetPipeline(Trinity::RHI::Format colorFormat, std::uint32_t sampleCount)
 {
     const auto a_Found = std::ranges::find_if(m_Pipelines, [&](const PipelineEntry& entry) { return entry.Format == colorFormat && entry.SampleCount == sampleCount; });
@@ -101,7 +101,7 @@ Trinity::RHI::PipelineHandle EditorGrid3D::GetPipeline(Trinity::RHI::Format colo
     const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_PixelShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/EditorGrid3D.PixelMain.{}", l_Extension));
     if (!l_VertexShader || !l_PixelShader)
     {
-        TR_INFO("Scene view: no EditorGrid3D shaders under /engine/shaders, so the 3D grid is not drawn");
+        TR_INFO("Scene view: no EditorGrid3D shaders in /engine/shaders, so no 3D grid is drawn");
         m_Missing = true;
 
         return {};

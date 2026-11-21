@@ -1,11 +1,11 @@
-// ImGuizmo, with its curve editor for the Sound Event panel, compiled into Forge against the engine's Dear ImGui. The engine's imconfig makes IMGUI_API mean TRINITY_API, which would mark ImGuizmo's own functions as the engine's, so ImGuizmoInclude.hpp declares them first without it. ImGuizmo.cpp uses ImGui's vector operators, which must be on before imgui.h is first read
+// imconfig makes IMGUI_API mean TRINITY_API, so ImGuizmoInclude.hpp declares ImGuizmo's first
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "ImGuizmoInclude.hpp"
 
 #include <ImGuizmo.cpp>
 #include <ImCurveEdit.cpp>
 
-// ImGuizmo keeps its state in a static context, whose ID stack is allocated through ImGui's allocator on first use and would otherwise only be freed after the engine's memory has been checked for leaks
+// ImGuizmo's static context allocates through ImGui on first use. Freed here for the leak check
 void ReleaseImGuizmo()
 {
     ImGuizmo::gContext.mIDStack.clear();

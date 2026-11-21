@@ -8,7 +8,7 @@
 #include <string>
 #include <string_view>
 
-// Moving a project made with an older version of Trinity to this one, as Unity asks to before it opens a project of an older editor: the project backed up whole first, then every file this version writes saved again in its own formats
+// As Unity asks before opening an older project: backed up whole, then saved in this one's formats
 namespace ProjectMigration
 {
     // The folders at a project's top the backup leaves out, as they are made again from the rest
@@ -24,10 +24,10 @@ namespace ProjectMigration
         std::size_t Unchanged = 0;
     };
 
-    // <Project>-<version>-<date>.zip beside the project's folder, its date today's in UTC, numbered as <Project>-<version>-<date> 2.zip when that is taken. version is the one the project names, or unknown for none
+    // <Project>-<version>-<date>.zip beside the project's folder, in UTC, numbered when that is taken
     [[nodiscard]] std::filesystem::path GetBackupPath(const std::filesystem::path& directory, std::string_view version);
-    // The project's folder whole into a stored zip at the path, under a folder of its own name, but for the top's Cache, Build and Builds, so it unpacks beside the project as the project was. Written under another name first and renamed once whole, so a backup that fails leaves nothing
+    // A stored zip, less Cache, Build and Builds. Written under another name, then renamed once whole
     [[nodiscard]] Trinity::Expected<void, std::string> BackUp(const std::filesystem::path& directory, const std::filesystem::path& zip);
-    // Every scene, prefab, input actions asset, mixer and sound event the registry has, read and written again by this version's code, and each .meta of an older format written in this one. A file whose text this version writes the same is left as it is, and one that cannot be read is logged and left for its own page to say why
+    // Every asset this version writes, read and written again. One that cannot be read is logged
     [[nodiscard]] Report SaveAgain(Trinity::AssetRegistry& registry);
 }

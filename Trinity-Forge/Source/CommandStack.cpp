@@ -8,7 +8,7 @@ CommandStack::CommandStack(Trinity::Scene& scene, Trinity::UUID& selection, std:
 
 }
 
-// The command runs before it is kept, and one that changes nothing is not kept. Anything that could have been redone is dropped. While a drag goes on, a command merges into the one before it, unless the scene was saved in between, since the saved state would be lost
+// One that changes nothing is not kept. During a drag it merges into the one before, unless saved
 bool CommandStack::Execute(Trinity::Scope<EditorCommand> command)
 {
     if (!command || RefuseLocked(command->ChangesScene()) || !command->Execute(m_Scene))
@@ -59,7 +59,7 @@ bool CommandStack::Undo()
     return true;
 }
 
-// The scene is as it was when the command first ran, so it can only fail if the history no longer matches the scene, and then nothing after it can be trusted
+// Fails only if the history no longer matches the scene, and then nothing after it can be trusted
 bool CommandStack::Redo()
 {
     m_MergeOpen = false;
@@ -84,7 +84,7 @@ bool CommandStack::Redo()
     return true;
 }
 
-// Undoes or redoes one command at a time until the history stands at the position, which counts the commands applied
+// Undoes or redoes one command at a time until the history stands at the position
 void CommandStack::JumpTo(std::size_t position)
 {
     if (RefuseLocked())
@@ -156,13 +156,13 @@ bool CommandStack::RefuseLocked(bool changesScene)
 
     if (!std::exchange(m_WarnedLocked, true))
     {
-        TR_WARN("Forge: the scene cannot be edited while it plays, though assets can. Stop it first, and the edited scene is as it was");
+        TR_WARN("Forge: the scene cannot be edited while it plays, though assets can. Stop first");
     }
 
     return true;
 }
 
-// What the command touched, while it is in the scene. One that is gone, such as a deleted entity, leaves nothing selected
+// What the command touched, while it is in the scene. A deleted entity leaves nothing selected
 void CommandStack::Select(const EditorCommand& command)
 {
     if (!command.SelectsSubject())
@@ -189,7 +189,7 @@ void CommandStack::DropRedo()
     }
 }
 
-// The oldest commands go first, and with them the way back to the scene before them. Only called with the newest command applied, so the position follows the count
+// The oldest commands go first. Only called with the newest applied, so the position follows
 void CommandStack::Trim()
 {
     while (m_MemorySize > m_Capacity && !m_Commands.empty())

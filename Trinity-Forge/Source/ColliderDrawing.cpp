@@ -53,7 +53,7 @@ namespace
         return mode == Trinity::CharacterMode::Physical ? c_PhysicalCharacterColor : c_CharacterColor;
     }
 
-    // A 2D collider's own frame in the XY plane, as the 2D world takes it: the entity's world transform, then the collider's offset and turn about Z, with each axis's scale, at the collider's depth in Z
+    // As the 2D world takes it: the entity's transform, then the collider's offset and turn about Z
     struct Frame2D
     {
         glm::vec2 Origin{ 0.0f };
@@ -82,7 +82,7 @@ namespace
     using Points2D = std::array<glm::vec2, Trinity::PolygonCollider2DComponent::c_MaxPoints>;
     using HullPoints = std::array<glm::vec2, Trinity::PolygonCollider2DComponent::c_MaxPoints * 2>;
 
-    // The convex hull of the first points, counter-clockwise, without points in line with their neighbours, in place of nothing, so drawing every collider each frame allocates nothing
+    // The convex hull of the first points, counter-clockwise, built in place, so nothing is allocated
     std::span<const glm::vec2> GetHull(Points2D& points, std::size_t count, HullPoints& hull)
     {
         const std::span<glm::vec2> l_Points(points.data(), count);
@@ -119,7 +119,7 @@ namespace
         return std::span<const glm::vec2>(hull.data(), l_Count - 1);
     }
 
-    // A counter-clockwise outline grown outward by the radius: each edge moved out along its normal, and an arc round each corner. One point with a radius is a circle, and two a capsule
+    // Each edge moved out by the radius, with an arc round each corner. One point is a circle
     void DrawOutline2D(std::span<const glm::vec2> outline, float radius, float depth, const glm::vec4& color)
     {
         const auto a_At = [depth](const glm::vec2& point) { return glm::vec3(point, depth); };
@@ -166,7 +166,7 @@ namespace
         }
     }
 
-    // A box or polygon by the hull of its points in the world, with a polygon's corners rounded by its radius at the larger scale. Nothing for points that make no area, which the 2D world leaves out
+    // By the hull of its points in the world. Nothing for points with no area, which the 2D world drops
     void DrawPolygon2D(const Frame2D& frame, std::span<const glm::vec2> points, float radius, const glm::vec4& color)
     {
         Points2D l_World{};
@@ -184,7 +184,7 @@ namespace
         }
     }
 
-    // The way through a solid one-way collider: an arrow from where its offset puts it along its own Y axis, the side 2D characters land on. A trigger holds no character either way, so it has none
+    // An arrow along the collider's own Y axis, the side 2D characters land on. A trigger has none
     void DrawOneWay2D(const Trinity::Collider2DSettings& collider, const Frame2D& frame)
     {
         if (!collider.OneWay || collider.Trigger || glm::length(frame.AxisY) <= 1e-6f)
@@ -196,7 +196,7 @@ namespace
         Trinity::DebugDraw::Arrow(l_From, l_From + glm::vec3(glm::normalize(frame.AxisY) * c_OneWayArrowLength, 0.0f), GetColor(collider));
     }
 
-    // As the 2D world takes them: a circle by the larger of its X and Y scales, and a capsule by its Y scale along its length and its X scale around it. A one-way collider shows its way through
+    // As the 2D world takes them: a circle by its larger scale, a capsule by Y along and X around
     void DrawEntityColliders2D(Trinity::Entity entity)
     {
         const glm::mat4& l_World = entity.Get<Trinity::WorldTransformComponent>().Matrix;
@@ -240,7 +240,7 @@ namespace
         }
     }
 
-    // Its capsule as the 2D world makes it, flat at its entity's depth: along the entity's Y axis from where its offset puts it, by its Y scale along its length and its X scale around it, a circle when its caps meet, in its mode's colour. While the scene runs, as a 3D character is drawn, in another colour while it stands on ground it can stand on, with arrows for its own velocity from its middle and for the normal of any ground under it from its foot
+    // As the 2D world makes it. While running: coloured if grounded, with velocity and ground arrows
     void DrawEntityCharacter2D(Trinity::Entity entity, Trinity::PhysicsScene2D* physics)
     {
         if (!entity.Has<Trinity::CharacterController2DComponent>())
@@ -283,7 +283,7 @@ namespace
         }
     }
 
-    // A round shape along the frame's Y: its centre, its unit axis and the scale along it, and the larger scale across it
+    // A round shape along the frame's Y: its centre, unit axis, scale along it, and larger scale across
     struct RoundFrame
     {
         glm::vec3 Center{ 0.0f };
@@ -311,7 +311,7 @@ namespace
         return l_Round;
     }
 
-    // Each edge of the shape as it sits on its entity, or its bounds when it has too many edges to keep. Nothing until it has loaded
+    // Each edge of the shape on its entity, or its bounds when it has too many. Nothing until loaded
     template<typename T>
     void DrawShape(const glm::mat4& frame, Trinity::UUID shape, const glm::vec4& color)
     {
@@ -393,7 +393,7 @@ namespace
         }
     }
 
-    // Its capsule as the 3D world makes it, along its entity's Y axis from where its offset puts it, by its Y scale along its length and its larger X or Z scale around it, in its mode's colour. While the scene runs, in another colour while it stands on ground it can stand on, with arrows for its own velocity from its middle and for the normal of any ground under it from its foot, read as a script reads them
+    // As the 3D world makes it. While running: coloured if grounded, with velocity and ground arrows
     void DrawEntityCharacter(Trinity::Entity entity, Trinity::PhysicsScene3D* physics)
     {
         if (!entity.Has<Trinity::CharacterControllerComponent>())
@@ -429,7 +429,7 @@ namespace
         }
     }
 
-    // The anchor in the entity's frame, the axis turned with it, and a line to the other end: the connected entity's anchor for a distance joint, or its origin, or for a distance joint to the world its anchor there. A joint naming an entity no longer in the scene draws no line
+    // The anchor, the axis, and a line to the other end. A joint naming a missing entity draws no line
     void DrawEntityJoint(Trinity::Scene& scene, Trinity::Entity entity)
     {
         if (!entity.Has<Trinity::JointComponent>())
@@ -468,7 +468,7 @@ namespace
         }
     }
 
-    // As a 3D joint's, flat at its entity's depth: a cross at the anchor, a circle about it for a joint that turns, the axis for one that slides, and a line to the other end. A joint naming an entity no longer in the scene draws no line
+    // As a 3D joint's, flat at its entity's depth: a cross at the anchor, and a circle if it turns
     void DrawEntityJoint2D(Trinity::Scene& scene, Trinity::Entity entity)
     {
         if (!entity.Has<Trinity::Joint2DComponent>())
@@ -515,7 +515,7 @@ ColliderDrawing::~ColliderDrawing()
     Release();
 }
 
-// The shapes drawn this time are acquired before those drawn last time are released, so one still in use is never unloaded between the two
+// Shapes drawn now are acquired before last time's are released, so one in use is never unloaded
 void ColliderDrawing::Draw(Trinity::Scene& scene, Trinity::Entity root, Trinity::PhysicsScene3D* physics, Trinity::PhysicsScene2D* physics2D)
 {
     m_Drawn.clear();

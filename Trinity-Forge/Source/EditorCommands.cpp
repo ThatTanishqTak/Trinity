@@ -26,7 +26,7 @@ namespace
         return !before.IsValid() || (l_Before && l_Before.GetParent().GetHandle() == l_Parent.GetHandle());
     }
 
-    // Before the sibling when there is one, otherwise last under the parent or among the roots. The transform is left alone, since the commands set it exactly
+    // Before the sibling if there is one, else last. The transform is left alone: commands set it
     bool Place(Trinity::Scene& scene, Trinity::Entity entity, Trinity::UUID parent, Trinity::UUID before)
     {
         if (const Trinity::Entity l_Before = scene.FindEntityByUUID(before))
@@ -37,7 +37,7 @@ namespace
         return scene.SetParent(entity, scene.FindEntityByUUID(parent), false);
     }
 
-    // The defaults of the box, sphere, capsule and cylinder colliders fit the shapes of the same name exactly, and the flat shapes get a box 10 cm thick behind their face, so what lands on one rests on its surface
+    // Box, sphere, capsule and cylinder colliders fit exactly. Flat shapes get a box 10 cm thick behind
     void AddFittingCollider(Trinity::Entity entity, Trinity::BuiltInMesh mesh)
     {
         switch (mesh)
@@ -85,7 +85,7 @@ namespace
         }
     }
 
-    // The text came from this scene in the same state, so this only fails when the history no longer matches the scene
+    // The text came from this scene in the same state, so this fails only if the history is out of step
     bool Restore(Trinity::Scene& scene, std::string_view text, Trinity::UUID parent, Trinity::UUID before, std::string_view label)
     {
         const Trinity::Expected<Trinity::Entity, std::string> l_Restored = Trinity::SceneSerializer::LoadEntityFromText(scene, text, scene.FindEntityByUUID(parent), scene.FindEntityByUUID(before));
@@ -169,7 +169,7 @@ namespace
         }
     }
 
-    // The first in the subtree, the entity itself or under it, that stands in for an instance whose prefab is missing
+    // The first in the subtree that stands in for an instance whose prefab is missing
     Trinity::Entity FindMissingPrefab(Trinity::Entity entity)
     {
         Trinity::Scene& l_Scene = *entity.GetScene();
@@ -195,7 +195,7 @@ namespace
         return l_Size;
     }
 
-    // A string's text, an input action's path, or a list's elements with what each holds, the parts of a value held outside it
+    // The parts of a value held outside it: a string's text, a path, or a list's elements
     std::size_t GetScriptValueMemorySize(const Trinity::ScriptFieldValue& value)
     {
         if (value.GetType() == Trinity::ScriptFieldType::List)
@@ -213,7 +213,7 @@ namespace
         return value.GetType() == Trinity::ScriptFieldType::String || value.GetType() == Trinity::ScriptFieldType::InputAction ? value.Get<Trinity::ScriptString>().capacity() : 0;
     }
 
-    // A rename's fields at their values after it, or back at their values before it, where one that was its class's default goes again
+    // A rename's fields at their values after it, or before it, where a class default is default again
     void SetInputActionFields(Trinity::Scene& scene, const std::vector<InputActionFieldRewrite>& rewrites, bool undo)
     {
         for (const InputActionFieldRewrite& it_Rewrite : rewrites)
@@ -493,7 +493,7 @@ bool IsPrefabPart(Trinity::Entity entity)
     return l_Root && l_Root != entity;
 }
 
-// The innermost level with a root, and of the levels sharing that root the outermost, which is the variant's. An instance whose prefab is missing has no levels, so its root is the nearest
+// The innermost level with a root, and of the levels sharing that root the outermost, the variant's
 NearestInstance FindNearestInstance(Trinity::Entity entity)
 {
     const std::vector<Trinity::Prefab::Level> l_Levels = Trinity::Prefab::GetLevels(entity);
@@ -604,7 +604,7 @@ CreateEntityCommand::CreateEntityCommand(std::string name, Trinity::UUID parent,
 
 }
 
-// The first run creates the entity at the position in the parent's space and keeps it as text, so a redo brings back the same UUID
+// The first run creates the entity and keeps it as text, so a redo brings back the same UUID
 bool CreateEntityCommand::Execute(Trinity::Scene& scene)
 {
     if (!m_Text.empty())
@@ -646,7 +646,7 @@ CreateSpriteCommand::CreateSpriteCommand(std::string name, Trinity::UUID texture
 
 }
 
-// A root entity with its transform, SpriteRenderer and texture set in one step, so a single undo takes it away. Kept as text after the first run, as CreateEntityCommand does
+// Set in one step, so a single undo takes it away. Kept as text after the first run
 bool CreateSpriteCommand::Execute(Trinity::Scene& scene)
 {
     if (!m_Text.empty())
@@ -687,7 +687,7 @@ CreateAudioSourceCommand::CreateAudioSourceCommand(std::string name, Trinity::UU
 
 }
 
-// Kept as text after the first run, as CreateEntityCommand does, so a redo brings back the same UUID
+// Kept as text after the first run, as CreateEntityCommand does, so a redo keeps the same UUID
 bool CreateAudioSourceCommand::Execute(Trinity::Scene& scene)
 {
     if (!m_Text.empty())
@@ -733,7 +733,7 @@ InstantiatePrefabCommand::InstantiatePrefabCommand(Trinity::UUID prefab, std::st
 
 }
 
-// The first run makes the instance under a new instance UUID and keeps it as text, so a redo brings back the same UUIDs, with the position it was given as what it changes of its prefab
+// The first run makes the instance under a new UUID and keeps it as text, so a redo keeps its UUIDs
 bool InstantiatePrefabCommand::Execute(Trinity::Scene& scene)
 {
     if (!m_Text.empty())
@@ -818,7 +818,7 @@ RevertPrefabCommand::RevertPrefabCommand(Trinity::UUID root, std::vector<Trinity
 
 }
 
-// The first run undoes the overrides where the instance is, and keeps it as text before and after, so a redo makes it again as it became
+// The first run undoes the overrides in place, and keeps the instance as text before and after
 bool RevertPrefabCommand::Execute(Trinity::Scene& scene)
 {
     if (!m_After.Text.empty())
@@ -861,7 +861,7 @@ ApplyPrefabCommand::ApplyPrefabCommand(Writer writer, Trinity::UUID root, std::v
 
 }
 
-// Each instance is saved against the prefabs it was made from, the one applied from once it changes none of what is applied, so made again from the new prefabs each keeps the rest of what it changes. Every prefab written holds the innermost, so its instances are all those of the innermost and of each prefab holding it. Of the old texts, those of the prefabs written are kept
+// Each instance is saved against its prefabs, then made again from the new ones, keeping the rest
 bool ApplyPrefabCommand::Execute(Trinity::Scene& scene)
 {
     if (!m_After.empty())
@@ -928,7 +928,7 @@ void ApplyPrefabCommand::Undo(Trinity::Scene& scene)
 {
     if (!m_Writer(m_OldTexts, scene))
     {
-        TR_ERROR("Forge: {} could not be undone, since the prefabs could not be written back, so they and their instances stay as they are", m_Label);
+        TR_ERROR("Forge: {} could not be undone, as the prefabs could not be written back", m_Label);
 
         return;
     }
@@ -946,7 +946,7 @@ CreatePrimitiveCommand::CreatePrimitiveCommand(Trinity::BuiltInMesh mesh, Trinit
 
 }
 
-// Last under the parent or among the roots, at the position in the parent's space. Kept as text after the first run, as CreateEntityCommand does
+// Last under the parent or among the roots. Kept as text after the first run
 bool CreatePrimitiveCommand::Execute(Trinity::Scene& scene)
 {
     if (!m_Text.empty())
@@ -986,7 +986,7 @@ CreateLightCommand::CreateLightCommand(Trinity::LightType type, Trinity::UUID pa
 
 }
 
-// Last under the parent or among the roots, at the position in the parent's space. Unity's (50, -30, 0) and (90, 0, 0) are (-50, 30, 0) and (-90, 0, 0) here, since a light here shines along -Z where Unity's shines along +Z. Kept as text after the first run, as CreateEntityCommand does
+// Unity's (50, -30, 0) and (90, 0, 0) are negated here, since a light here shines along -Z
 bool CreateLightCommand::Execute(Trinity::Scene& scene)
 {
     if (!m_Text.empty())
@@ -1028,7 +1028,7 @@ CreateCameraCommand::CreateCameraCommand(Trinity::CameraProjection projection, T
 
 }
 
-// Last under the parent or among the roots, at the position in the parent's space, looking along -Z as every camera here does. The first camera is primary, and in a scene with no AudioListener the camera gets one, as Unity's cameras come with one, so a new scene is heard and a second camera brings no second listener. Kept as text after the first run, as CreateEntityCommand does
+// The first camera is primary. With no AudioListener in the scene it gets one, as Unity's do
 bool CreateCameraCommand::Execute(Trinity::Scene& scene)
 {
     if (!m_Text.empty())
@@ -1080,7 +1080,7 @@ DeleteEntityCommand::DeleteEntityCommand(Trinity::UUID entity) : m_Entity(entity
 
 }
 
-// The entity and its subtree are kept as scene text, with the parent and the sibling after them, so undo puts them back with their UUIDs in the same place
+// Kept as scene text with the parent and the next sibling, so undo puts them back in the same place
 bool DeleteEntityCommand::Execute(Trinity::Scene& scene)
 {
     const Trinity::Entity l_Entity = scene.FindEntityByUUID(m_Entity);
@@ -1117,7 +1117,7 @@ DuplicateEntityCommand::DuplicateEntityCommand(Trinity::UUID source) : m_Source(
 
 }
 
-// The copy and its subtree get new UUIDs once, on the first run, and go just after the source. They are kept as text, so a redo brings back the same UUIDs
+// New UUIDs once, on the first run, just after the source. Kept as text, so a redo keeps them
 bool DuplicateEntityCommand::Execute(Trinity::Scene& scene)
 {
     if (!m_Text.empty())
@@ -1132,7 +1132,7 @@ bool DuplicateEntityCommand::Execute(Trinity::Scene& scene)
     }
 
     const Trinity::Entity l_Copy = scene.DuplicateEntity(l_Source);
-    // A copy of one of a prefab's entities in an instance is the instance's addition, so it goes after the prefab's own children there
+    // A copy of a prefab's entity in an instance is an addition, so it goes after the prefab's children
     if (const Trinity::Entity l_Next = l_Copy.GetNextSibling(); l_Next && IsPrefabPart(l_Next))
     {
         static_cast<void>(Place(scene, l_Copy, GetID(l_Copy.GetParent()), FindAddedPlace(scene, l_Next.GetUUID())));
@@ -1162,7 +1162,7 @@ PasteEntityCommand::PasteEntityCommand(std::string text, Trinity::UUID parent, T
 
 }
 
-// The copied text goes into a scene of its own and is duplicated there, so the copy has new UUIDs and its links name it, which is then loaded here with them
+// Duplicated in a scene of its own first, so the copy has new UUIDs and its links name it
 bool PasteEntityCommand::Execute(Trinity::Scene& scene)
 {
     if (m_Entity.IsValid())
@@ -1221,7 +1221,7 @@ MoveEntityCommand::MoveEntityCommand(Trinity::UUID entity, Trinity::UUID parent,
 
 }
 
-// Reparents, or reorders when the parent stays. The transform before and after the first run is kept, so undo and redo land on exactly the same values rather than recomputing them
+// Reparents or reorders. The transform before and after is kept, so undo and redo land exactly
 bool MoveEntityCommand::Execute(Trinity::Scene& scene)
 {
     Trinity::Entity l_Entity = scene.FindEntityByUUID(m_Entity);
@@ -1366,7 +1366,7 @@ RemoveComponentCommand::RemoveComponentCommand(Trinity::UUID entity, std::string
 
 }
 
-// The component is kept as scene text, so undo brings back its values through its own serializer, for a module's component as well as the engine's
+// Kept as scene text, so undo restores its values through its own serializer, a module's too
 bool RemoveComponentCommand::Execute(Trinity::Scene& scene)
 {
     const Trinity::Entity l_Entity = scene.FindEntityByUUID(m_Entity);
@@ -1410,7 +1410,7 @@ SetComponentTextCommand::SetComponentTextCommand(Trinity::UUID entity, std::stri
 
 }
 
-// The text the component had is kept, so undo puts back its values through its own serializer, for a module's component as well as the engine's
+// The old text is kept, so undo restores its values through its own serializer, a module's too
 bool SetComponentTextCommand::Execute(Trinity::Scene& scene)
 {
     const Trinity::Entity l_Entity = scene.FindEntityByUUID(m_Entity);
@@ -1469,7 +1469,7 @@ SetNativeFieldCommand::SetNativeFieldCommand(Trinity::UUID entity, std::string c
 
 }
 
-// Refused, so nothing is recorded, when the value is the one the field has, and on a redo once no loaded code knows the component
+// Refused when the value is the one the field has, or on a redo once no code knows the component
 bool SetNativeFieldCommand::Execute(Trinity::Scene& scene)
 {
     const Trinity::Entity l_Entity = scene.FindEntityByUUID(m_Entity);

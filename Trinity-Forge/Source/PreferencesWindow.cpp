@@ -130,7 +130,7 @@ bool PreferencesWindow::Shows(Section section, std::string_view setting) const
     return m_Search.empty() || ContainsIgnoringCase(c_Sections[static_cast<std::size_t>(section)].Name, m_Search) || ContainsIgnoringCase(setting, m_Search);
 }
 
-// Centred the first time, then where it was left, which imgui.ini keeps. A section the search leaves nothing of drops off the list, and the first one it leaves is shown in place of one it hides
+// Centred the first time, then where imgui.ini keeps it. A section the search empties is unlisted
 void PreferencesWindow::Draw()
 {
     if (!m_Open)
@@ -232,7 +232,7 @@ void PreferencesWindow::Draw()
     ImGui::End();
 }
 
-// Unity's General and UI Scaling pages: the console variables kept with the preferences, set as they are picked. The scale goes by steps, as a slider would resize the UI under the mouse as it moved
+// Unity's General and UI Scaling pages. The scale goes by steps, as a slider would resize mid-drag
 void PreferencesWindow::DrawGeneral()
 {
     if (Shows(Section::General, "UI Scale"))
@@ -278,7 +278,7 @@ void PreferencesWindow::DrawGeneral()
 
     if (Shows(Section::General, "Multi-viewport"))
     {
-        // Greyed out where the platform has no windows for ImGui to float panels in, as the View menu's item is
+        // Greyed out where the platform has no windows for ImGui to float panels in, as in the View menu
         const bool l_Supported = (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_PlatformHasViewports) != 0;
         bool l_Viewports = l_Supported && GetVariableText("ui.viewports") == "true";
         Label("Multi-viewport");
@@ -306,7 +306,7 @@ void PreferencesWindow::DrawGeneral()
     Tooltip("UI Scale 100%, the Dark theme, and multi-viewport on");
 }
 
-// Forge's own output, the scene's sounds and the previews' alike, and whether it falls silent while another program is in front. The outputs are listed as the menu opens, which takes the system a moment, and one chosen that is not connected now stays chosen, listed after the rest
+// The outputs are listed as the menu opens. One chosen that is not connected stays, listed last
 void PreferencesWindow::DrawAudio()
 {
     EditorPreferences l_Preferences = m_Session.GetPreferences();
@@ -386,7 +386,7 @@ void PreferencesWindow::DrawAudio()
     Tooltip("The system's default output, and sound going on while Forge is not in front");
 }
 
-// Unity's External Tools page: the script editor, with one not on this machine greyed, as the Scripts menu shows them, and whether Play waits for its debugger
+// Unity's External Tools page: the script editor, and whether Play waits for its debugger
 void PreferencesWindow::DrawExternalTools()
 {
     if (Shows(Section::ExternalTools, "Script Editor"))
@@ -459,7 +459,7 @@ void PreferencesWindow::DrawColors()
     Tooltip("The blue Forge started with");
 }
 
-// The 3D camera's speed in a scene not shown before, and the gizmo's snap steps, which the Scene panel's toolbar shows and changes too
+// The 3D camera's speed in a scene not shown before, and the gizmo's snap steps
 void PreferencesWindow::DrawSceneView()
 {
     EditorPreferences l_Preferences = m_Session.GetPreferences();

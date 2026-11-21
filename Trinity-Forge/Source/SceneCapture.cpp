@@ -48,7 +48,7 @@ void SceneCapture::Start(std::filesystem::path file)
     TR_INFO("Capture: the scene is captured to {} once it has imported and loaded", m_File->string());
 }
 
-// Counted again from 0 whenever something is still on its way, so the capture waits for the last of it
+// Counted from 0 again whenever something is still loading, so the capture waits for the last
 void SceneCapture::Update()
 {
     if (!m_File)
@@ -96,7 +96,7 @@ void SceneCapture::Update()
 
     if (std::chrono::steady_clock::now() >= m_Deadline)
     {
-        TR_ERROR("Capture: the scene had not finished importing and loading after {} s, so nothing is captured", c_Timeout.count());
+        TR_ERROR("Capture: the scene had not finished loading after {} s, so nothing is captured", c_Timeout.count());
         Finish(false);
 
         return;
@@ -137,7 +137,7 @@ void SceneCapture::Prepare()
     l_Renderer.SubmitScene(l_Scene, Trinity::RenderView::FromCamera(l_Component, l_Camera.Get<Trinity::WorldTransformComponent>().Matrix, static_cast<float>(c_Width) / static_cast<float>(c_Height)), l_Options, *m_View);
 }
 
-// The textures sprites draw, the meshes and materials meshes draw, and the environments lighting the scene
+// The textures sprites draw, the meshes and materials meshes draw, and the scene's environments
 bool SceneCapture::IsSceneLoaded() const
 {
     Trinity::SceneRegistry& l_Registry = m_Session.GetMainScene().GetRegistry();

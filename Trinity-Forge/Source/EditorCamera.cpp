@@ -14,7 +14,7 @@ namespace
     constexpr float c_FrameMargin = 1.2f;
     constexpr float c_MinimumFrameHeight = 1.0f;
 
-    // Sprites sit near Z = 0, and the editor shows any Z the scene uses, with reversed depth as CameraComponent has it
+    // Sprites sit near Z = 0, and the editor shows any Z the scene uses, with reversed depth
     constexpr float c_DepthRange = 10000.0f;
 
     float GetAspectRatio(glm::vec2 viewportSize)

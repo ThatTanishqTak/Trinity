@@ -16,9 +16,9 @@ public:
     [[nodiscard]] virtual bool Execute(Trinity::Scene& scene) = 0;
     virtual void Undo(Trinity::Scene& scene) = 0;
     [[nodiscard]] virtual bool MergeWith([[maybe_unused]] const EditorCommand& next) { return false; }
-    // An edit of an asset, written to its file as it runs, leaves the scene and the selection as they are
+    // An asset's edit, written to its file as it runs, leaves the scene and the selection as they are
     [[nodiscard]] virtual bool ChangesScene() const { return true; }
-    // Whether the history selects what the command touched as it runs, is undone and is redone, as for an entity edited
+    // Whether the history selects what the command touched as it runs, is undone and is redone
     [[nodiscard]] virtual bool SelectsSubject() const { return ChangesScene(); }
 
     [[nodiscard]] virtual std::string GetName() const = 0;
@@ -45,14 +45,14 @@ public:
 
     void Clear();
     void MarkSaved();
-    // No state in the history is the saved one, as for a scene restored from a backup, whose changes are in no file yet
+    // No state in the history is the saved one, as for a scene restored from a backup
     void MarkUnsaved()
     {
         m_SavedPosition.reset();
         m_MergeOpen = false;
     }
 
-    // While a copy of the scene plays, the panels show the copy and an edit of the scene would not reach the scene, so none is taken, undone or redone, and the first refused says why. An asset's edit is still taken, undone and redone, since its file is the same one the copy reads
+    // While a copy plays no scene edit is taken, undone or redone. An asset's edit still is
     void SetLocked(bool locked)
     {
         m_Locked = locked;
@@ -71,7 +71,7 @@ public:
     [[nodiscard]] std::size_t GetDroppedCount() const { return m_DroppedCount; }
     [[nodiscard]] std::size_t GetMemorySize() const { return m_MemorySize; }
     [[nodiscard]] std::size_t GetCapacity() const { return m_Capacity; }
-    // Changes with every command taken, merged, undone or redone and as the history is cleared, so a panel can tell that what it read of the scene is out of date, which the position alone cannot, since a drag merges into one command
+    // Changes with every command taken, merged, undone or redone, which the position alone would miss
     [[nodiscard]] std::uint64_t GetRevision() const { return m_Revision; }
 
 private:

@@ -9,7 +9,7 @@ namespace
 {
     // Degrees turned per pixel the mouse moves, when looking and when orbiting
     constexpr float c_TurnPerPixel = 0.25f;
-    // Straight up or down at the most, where yaw still turns the view, since the camera's right is yaw's alone
+    // Straight up or down at the most, where yaw still turns the view
     constexpr float c_MaximumPitch = 90.0f;
     // One wheel notch moves a tenth of the way to the focus, and changes the flying speed by a fifth
     constexpr float c_DollyStep = 0.9f;
@@ -20,7 +20,7 @@ namespace
     constexpr float c_FrameMargin = 1.2f;
     // Far enough for the gizmo's projection, which needs a far plane, as the rendered one does not
     constexpr float c_GizmoFar = 100000.0f;
-    // Orthographic, what lies this far in front of the focus is kept, wherever the eye is, so the shadows' first stretch is centred on the focus, and so is all behind it out to the far distance
+    // Orthographic, this far in front of the focus is kept, so the shadows' first stretch centres on it
     constexpr float c_OrthographicReach = 50.0f;
     constexpr float c_OrthographicFar = 10000.0f;
 
@@ -67,7 +67,7 @@ void EditorCamera3D::Pan(glm::vec2 pixelDelta, glm::vec2 viewportSize)
     m_Focus += (GetUp() * pixelDelta.y - GetRight() * pixelDelta.x) * l_UnitsPerPixel;
 }
 
-// Positive steps move towards the focus. Once the eye is as close as it may come, the focus is pushed on ahead of it, so the wheel never stops moving the camera
+// Positive steps move towards the focus. At its closest the focus is pushed on, so it never stops
 void EditorCamera3D::Dolly(float steps)
 {
     const float l_Distance = m_Distance * std::pow(c_DollyStep, steps);
@@ -99,7 +99,7 @@ void EditorCamera3D::ChangeSpeed(float steps)
     m_Speed = std::clamp(m_Speed * std::pow(c_SpeedStep, steps), c_MinimumSpeed, c_MaximumSpeed);
 }
 
-// Looking at the centre from the way the camera already looks, from where the sphere fits the narrower of the view's angles
+// Looking at the centre the way the camera already looks, from where the sphere fits the view
 void EditorCamera3D::Frame(const glm::vec3& center, float radius, glm::vec2 viewportSize)
 {
     const float l_HalfVertical = glm::radians(c_FieldOfView) * 0.5f;
@@ -140,7 +140,7 @@ glm::mat4 EditorCamera3D::GetView() const
     return glm::lookAt(GetPosition(), m_Focus, GetUp());
 }
 
-// Reversed depth with no far plane, as a perspective CameraComponent has it. Orthographic, reversed too, as high as the perspective view is at the focus
+// Reversed depth with no far plane, as a perspective CameraComponent. Orthographic is reversed too
 glm::mat4 EditorCamera3D::GetProjection(glm::vec2 viewportSize) const
 {
     if (m_Orthographic)
@@ -175,7 +175,7 @@ glm::mat4 EditorCamera3D::GetGizmoProjection(glm::vec2 viewportSize) const
     return glm::perspective(glm::radians(c_FieldOfView), GetAspectRatio(viewportSize), c_Near, c_GizmoFar);
 }
 
-// The unit direction through a pixel, counted from the image's top-left corner with Y down: from the eye in perspective, and straight ahead from anywhere orthographic
+// Through a pixel, from the top-left with Y down: from the eye in perspective, else straight ahead
 glm::vec3 EditorCamera3D::GetRayDirection(glm::vec2 pixel, glm::vec2 viewportSize) const
 {
     if (m_Orthographic)
@@ -190,7 +190,7 @@ glm::vec3 EditorCamera3D::GetRayDirection(glm::vec2 pixel, glm::vec2 viewportSiz
     return glm::normalize(GetForward() + GetRight() * l_X + GetUp() * l_Y);
 }
 
-// Where the ray through a pixel starts: the eye in perspective, and orthographic the pixel's point on the nearest plane kept, so it meets all that is shown
+// The eye in perspective. Orthographic, the pixel's point on the nearest plane kept
 glm::vec3 EditorCamera3D::GetRayOrigin(glm::vec2 pixel, glm::vec2 viewportSize) const
 {
     if (!m_Orthographic)

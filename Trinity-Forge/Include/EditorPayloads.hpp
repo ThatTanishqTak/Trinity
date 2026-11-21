@@ -12,7 +12,7 @@ constexpr const char* c_EntityPayload = "TRINITY_ENTITY";
 constexpr const char* c_AssetPayload = "TRINITY_ASSET";
 constexpr const char* c_FolderPayload = "TRINITY_FOLDER";
 constexpr const char* c_ScriptPayload = "TRINITY_SCRIPT";
-// An action dragged from the Input Actions panel: its asset's UUID in 8 bytes, then its path, Map/Action
+// An action dragged from the Input Actions panel: its asset's UUID in 8 bytes, then its path
 constexpr const char* c_InputActionPayload = "TRINITY_INPUT_ACTION";
 
 [[nodiscard]] inline std::string MakeInputActionPayload(std::uint64_t asset, std::string_view path)

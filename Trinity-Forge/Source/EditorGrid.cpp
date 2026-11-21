@@ -9,7 +9,7 @@
 
 namespace
 {
-    // Minor cells are never smaller than this on screen, and are fully drawn by the time they reach ten times it, when the next spacing up takes over
+    // Minor cells are never smaller than this on screen, and fully drawn at ten times it
     constexpr float c_MinimumCellPixels = 8.0f;
 
     // Laid out as EditorGrid.slang reads it
@@ -41,7 +41,7 @@ EditorGrid::EditorGrid()
     const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_PixelShader = Trinity::FileSystem::ReadFile(std::format("/engine/shaders/EditorGrid.PixelMain.{}", l_Extension));
     if (!l_VertexShader || !l_PixelShader)
     {
-        TR_INFO("Scene view: no EditorGrid shaders under /engine/shaders, so the grid is not drawn");
+        TR_INFO("Scene view: no EditorGrid shaders under /engine/shaders, so no grid is drawn");
 
         return;
     }

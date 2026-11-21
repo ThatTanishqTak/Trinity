@@ -9,7 +9,7 @@
 #include <filesystem>
 #include <optional>
 
-// --capture=<file.png>: the open scene through its primary camera, as the Game panel shows it, written as a PNG of c_Width by c_Height once its imports have finished and everything it draws has loaded, then Forge closes, with 0 once it is written and 1 when it could not be, as a template's thumbnail is made
+// --capture=<file.png>: the scene through its primary camera, once loaded. Then Forge exits 0, or 1
 class SceneCapture
 {
 public:
@@ -27,7 +27,7 @@ public:
     SceneCapture& operator=(const SceneCapture&) = delete;
 
     void Start(std::filesystem::path file);
-    // Once a frame, after the session's update: whether the scene is ready, and the capture once it is back
+    // Once a frame, after the session's update. Takes the capture once the scene is ready
     void Update();
     // In OnPrepareRender, after the transform pass
     void Prepare();

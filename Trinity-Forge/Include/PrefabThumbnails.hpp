@@ -11,13 +11,13 @@
 
 class EditorSession;
 
-// The pictures the Content Browser shows of prefabs and models, as Unity's Project window previews them. Each is drawn from an instance of its own into a square view of the renderer's: from in front, a little above and to one side, around its meshes and sprites, or head-on in 2D when it has only sprites, lit by the default sun unless it brings lights of its own. It is drawn again once its template is made again, as a save, an Apply, a change outside Forge or one to a prefab nested in it makes it, and once a mesh, material or texture it draws with loads, reloads or is edited. A few are drawn each frame, and each is let go of once the browser stops asking for it, scrolled away or in another folder
+// Each is drawn from its own instance into a square view, and again when what it shows changes
 class PrefabThumbnails
 {
 public:
-    // Drawn, or made again, in one frame at most, so a folder of them opening costs a few frames rather than one long one
+    // The most drawn in one frame, so a folder of them opening costs a few frames, not one long one
     static constexpr std::size_t c_DrawsPerFrame = 4;
-    // The sizes pictures are drawn at, the smallest at least as big as the browser shows one, so dragging its slider draws them again only as it passes one
+    // The smallest at least as big as the browser shows one, so its slider redraws only on passing one
     static constexpr std::array<std::uint32_t, 4> c_Sizes{ 64, 128, 256, 512 };
 
     explicit PrefabThumbnails(EditorSession& session) : m_Session(session) {}
@@ -27,9 +27,9 @@ public:
     PrefabThumbnails(const PrefabThumbnails&) = delete;
     PrefabThumbnails& operator=(const PrefabThumbnails&) = delete;
 
-    // While the UI is drawn: the bindless index of the prefab's picture, which is asked for at least so many pixels across, until it is drawn at that size showing the one it has. RHI::c_NoBindlessIndex until it is first drawn, and for one with nothing to draw, which keeps its icon
+    // The picture's bindless index, asked for at this size. c_NoBindlessIndex until it is first drawn
     [[nodiscard]] std::uint32_t Find(Trinity::UUID prefab, float pixels);
-    // Once the UI is drawn, between frames: lets go of each picture not asked for since the last EndFrame, and readies those to be drawn this frame, c_DrawsPerFrame at most, in the order they were asked for
+    // Between frames: lets go of pictures not asked for, and readies up to c_DrawsPerFrame to draw
     void EndFrame();
     // In OnPrepareRender: each instance readied submitted to its own view
     void Prepare();
@@ -37,7 +37,7 @@ public:
     void Clear();
 
 private:
-    // What an asset the picture shows was as it was drawn: the asset loaded, how far it has loaded, and the index it is drawn through, its GPU copy's for a mesh or a texture, which comes after it loads, and its record's for a material
+    // The asset loaded, how far it has loaded, and the index it is drawn through
     struct Stamp
     {
         const Trinity::Asset* Loaded = nullptr;
@@ -47,7 +47,7 @@ private:
         [[nodiscard]] bool operator==(const Stamp&) const = default;
     };
 
-    // What the picture shows, so it is drawn again once any of it changes: a stamp of each asset, the textures its materials name among them, and each material's values, which Properties edits in place
+    // A stamp of each asset it shows and each material's values, so it is drawn again once any changes
     struct Signature
     {
         std::vector<Stamp> Stamps;
@@ -56,7 +56,7 @@ private:
         [[nodiscard]] bool operator==(const Signature&) const = default;
     };
 
-    // A prefab's instance, made from the version of its template it was made from, with the meshes, materials, sprite textures and environments it draws with, kept loaded while it is shown. Its view, of the size it was made, the signature it was last drawn with, and the camera Prepare submits it through when it is to be drawn this frame. Empty for an instance with nothing to draw
+    // Its instance, what it draws with, kept loaded, its view and its camera. Empty if nothing draws
     struct Entry
     {
         Trinity::Scope<Trinity::Scene> Instance;

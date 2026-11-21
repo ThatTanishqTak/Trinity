@@ -42,28 +42,28 @@ namespace
     constexpr std::string_view c_InterchangeFolder = "Interchange";
     constexpr std::string_view c_BC7Variable = "renderer.texture_bc7";
 
-    // UASTC at level 2 keeps the test images between 41 and 46 dB, so a drop below this means a broken encode or transcode, not a lossy setting
+    // UASTC at level 2 keeps the test images between 41 and 46 dB, so less means a broken encode
     constexpr double c_MinimumPsnr = 38.0;
     // Long enough for the test models' textures too, Sponza's among them
     constexpr std::uint64_t c_LoadTimeoutFrames = 1800;
     // How far an instantiated entity's world matrix may be from fastgltf's for its node, in any element
     constexpr float c_MaximumMatrixError = 1e-5f;
-    // How far any vertex of one format may be from the nearest of another's, in metres once both are converted
+    // How far any vertex of one format may be from the nearest of another's, in metres
     constexpr float c_MaximumPositionError = 1e-4f;
-    // Frames of material edits, after the first hundred of which the renderer's memory must stay as it is
+    // Frames of material edits. After the first hundred the renderer's memory must stay as it is
     constexpr std::uint64_t c_EditFrames = 1000;
     constexpr std::uint64_t c_EditWarmupFrames = 100;
-    // The offscreen view of MetalRoughSpheres, and the random poses and scattered meshes culling is checked with
+    // The offscreen view of MetalRoughSpheres, and the random poses and scattered meshes for culling
     constexpr std::uint32_t c_RenderSize = 256;
     constexpr std::uint32_t c_CullPoses = 1000;
     constexpr std::uint32_t c_CullEntities = 400;
-    // Point and spot lights scattered through MetalRoughSpheres for the cluster checks, and the size of the clusters' counts and lights read back
+    // Point and spot lights scattered for the cluster checks, and the size of the clusters read back
     constexpr std::uint32_t c_TestLights = 1024;
     constexpr std::uint64_t c_ClusterCountsSize = std::uint64_t{ Trinity::ClusterGrid::c_Count } * sizeof(std::uint32_t);
     constexpr std::uint64_t c_ClusterListsSize = c_ClusterCountsSize * Trinity::ClusterGrid::c_MaxLights;
     constexpr std::array<float, 4> c_RenderClear{ 0.0f, 0.0f, 0.0f, 0.0f };
 
-    // Khronos glTF sample models, as Scripts/FetchSamples checks them out under TR_FORGE_TEST_MODELS: two with images beside them and two that embed theirs
+    // Khronos glTF samples, as Scripts/FetchSamples checks them out: two with images, two embedded
     struct TestModel
     {
         std::string_view Name;
@@ -78,7 +78,7 @@ namespace
         { "Duck", "glTF-Sample-Assets/Models/Duck/glTF", "Duck.gltf" }
     } };
 
-    // assimp's own test models under TR_FORGE_TEST_ASSIMP, the model first and then the files it names, each copied into a folder of its own. The binary duck borrows the ASCII one's texture, and the FBX spider names its textures by paths on another machine, so it finds them by name
+    // assimp's own test models, each copied into its own folder. The FBX spider finds textures by name
     struct InterchangeModel
     {
         std::string_view Name;
@@ -157,7 +157,7 @@ namespace
         return path.ends_with(".gltf") || path.ends_with(".glb");
     }
 
-    // Every vertex of every mesh the cooked hierarchy places, in world space, or nothing when the model cannot be read
+    // Every vertex of every mesh the cooked hierarchy places, in world space, or nothing if unreadable
     std::optional<std::vector<glm::vec3>> GetWorldPositions(const Trinity::AssetRecord& record)
     {
         const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(Trinity::GetCookedModelPath(record.ID));
@@ -276,7 +276,7 @@ namespace
     }
 }
 
-// The project in the folder is opened, or created when there is none, so a second run finds the first run's cache
+// The project in the folder is opened, or created when missing, so a second run finds its cache
 void ImportTest::Start(const std::filesystem::path& directory)
 {
     TR_INFO("Import test: project in {}", directory.string());
@@ -297,10 +297,10 @@ void ImportTest::Start(const std::filesystem::path& directory)
 
     const TextureImportReport& l_FirstTextures = l_First.Textures;
     const TextureImportReport& l_SecondTextures = l_Second.Textures;
-    TR_INFO("Import test: {} image(s) copied in, {} texture(s): {} encoded and {} from the cache, then {} from the cache on a second pass", l_Copied, l_FirstTextures.Textures, l_FirstTextures.Encoded, l_FirstTextures.Cached, l_SecondTextures.Cached);
+    TR_INFO("Import test: {} image(s), {} texture(s): {} encoded, {} cached, then {} cached", l_Copied, l_FirstTextures.Textures, l_FirstTextures.Encoded, l_FirstTextures.Cached, l_SecondTextures.Cached);
     if (l_FirstTextures.Textures == 0 || l_FirstTextures.Failed != 0 || l_SecondTextures.Encoded != 0 || l_SecondTextures.Failed != 0 || l_SecondTextures.Cached != l_SecondTextures.Textures)
     {
-        TR_ERROR("Import test: every texture should import, and a second pass should find all of them in the cache");
+        TR_ERROR("Import test: every texture should import, then all be cached on a second pass");
 
         return;
     }
@@ -309,10 +309,10 @@ void ImportTest::Start(const std::filesystem::path& directory)
     {
         const ModelImportReport& l_FirstModels = l_First.Models;
         const ModelImportReport& l_SecondModels = l_Second.Models;
-        TR_INFO("Import test: {} model(s): {} imported and {} from the cache, with {} embedded texture(s) encoded, then {} from the cache on a second pass", l_FirstModels.Models, l_FirstModels.Imported, l_FirstModels.Cached, l_FirstModels.TexturesEncoded, l_SecondModels.Cached);
+        TR_INFO("Import test: {} model(s): {} imported, {} cached, {} textures, then {} cached", l_FirstModels.Models, l_FirstModels.Imported, l_FirstModels.Cached, l_FirstModels.TexturesEncoded, l_SecondModels.Cached);
         if (l_FirstModels.Models < l_Models || l_FirstModels.Failed != 0 || l_FirstModels.Stopped != 0 || l_SecondModels.Imported != 0 || l_SecondModels.Failed != 0 || l_SecondModels.Cached != l_SecondModels.Models)
         {
-            TR_ERROR("Import test: every model should import, and a second pass should find all of them in the cache");
+            TR_ERROR("Import test: every model should import, then all be cached on a second pass");
 
             return;
         }
@@ -421,7 +421,7 @@ std::size_t ImportTest::CopyTestImages()
     return l_Copied;
 }
 
-// The Khronos samples, when Scripts/FetchSamples has fetched them, and assimp's test models, each into a folder of its own. Without the samples the test goes on with assimp's models alone
+// The Khronos samples, when fetched, and assimp's test models. Without the samples it goes on
 std::size_t ImportTest::CopyTestModels()
 {
     std::size_t l_Found = 0;
@@ -455,12 +455,12 @@ std::size_t ImportTest::CopyTestModels()
     }
     else
     {
-        TR_WARN("Import test: assimp's test models are not in {}, so FBX, OBJ and COLLADA are not tested", TR_FORGE_TEST_ASSIMP);
+        TR_WARN("Import test: no assimp test models in {}, so FBX, OBJ and COLLADA are not tested", TR_FORGE_TEST_ASSIMP);
     }
 
     if (!std::filesystem::is_directory(std::filesystem::path(TR_FORGE_TEST_MODELS)) || !Trinity::FileSystem::MountDirectory(c_ModelMount, std::filesystem::path(TR_FORGE_TEST_MODELS)))
     {
-        TR_WARN("Import test: there are no glTF test models in {}, so glTF is not tested. Scripts/FetchSamples.sh or FetchSamples.ps1 fetches them", TR_FORGE_TEST_MODELS);
+        TR_WARN("Import test: no glTF test models in {}, so glTF is not tested. Run FetchSamples", TR_FORGE_TEST_MODELS);
         TR_INFO("Import test: {} of {} test model(s) found, with {} file(s) copied in", l_Found, c_TestModels.size() + c_InterchangeModels.size(), l_Copied);
 
         return l_Found;
@@ -472,7 +472,7 @@ std::size_t ImportTest::CopyTestModels()
         const Trinity::Expected<std::vector<Trinity::DirectoryEntry>, Trinity::FileError> l_Entries = Trinity::FileSystem::List(l_Folder);
         if (!l_Entries || !Trinity::FileSystem::Exists(std::format("{}/{}", l_Folder, it_Model.File)))
         {
-            TR_WARN("Import test: {} is missing from {}, so it is not tested. Scripts/FetchSamples.sh or FetchSamples.ps1 fetches it", it_Model.File, TR_FORGE_TEST_MODELS);
+            TR_WARN("Import test: {} is missing from {}, so it is not tested. Run FetchSamples", it_Model.File, TR_FORGE_TEST_MODELS);
 
             continue;
         }
@@ -493,7 +493,7 @@ std::size_t ImportTest::CopyTestModels()
     return l_Found;
 }
 
-// Every cooked mesh, material and node of each model reads back, and names only sub-assets of its model or textures in the project. The textures the materials use are kept, with how they are used, for the loads
+// Every cooked mesh, material and node reads back, naming only its model's sub-assets or textures
 bool ImportTest::CheckModels()
 {
     const Trinity::AssetRegistry& l_Registry = *m_Session.GetRegistry();
@@ -622,13 +622,13 @@ bool ImportTest::CheckModels()
             a_Fail("has no meshes, no materials or no node drawing a mesh");
         }
 
-        TR_INFO("Import test: {} has {} mesh(es) with {} submesh(es) and {} vertices, {} convex hull(s), {} collision mesh(es), {} material(s), {} embedded texture(s), and {} node(s), {} with a mesh", l_Record->Path, l_Meshes, l_Submeshes, l_Vertices, l_Hulls, l_CollisionMeshes, l_Materials, l_Embedded, l_Model->Nodes.size(), l_MeshNodes);
+        TR_INFO("Import test: {}: mesh/sub/vert {}/{}/{} hull {} coll {} mat {} tex {} node {}/{}", l_Record->Path, l_Meshes, l_Submeshes, l_Vertices, l_Hulls, l_CollisionMeshes, l_Materials, l_Embedded, l_Model->Nodes.size(), l_MeshNodes);
     }
 
     return l_Passed;
 }
 
-// With every model's key removed, each is imported again, and must come back with the same sub-assets under the same UUIDs, and encode nothing its textures' own keys still hold
+// With every model's key removed, each imports again with the same sub-assets and UUIDs
 bool ImportTest::ReimportModels()
 {
     std::vector<std::pair<Trinity::UUID, std::vector<Trinity::SubAsset>>> l_Before;
@@ -660,17 +660,17 @@ bool ImportTest::ReimportModels()
 
     if (!l_Kept || l_Report.Models.Imported != l_Before.size() || l_Report.Models.TexturesEncoded != 0 || l_Report.Textures.Encoded != 0)
     {
-        TR_ERROR("Import test: a forced reimport of {} model(s) imported {}, encoded {} embedded and {} other texture(s), and should have imported all and encoded none", l_Before.size(), l_Report.Models.Imported, l_Report.Models.TexturesEncoded, l_Report.Textures.Encoded);
+        TR_ERROR("Import test: forced reimport of {} model(s) imported {}, encoded {}+{} textures", l_Before.size(), l_Report.Models.Imported, l_Report.Models.TexturesEncoded, l_Report.Textures.Encoded);
 
         return false;
     }
 
-    TR_INFO("Import test: a forced reimport of {} model(s) kept all {} sub-asset UUID(s), and encoded no texture again", l_Before.size(), l_SubAssets);
+    TR_INFO("Import test: forced reimport of {} model(s) kept all {} UUID(s), encoded nothing", l_Before.size(), l_SubAssets);
 
     return true;
 }
 
-// Each model is instanced in a scene of its own by the command a drop runs, which must undo to nothing and redo with the same UUIDs. For a glTF, every node's world matrix is then compared with the one fastgltf computes from the file, matrices and all
+// Instanced by the command a drop runs, which must undo to nothing and redo with the same UUIDs
 bool ImportTest::CheckInstances()
 {
     bool l_Passed = true;
@@ -778,13 +778,13 @@ bool ImportTest::CheckInstances()
             continue;
         }
 
-        TR_INFO("Import test: {} created {} entities in one command that undoes and redoes, with every world matrix within {:.2e} of fastgltf's", l_Record->Path, l_Created, l_Worst);
+        TR_INFO("Import test: {} made {} entities in one undoable command, {:.2e} off fastgltf", l_Record->Path, l_Created, l_Worst);
     }
 
     return l_Passed;
 }
 
-// The same model in two formats comes to the same vertices once each is in metres with Y up, which checks the units and axes each format is read in. A pair missing either model is left out
+// Two formats of one model come to the same vertices in metres with Y up. A missing pair is skipped
 bool ImportTest::CompareFormats()
 {
     bool l_Passed = true;
@@ -803,7 +803,7 @@ bool ImportTest::CompareFormats()
         const std::optional<std::vector<glm::vec3>> l_Found = GetWorldPositions(*l_Record);
         if (!l_Expected || !l_Found || l_Expected->empty() || l_Found->empty())
         {
-            TR_ERROR("Import test: {} or {} has a hierarchy or mesh that could not be read for the comparison", l_Reference->Path, l_Record->Path);
+            TR_ERROR("Import test: {} or {} has a hierarchy or mesh that could not be read", l_Reference->Path, l_Record->Path);
             l_Passed = false;
 
             continue;
@@ -812,7 +812,7 @@ bool ImportTest::CompareFormats()
         const float l_Error = std::max(GetFarthestNearest(*l_Expected, *l_Found), GetFarthestNearest(*l_Found, *l_Expected));
         if (!(l_Error <= c_MaximumPositionError))
         {
-            TR_ERROR("Import test: {} ({} vertices) and {} ({} vertices) are {} apart at their farthest, and {} is allowed", l_Reference->Path, l_Expected->size(), l_Record->Path, l_Found->size(), l_Error, c_MaximumPositionError);
+            TR_ERROR("Import test: {} ({} vertices) and {} ({} vertices) are {} apart, {} is allowed", l_Reference->Path, l_Expected->size(), l_Record->Path, l_Found->size(), l_Error, c_MaximumPositionError);
             l_Passed = false;
 
             continue;
@@ -824,7 +824,7 @@ bool ImportTest::CompareFormats()
     return l_Passed;
 }
 
-// The cooked file is transcoded to RGBA8 as the loader would on a device without BC7, and its top mip compared with the decoded source
+// Transcoded to RGBA8 as the loader would without BC7, its top mip compared with the source
 void ImportTest::CheckQuality()
 {
     double l_Lowest = std::numeric_limits<double>::infinity();
@@ -883,11 +883,11 @@ void ImportTest::CheckQuality()
 
     if (l_Checked == 0 || l_Lowest < c_MinimumPsnr)
     {
-        TR_ERROR("Import test: the lowest PSNR of {} texture(s) is {:.2f} dB, below the {:.0f} dB the test asks for", l_Checked, l_Lowest, c_MinimumPsnr);
+        TR_ERROR("Import test: the lowest PSNR of {} texture(s) is {:.2f} dB, below {:.0f} dB", l_Checked, l_Lowest, c_MinimumPsnr);
     }
 }
 
-// Each set loads through the asset manager onto the GPU: first where BC7 is allowed, then with every texture transcoded to RGBA8
+// Each set loads onto the GPU: first where BC7 is allowed, then with every texture as RGBA8
 void ImportTest::BeginLoads(Phase phase)
 {
     static_cast<void>(Trinity::ConsoleVariables::Set(c_BC7Variable, phase == Phase::LoadingBC7 ? "true" : "false"));
@@ -906,7 +906,7 @@ void ImportTest::BeginLoads(Phase phase)
     m_ReadyFrames = 0;
 }
 
-// BC7, or BC5 for a normal map, needs a device that samples it and a size of whole blocks. Anything else is RGBA8, an sRGB texture takes the sRGB format, and every texture keeps its full mip chain. A model's texture is sRGB as colour, linear as data, and a normal map in a normal slot
+// BC7, or BC5 for a normal map, needs a device that samples it and whole blocks. Else RGBA8
 void ImportTest::FinishLoads()
 {
     const Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
@@ -955,11 +955,11 @@ void ImportTest::FinishLoads()
     const std::string_view l_PhaseName = m_Phase == Phase::LoadingBC7 ? "with BC7 and BC5 allowed" : "with BC7 and BC5 turned off";
     if (!l_Wrong.empty())
     {
-        TR_ERROR("Import test: {}, textures loaded in the wrong format, without their mips or without a GPU texture: {}", l_PhaseName, l_Wrong);
+        TR_ERROR("Import test: {}, textures with a wrong format, no mips or no GPU texture: {}", l_PhaseName, l_Wrong);
     }
     else
     {
-        TR_INFO("Import test: {}, {} texture(s) loaded in {} frame(s): {}, and {} used by the test models, {} of them normal maps", l_PhaseName, m_Textures.size(), m_PhaseFrames, l_Loaded, l_ModelTextures, l_NormalMaps);
+        TR_INFO("Import test: {}, {} texture(s) in {} frame(s): {}, {} in models, {} normal maps", l_PhaseName, m_Textures.size(), m_PhaseFrames, l_Loaded, l_ModelTextures, l_NormalMaps);
     }
 
     m_Textures.clear();
@@ -988,7 +988,7 @@ ImportTest::~ImportTest()
     l_Device.DestroyTexture(m_AllLightsTarget);
 }
 
-// The material table copied whole, on a frame a check asks for it, and MetalRoughSpheres drawn offscreen on the frame the render check asks for it
+// The material table copied whole when a check asks, and MetalRoughSpheres drawn offscreen
 void ImportTest::OnBuildFrameGraph(Trinity::FrameGraph& graph)
 {
     if (m_RenderWanted)
@@ -1041,7 +1041,7 @@ void ImportTest::OnBuildFrameGraph(Trinity::FrameGraph& graph)
     });
 }
 
-// Each glTF material as fastgltf reads it, with its texture slots naming the texture the importer made for that glTF texture and use, or the texture file its image names, and the same UV sets. Compared with the material as imported, before any overrides
+// Each glTF material as fastgltf reads it, compared with the material as imported
 bool ImportTest::CheckMaterialMapping()
 {
     const Trinity::AssetRegistry& l_Registry = *m_Session.GetRegistry();
@@ -1075,7 +1075,7 @@ bool ImportTest::CheckMaterialMapping()
             return a_Found != l_Record->SubAssets.end() ? a_Found->ID : Trinity::UUID();
         };
 
-        // The texture the slot should name: the model's own for an image it holds, or the project's texture at the path its image names
+        // The model's own texture for an image it holds, or the project's texture at the image's path
         const auto a_Texture = [&](const auto& info, ModelImporter::TextureUsage usage) -> Trinity::MaterialTexture
         {
             if (!info)
@@ -1161,13 +1161,13 @@ bool ImportTest::CheckMaterialMapping()
 
     if (l_Passed)
     {
-        TR_INFO("Import test: {} glTF material(s) map onto their materials in every factor, and in {} texture slot(s) with their UV sets", l_Materials, l_Textures);
+        TR_INFO("Import test: {} glTF material(s) match in every factor and {} texture slot(s)", l_Materials, l_Textures);
     }
 
     return l_Passed;
 }
 
-// Every cooked and imported material of every test model writes back as the same file, and a model whose .meta overrides none has the two the same
+// Every material of every test model writes back as the same file
 bool ImportTest::CheckMaterialFiles()
 {
     bool l_Passed = true;
@@ -1199,7 +1199,7 @@ bool ImportTest::CheckMaterialFiles()
             const bool l_Same = ModelImporter::ReadMaterialOverrides(*l_Record, it_SubAsset.Key).empty() ? l_Cooked && l_Imported && *l_Cooked == *l_Imported : true;
             if (!a_RoundTrips(l_Cooked) || !a_RoundTrips(l_Imported) || !l_Same)
             {
-                TR_ERROR("Import test: {} of {} does not write back as the same file, or differs from its import with nothing overridden", it_SubAsset.Key, l_Record->Path);
+                TR_ERROR("Import test: {} of {} does not write back the same, or differs from its import", it_SubAsset.Key, l_Record->Path);
                 l_Passed = false;
 
                 continue;
@@ -1240,7 +1240,7 @@ void ImportTest::BeginMaterials()
     m_Phase = Phase::LoadingMaterials;
     if (m_MaterialIDs.empty())
     {
-        TR_WARN("Import test: there are no glTF test models, so only a material of its own is edited");
+        TR_WARN("Import test: no glTF test models, so only a material of its own is edited");
         BeginStandalone();
     }
 }
@@ -1336,7 +1336,7 @@ void ImportTest::UpdateMaterials()
                 break;
             }
 
-            TR_INFO("Import test: {} material(s) of the glTF test models hold records of their own in the material table, naming their loaded textures, on the GPU as in the table's copy", m_MaterialIDs.size());
+            TR_INFO("Import test: {} glTF material(s) have their own table records, same on the GPU", m_MaterialIDs.size());
 
             // A material with a normal map, so clearing a texture slot is edited too
             const auto a_Edited = std::ranges::find_if(m_MaterialIDs, [](Trinity::UUID id) { return static_cast<const Trinity::MaterialAsset*>(Trinity::AssetManager::GetAsset(id))->GetData().NormalTexture.Texture.IsValid(); });
@@ -1405,7 +1405,7 @@ void ImportTest::UpdateMaterials()
     }
 }
 
-// A thousand frames of edits, each written where the material lives as a drag's are. Each must be in the table by the frame after it, and the renderer's memory must not change after the first hundred frames
+// A thousand frames of edits. Each must be in the table a frame later, with memory steady after 100
 void ImportTest::EditMaterial()
 {
     const Trinity::MaterialLoader& l_Loader = Trinity::Application::Get().GetRenderer().GetMaterialLoader();
@@ -1427,12 +1427,12 @@ void ImportTest::EditMaterial()
         const std::uint64_t l_Memory = Trinity::Memory::GetStats(Trinity::MemoryTag::Renderer).CurrentBytes;
         if (m_EditLate != 0 || l_Memory != m_EditMemory)
         {
-            TR_ERROR("Import test: over {} frames of material edits, {} were not in the table the frame after, and the renderer's memory went from {} to {}", c_EditFrames, m_EditLate, Trinity::Memory::FormatBytes(m_EditMemory), Trinity::Memory::FormatBytes(l_Memory));
+            TR_ERROR("Import test: of {} material edits, {} were late in the table. Memory {} to {}", c_EditFrames, m_EditLate, Trinity::Memory::FormatBytes(m_EditMemory), Trinity::Memory::FormatBytes(l_Memory));
             m_MaterialsPassed = false;
         }
         else
         {
-            TR_INFO("Import test: {} frames of material edits each showed in the table the frame after, with the renderer's memory at {} from frame {} on", c_EditFrames, Trinity::Memory::FormatBytes(l_Memory), c_EditWarmupFrames);
+            TR_INFO("Import test: {} material edits each showed a frame on. Memory {} from frame {}", c_EditFrames, Trinity::Memory::FormatBytes(l_Memory), c_EditWarmupFrames);
         }
 
         // Two edits of one field in a row, as a drag makes, become one command
@@ -1447,7 +1447,7 @@ void ImportTest::EditMaterial()
         const bool l_Edited = m_Session.EditMaterial(m_Edited, m_EditBefore, l_First, "Import test") && m_Session.EditMaterial(m_Edited, l_First, l_Second, "Import test");
         if (!l_Edited || m_Session.GetHistory().GetCount() != m_EditHistory + 1)
         {
-            TR_ERROR("Import test: two edits of one material field made {} command(s), and should have made one", m_Session.GetHistory().GetCount() - m_EditHistory);
+            TR_ERROR("Import test: two edits of one material field made {} command(s), not one", m_Session.GetHistory().GetCount() - m_EditHistory);
             m_MaterialsPassed = false;
         }
 
@@ -1474,7 +1474,7 @@ void ImportTest::EditMaterial()
     ++m_EditFrames;
 }
 
-// The edit is on the GPU, in the cooked file and as overrides in the model's .meta. One undo then puts back the material, its file and the .meta byte for byte
+// The edit is on the GPU, in the cooked file and in the model's .meta. One undo puts all three back
 void ImportTest::FinishEdit()
 {
     Trinity::Application::Get().GetDevice().WaitIdle();
@@ -1485,7 +1485,7 @@ void ImportTest::FinishEdit()
     const std::vector<Trinity::MaterialField> l_Overrides = ModelImporter::ReadMaterialOverrides(*l_Model, l_Key);
     if (!l_Wrong.empty() || !l_Cooked || *l_Cooked != Trinity::WriteMaterialData(m_EditLast) || l_Overrides.size() != 2)
     {
-        TR_ERROR("Import test: an edit of {} is not on the GPU, in its cooked file, or as its 2 overrides in {}'s .meta, which has {}{}", l_Key, l_Model->Path, l_Overrides.size(), l_Wrong.empty() ? std::string() : std::format(": {}", l_Wrong));
+        TR_ERROR("Import test: an edit of {} is not on the GPU, cooked or in {}'s .meta, with {}{}", l_Key, l_Model->Path, l_Overrides.size(), l_Wrong.empty() ? std::string() : std::format(": {}", l_Wrong));
         m_MaterialsPassed = false;
     }
 
@@ -1494,7 +1494,7 @@ void ImportTest::FinishEdit()
     m_Phase = Phase::ReadingUndo;
 }
 
-// The material, its cooked file and the .meta are as before the edit. A reimport then keeps an override, which an edit back to the import takes out again
+// As before the edit. A reimport then keeps an override, which an edit back to the import removes
 void ImportTest::FinishUndo()
 {
     Trinity::Application::Get().GetDevice().WaitIdle();
@@ -1506,12 +1506,12 @@ void ImportTest::FinishUndo()
     const Trinity::MaterialAsset* l_Material = static_cast<const Trinity::MaterialAsset*>(Trinity::AssetManager::GetAsset(m_Edited));
     if (!l_Wrong.empty() || l_Material->GetData() != m_EditBefore || !l_Cooked || *l_Cooked != m_EditBeforeCooked || !l_Meta || *l_Meta != m_EditBeforeMeta)
     {
-        TR_ERROR("Import test: one undo did not put back the material, its cooked file and {} as they were{}", l_MetaPath, l_Wrong.empty() ? std::string() : std::format(": {}", l_Wrong));
+        TR_ERROR("Import test: one undo did not put back the material, its cooked file and {}{}", l_MetaPath, l_Wrong.empty() ? std::string() : std::format(": {}", l_Wrong));
         m_MaterialsPassed = false;
     }
     else
     {
-        TR_INFO("Import test: an edit of a material showed on the GPU the next frame, and one undo put back the GPU record, the cooked file and the .meta byte for byte");
+        TR_INFO("Import test: a material edit showed on the GPU next frame, and one undo undid it");
     }
 
     Trinity::MaterialData l_Overridden = m_EditBefore;
@@ -1527,18 +1527,18 @@ void ImportTest::FinishUndo()
     const Trinity::Expected<std::string, Trinity::FileError> l_Restored = Trinity::FileSystem::ReadText(l_MetaPath);
     if (!l_Kept || !l_Restored || *l_Restored != m_EditBeforeMeta)
     {
-        TR_ERROR("Import test: a reimport of {} lost a material override, or an edit back to the import left the .meta different", l_Model->Path);
+        TR_ERROR("Import test: reimporting {} lost an override, or an edit back changed the .meta", l_Model->Path);
         m_MaterialsPassed = false;
     }
     else
     {
-        TR_INFO("Import test: a reimport of {} kept its material override, and an edit back to the import left the .meta as it was", l_Model->Path);
+        TR_INFO("Import test: reimporting {} kept its override, and an edit back cleared it", l_Model->Path);
     }
 
     BeginStandalone();
 }
 
-// A material of its own, made as the Content Browser makes one, then given colours, a mask, both sides and a texture on the second UV set
+// Made as the Content Browser makes one, then given colours, a mask, both sides and a texture
 void ImportTest::BeginStandalone()
 {
     const std::optional<std::string> l_Path = m_Session.CreateMaterial(Trinity::Project::c_AssetsMount);
@@ -1572,7 +1572,7 @@ void ImportTest::BeginStandalone()
     const Trinity::Expected<Trinity::MaterialData, std::string> l_Read = l_Text ? Trinity::ParseMaterialData(*l_Text) : Trinity::Expected<Trinity::MaterialData, std::string>(Trinity::Unexpected{ std::string() });
     if (!l_Read || *l_Read != m_StandaloneData || Trinity::WriteMaterialData(*l_Read) != *l_Text)
     {
-        TR_ERROR("Import test: {} does not read back as written, or does not write back as the same file", m_StandalonePath);
+        TR_ERROR("Import test: {} does not read back as written, or write back as the same file", m_StandalonePath);
         FinishMaterials(false);
 
         return;
@@ -1593,12 +1593,12 @@ void ImportTest::FinishStandalone()
     const Trinity::Expected<std::string, Trinity::FileError> l_After = Trinity::FileSystem::ReadText(m_StandalonePath);
     if (!l_Loaded || !l_Written || !l_Before || !l_After || *l_Before != *l_After)
     {
-        TR_ERROR("Import test: {} did not load as written, or did not save and reload into the same file", m_StandalonePath);
+        TR_ERROR("Import test: {} did not load as written, or save and reload into the same file", m_StandalonePath);
         m_MaterialsPassed = false;
     }
     else
     {
-        TR_INFO("Import test: {} loaded as written, with its texture, and saved and reloaded into the same file", m_StandalonePath);
+        TR_INFO("Import test: {} loaded as written, and saved and reloaded into the same file", m_StandalonePath);
     }
 
     m_Standalone = {};
@@ -1633,7 +1633,7 @@ void ImportTest::Finish(bool passed)
     TR_INFO("Import test: finished, and {} asset(s) are still loaded", Trinity::AssetManager::GetEntryCount());
 }
 
-// MetalRoughSpheres in a scene of its own, with a perspective camera framing it and a directional light from over the camera's shoulder, and its meshes scattered at random through another scene for the culling check. Both are collected every frame until every mesh, material and texture they use has loaded
+// MetalRoughSpheres with a camera and a light, and its meshes scattered in another scene
 void ImportTest::BeginRendering()
 {
     const auto a_Model = std::ranges::find(c_TestModels, std::string_view("MetalRoughSpheres"), &TestModel::Name);
@@ -1698,7 +1698,7 @@ void ImportTest::UpdateRendering()
         return;
     }
 
-    // Collecting keeps the meshes and materials loaded, and the camera is only placed once their bounds are known
+    // Collecting keeps the meshes and materials loaded. The camera is placed once bounds are known
     l_Renderer.Collect(*m_RenderScene, Trinity::RenderView(), m_RenderDraws);
     l_Renderer.Collect(*m_CullScene, Trinity::RenderView(), m_CullDraws);
     const bool l_Materials = std::ranges::all_of(m_RenderMaterials, [this](Trinity::UUID id)
@@ -1712,7 +1712,7 @@ void ImportTest::UpdateRendering()
     {
         if (m_PhaseFrames > c_LoadTimeoutFrames)
         {
-            TR_ERROR("Import test: MetalRoughSpheres' meshes, materials or textures were still loading after {} frame(s)", m_PhaseFrames);
+            TR_ERROR("Import test: MetalRoughSpheres' assets were still loading after {} frame(s)", m_PhaseFrames);
             Finish(false);
         }
 
@@ -1726,7 +1726,7 @@ void ImportTest::UpdateRendering()
         return;
     }
 
-    // Framed from +Z, the side the spheres face, with the whole model inside a 45 degree field of view, and lit from above and behind the camera
+    // Framed from +Z, the side the spheres face, inside a 45 degree field of view, lit from behind
     glm::vec3 l_Minimum(std::numeric_limits<float>::max());
     glm::vec3 l_Maximum(std::numeric_limits<float>::lowest());
     Trinity::SceneRegistry& l_Registry = m_RenderScene->GetRegistry();
@@ -1766,7 +1766,7 @@ void ImportTest::UpdateRendering()
     m_Phase = Phase::Rendering;
 }
 
-// Point and spot lights scattered through and around the model, each reaching a small part of it. Half have a range of their own and half work it out from an intensity chosen to give the same range, and spot lights point every way with cones from narrow to wide
+// Scattered through and around the model. Half have a range of their own, half derive it
 void ImportTest::AddTestLights(const glm::vec3& minimum, const glm::vec3& maximum, float radius)
 {
     std::mt19937 l_Random(23);
@@ -1801,7 +1801,7 @@ void ImportTest::AddTestLights(const glm::vec3& minimum, const glm::vec3& maximu
     }
 }
 
-// Over random poses, perspective and orthographic, the culled and sorted list must equal the one tested a submesh at a time, and nothing culled may reach into the view: every corner of each culled submesh's box lies outside one side of the frustum
+// The culled list must equal the one tested a submesh at a time, and nothing culled is in view
 bool ImportTest::CheckCulling()
 {
     Trinity::Renderer3D& l_Renderer = Trinity::Application::Get().GetRenderer().GetRenderer3D();
@@ -1835,7 +1835,7 @@ bool ImportTest::CheckCulling()
         l_Drawn += m_CullDraws.Draws.size();
         l_Culled += m_CullDraws.Culled;
 
-        // A box is culled only when wholly outside one plane, so its eight corners must all be on the outside of one side of clip space
+        // A box is culled only when wholly outside one plane: all eight corners outside one clip side
         for (Trinity::Entity it_Entity = m_CullScene->GetFirstRoot(); it_Entity; it_Entity = m_CullScene->GetNextInHierarchyOrder(it_Entity))
         {
             const Trinity::MeshRendererComponent& l_Mesh = it_Entity.Get<Trinity::MeshRendererComponent>();
@@ -1870,12 +1870,12 @@ bool ImportTest::CheckCulling()
 
     if (l_Mismatches != 0 || l_Unsafe != 0)
     {
-        TR_ERROR("Import test: over {} random poses, {} culled list(s) differed from the reference, and {} submesh(es) culled while reaching into the view", c_CullPoses, l_Mismatches, l_Unsafe);
+        TR_ERROR("Import test: over {} poses, {} culled list(s) differed, {} wrongly culled", c_CullPoses, l_Mismatches, l_Unsafe);
 
         return false;
     }
 
-    TR_INFO("Import test: over {} random poses of {} scattered meshes, every culled and sorted list equalled the reference, {} draws kept and {} culled, and nothing culled reached into the view", c_CullPoses, c_CullEntities, l_Drawn, l_Culled);
+    TR_INFO("Import test: over {} poses of {} meshes, culling matched: {} drawn, {} culled", c_CullPoses, c_CullEntities, l_Drawn, l_Culled);
 
     return true;
 }
@@ -1979,7 +1979,7 @@ void ImportTest::AddRenderPasses(Trinity::FrameGraph& graph)
     });
 }
 
-// Every pixel the pre-pass wrote depth to was shaded by the opaque pass's equal test, every other kept the clear colour, the spheres cover a good part of the view, and the lit side is brighter than the ambient light alone could make it
+// Depth-written pixels were shaded, the rest kept the clear colour, and the lit side beats ambient
 void ImportTest::FinishRendering()
 {
     Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
@@ -1987,7 +1987,7 @@ void ImportTest::FinishRendering()
     const Trinity::Renderer3D::Statistics& l_Statistics = Trinity::Application::Get().GetRenderer().GetRenderer3D().GetStatistics();
     if (l_Device.GetInfo().API == Trinity::GraphicsAPI::None || !m_RenderTarget)
     {
-        TR_WARN("Import test: the null device draws nothing, so MetalRoughSpheres is not checked on screen");
+        TR_WARN("Import test: the null device draws nothing, so MetalRoughSpheres is not checked");
         Finish(true);
 
         return;
@@ -2031,19 +2031,19 @@ void ImportTest::FinishRendering()
     const bool l_Passed = l_Covered > l_Pixels / 10 && l_Holes == 0 && l_Overdrawn == 0 && l_NotFinite == 0 && l_Brightest > l_Ambient && l_Statistics.PrePassDraws == l_Statistics.OpaqueDraws && m_RenderDraws.Draws.size() > 0;
     if (!l_Passed)
     {
-        TR_ERROR("Import test: MetalRoughSpheres covered {} of {} pixels, with {} the opaque pass left unshaded, {} shaded outside the pre-pass's depth, {} not finite and the brightest at {}, in {} draws with {} in the pre-pass and {} in the opaque pass", l_Covered, l_Pixels, l_Holes, l_Overdrawn, l_NotFinite, l_Brightest, m_RenderDraws.Draws.size(), l_Statistics.PrePassDraws, l_Statistics.OpaqueDraws);
+        TR_ERROR("Import test: sphere {}/{}: {} holes, {} extra, {} inf/NaN, max {}, draw {}/{}/{}", l_Covered, l_Pixels, l_Holes, l_Overdrawn, l_NotFinite, l_Brightest, m_RenderDraws.Draws.size(), l_Statistics.PrePassDraws, l_Statistics.OpaqueDraws);
         Finish(false);
 
         return;
     }
 
-    TR_INFO("Import test: MetalRoughSpheres drew through a perspective camera in {} draws, covering {} of {} pixels, every one the pre-pass reached shaded by the opaque pass's equal depth test and the brightest at {:.3f}", m_RenderDraws.Draws.size(), l_Covered, l_Pixels, l_Brightest);
+    TR_INFO("Import test: MetalRoughSpheres drew in {} draws, {} of {} pixels, max {:.3f}", m_RenderDraws.Draws.size(), l_Covered, l_Pixels, l_Brightest);
     const bool l_Clusters = CheckClusters();
     const bool l_Shading = CompareShading();
     Finish(l_Clusters && l_Shading);
 }
 
-// Every cluster's count and lights read back must equal the CPU's. The GPU's floating point may differ from the CPU's in the last bits, so a light whose sphere just touches a cluster's box, within a hair of its radius, may be in one list and not the other. A cluster past the cap is checked by its count, since which lights it keeps then depends on every light before them
+// Must equal the CPU's. A light just touching a cluster's box may differ in float's last bits
 bool ImportTest::CheckClusters()
 {
     Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
@@ -2134,17 +2134,17 @@ bool ImportTest::CheckClusters()
 
     if (l_Mismatched != 0)
     {
-        TR_ERROR("Import test: {} of {} clusters' light lists differed from the CPU's beyond lights grazing their edges, with {} point and spot lights", l_Mismatched, Trinity::ClusterGrid::c_Count, m_RenderDraws.Lights.size());
+        TR_ERROR("Import test: {} of {} clusters' light lists differed from the CPU's, {} lights", l_Mismatched, Trinity::ClusterGrid::c_Count, m_RenderDraws.Lights.size());
 
         return false;
     }
 
-    TR_INFO("Import test: all {} clusters' light lists equalled the CPU's for {} point and spot lights, {} exactly and {} but for lights grazing their edges, with {} entries, at most {} lights in a cluster and {} cluster(s) over the cap of {}", Trinity::ClusterGrid::c_Count, m_RenderDraws.Lights.size(), l_Exact, l_Grazing, l_Entries, l_Most, l_Overfull, Trinity::ClusterGrid::c_MaxLights);
+    TR_INFO("Import test: clusters {}x{} lights: {} exact, {} near, {} entries, max {}, {}>{}", Trinity::ClusterGrid::c_Count, m_RenderDraws.Lights.size(), l_Exact, l_Grazing, l_Entries, l_Most, l_Overfull, Trinity::ClusterGrid::c_MaxLights);
 
     return true;
 }
 
-// Each pixel shaded by its cluster's lights against the same pixel shaded by every light: within 1/255 of the brighter of the two, or 1/255 itself below 1
+// Shaded by its cluster's lights against every light: within 1/255 of the brighter of the two
 bool ImportTest::CompareShading()
 {
     Trinity::RHI::Device& l_Device = Trinity::Application::Get().GetDevice();
@@ -2184,12 +2184,12 @@ bool ImportTest::CompareShading()
 
     if (l_Different != 0)
     {
-        TR_ERROR("Import test: {} pixel(s) shaded by their clusters' lights differed from shading by every light by more than 1/255, the largest by {}", l_Different, l_Largest);
+        TR_ERROR("Import test: {} pixel(s) differ between clustered and full shading, by up to {}", l_Different, l_Largest);
 
         return false;
     }
 
-    TR_INFO("Import test: every pixel shaded by its cluster's lights matched shading by all {} point and spot lights within 1/255, the largest difference {}", m_RenderDraws.Lights.size(), l_Largest);
+    TR_INFO("Import test: clustered shading matched all {} lights within 1/255, at most {}", m_RenderDraws.Lights.size(), l_Largest);
 
     return true;
 }

@@ -34,11 +34,11 @@ namespace
     constexpr const char* c_RecoveryPopup = "Recover Scene###ForgeRecoverScene";
     constexpr const char* c_LanguagePopup = "Project Language###ForgeLanguage";
     constexpr const char* c_UpgradePopup = "Open in This Version###ForgeUpgrade";
-    // The open scene's backup, under the project's Cache, which is never committed. Its first lines name the scene and when it was written, as YAML comments the scene's reader passes over
+    // Under the project's Cache, never committed. Its first lines are YAML comments naming the scene
     constexpr std::string_view c_BackupFile = "Editor/Backup/Scene.trscene";
-    // The projects Forge opened lately, which it kept itself until Hub kept one list for every version, and which it moves into Hub's once. The start screen shows ten projects, and ten scenes are kept per project
+    // Forge's own list from before Hub kept one for every version, moved into Hub's once
     constexpr std::string_view c_RecentProjectsPath = "/saves/RecentProjects.txt";
-    // As Unreal keeps a project's saves while it plays in its editor, in the project's own Saved folder, which new projects leave out of Git, so each project's PlayerPrefs are its own
+    // In the project's Saved folder, as Unreal does, which new projects leave out of Git
     constexpr std::string_view c_PlayerPrefsPath = "/project/Saved/PlayerPrefs.yaml";
     constexpr std::string_view c_RecentScenesFile = "Editor/RecentScenes.txt";
     constexpr std::size_t c_RecentLimit = 10;
@@ -52,13 +52,13 @@ namespace
     // A batch that finishes sooner, or finds every texture in the cache, never shows its popup
     constexpr double c_ImportPopupDelay = 0.3;
 
-    // An estimate for the texture being encoded stops short of it, since the encoder reports nothing until it is done
+    // An estimate for the texture being encoded stops short: the encoder reports nothing until done
     constexpr double c_MaximumEstimate = 0.95;
 
-    // How long Play waits after one debugger is seen attached, for the other half of one that debugs native and managed code at once to attach too
+    // How long Play waits after one debugger attaches, for the other half of a mixed-mode one
     constexpr std::chrono::milliseconds c_DebuggerSettle{ 1000 };
 
-    // The missing references a scene's warning lists, which keeps it within a line of the Console's history
+    // The most missing references a scene's warning lists, to stay within one Console line
     constexpr std::size_t c_MissingReferenceLimit = 50;
 
     std::string FormatDuration(double seconds)
@@ -98,7 +98,7 @@ namespace
         return l_Lines;
     }
 
-    // As many finite numbers as there are values, apart by spaces, or false with the values as they were
+    // As many finite numbers as there are values, apart by spaces, or false with the values untouched
     bool ReadNumbers(std::string_view text, std::span<float> values)
     {
         std::array<float, 4> l_Read{};
@@ -125,7 +125,7 @@ namespace
         return true;
     }
 
-    // The texels a texture import has done, the one being encoded counted by the rate the encoder has kept so far. Nothing before that can be told
+    // The texels done, the one being encoded counted by the encoder's rate so far. Nothing before that
     std::optional<double> GetImportedTexels(const TextureImportBatch::Progress& progress)
     {
         if (!progress.Planned || progress.TotalTexels == 0 || (!progress.TexelsPerSecond && progress.Encoding != 0))
@@ -143,7 +143,7 @@ namespace
         return std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(text.data()), text.size()));
     }
 
-    // Hub's list of projects: in the folder --hub names, or in Hub beside a check's own saves, so a check never writes to the person's list, and otherwise in Hub's own folder
+    // In the folder --hub names, or beside a check's own saves, and otherwise in Hub's own folder
     std::filesystem::path GetProjectListFile(const Trinity::ApplicationCommandLineArgs& args)
     {
         const std::filesystem::path l_Name(Trinity::ProjectList::c_FileName);
@@ -532,7 +532,7 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         return l_Binding;
     }
 
-    // Four keys made into a Vector2, Up, Down, Left and Right, its diagonal brought back to the length a stick's has
+    // Four keys made into a Vector2, Up, Down, Left and Right, its diagonal no longer than a stick's
     Trinity::InputBinding MakeKeyVector(Trinity::KeyCode up, Trinity::KeyCode down, Trinity::KeyCode left, Trinity::KeyCode right)
     {
         Trinity::InputBinding l_Binding;
@@ -562,7 +562,7 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         return l_Action;
     }
 
-    // What a new input actions asset starts with, as Unity's starter actions do: Gameplay, with Move from WASD, the arrows and the left stick, Look from the mouse's movement and the right stick, and Jump from Space and the A button, the names the character templates find them by, then UI, with Unity's default Navigate, Submit and Cancel, which the game UI reads
+    // As Unity's starter actions: Gameplay with Move, Look and Jump, then UI with Unity's defaults
     Trinity::InputActionsData MakeStarterInputActions()
     {
         Trinity::InputActionsData l_Data;
@@ -582,7 +582,7 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         return std::isalnum(static_cast<unsigned char>(character)) != 0 || character == '_';
     }
 
-    // The line, counted from 1, of the first "class Name" or "struct Name" in the file, passing over one after // on its line, and one that only declares it ahead of its definition, as "class Name;" does
+    // The line, from 1, of the first class or struct of that name, skipping comments and declarations
     std::optional<std::uint32_t> FindClassLine(const std::filesystem::path& file, std::string_view name)
     {
         constexpr std::array<std::string_view, 2> c_Keywords{ "class", "struct" };
@@ -623,7 +623,7 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         return std::nullopt;
     }
 
-    // A script class's file in the folder or below it, with the line that declares the class, as Edit Script opens it: the file named after the class, as Unity has it, in the order of the extensions given, then any file that declares it, then the named file at its top. Hidden and build output folders are passed over
+    // The file named after the class, then any file that declares it. Hidden and build folders skipped
     std::optional<std::pair<std::filesystem::path, std::uint32_t>> FindScriptSource(const std::filesystem::path& folder, std::span<const std::string_view> extensions, std::string_view name)
     {
         constexpr std::array<std::string_view, 4> c_SkippedFolders{ "bin", "obj", "build", "out" };
@@ -684,7 +684,7 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         return std::nullopt;
     }
 
-    // The first of Name, Name 1, Name 2 and on, before the extension, that names nothing in the folder yet. A copy starts at 1, or after the number its original's name ends in, as Unity numbers duplicates
+    // The first of Name, Name 1, Name 2 and on that is free. A copy numbers on from its original's
     std::string GetFreePath(const Trinity::Project& project, std::string_view folder, std::string_view stem, std::string_view extension, bool copy)
     {
         std::string_view l_Base = stem;
@@ -747,7 +747,7 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         }
     }
 
-    // The key an importer checks its cache against, so the next import cooks the asset again. A model's embedded textures have keys of their own. Whether the asset is one an importer cooks
+    // Removes the key an importer checks its cache against, so the next import cooks it again
     bool RemoveCacheKey(const Trinity::AssetRecord& record)
     {
         std::string l_Path;
@@ -778,7 +778,7 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
         return true;
     }
 
-    // Each slot of the scene naming an asset the project does not have, or an entity the scene does not have, as a line naming the entity, its component, the slot and what it named. Built-in assets are in every project
+    // Each slot naming an asset the project lacks or an entity the scene lacks, as a warning line
     std::vector<std::string> FindMissingReferences(Trinity::Scene& scene, const Trinity::AssetRegistry& registry)
     {
         std::vector<std::string> l_Lines;
@@ -804,7 +804,7 @@ TR_SCRIPT(@NAMESPACE@::@CLASS@)
     }
 }
 
-// Before the asset manager shuts down, which must not be left holding this project's registry. A preference changed by a drag Forge closed during is saved too
+// Before the asset manager shuts down, which must not be left holding this project's registry
 EditorSession::~EditorSession()
 {
     if (m_PreferencesChanged)
@@ -819,10 +819,10 @@ EditorSession::~EditorSession()
 
 void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
 {
-    // A scene opens at once, before the asset manager could load its prefabs, so Forge reads them itself, the playing scene's too
+    // A scene opens at once, before the asset manager could load its prefabs, so Forge reads them
     Trinity::SceneSerializer::SetPrefabResolver([this](Trinity::UUID prefab) { return m_Prefabs.Find(prefab, m_Registry.get()); });
 
-    // A script's Application.Quit stops playing, as Unreal's QuitGame does in its editor, rather than closing Forge
+    // A script's Application.Quit stops playing, as Unreal's QuitGame does in its editor
     Trinity::Application::Get().SetQuitHandler([this]
     {
         if (IsPlaying())
@@ -848,7 +848,7 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
         }
     });
 
-    // A running scene plays on through a reload: its C++ instances write their fields back and go before the module does, and are made again from those fields once the new module has registered. Its components are kept as YAML meanwhile, as the edited scene's are
+    // A running scene plays on through a reload: instances write their fields back, and are made again
     m_Module.SetReloadCallbacks([this]
     {
         if (Trinity::SceneRuntime* l_Runtime = GetRuntime())
@@ -866,7 +866,7 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
         }
     });
 
-    // C# scripts reload as a C++ module does, and their instances made as they first load while a scene plays
+    // C# scripts reload as a C++ module does
     m_Assembly.SetReloadCallbacks([this]
     {
         if (Trinity::SceneRuntime* l_Runtime = GetRuntime())
@@ -885,7 +885,7 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
     });
 
     ReadPreferences(args);
-    // The application opened the system's default as it started, before the preferences were read. Headless, it opened none
+    // The application opened the system's default as it started, before the preferences were read
     if (Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine(); l_Engine != nullptr && l_Engine->GetOutput() == Trinity::AudioOutput::Device && !m_Preferences.AudioDevice.empty())
     {
         static_cast<void>(l_Engine->SetDevice(m_Preferences.AudioDevice));
@@ -894,7 +894,7 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
     m_ProjectListFile = GetProjectListFile(args);
     TakeOverRecentProjects();
     ReadRecentProjects();
-    // The language a new project's scripts are written in, or the one an older project with both languages or neither keeps
+    // The language a new project's scripts are written in, or the one an older project keeps
     std::optional<Trinity::ScriptLanguage> l_Language;
     if (const auto it_Language = args.GetOption("language"))
     {
@@ -928,16 +928,16 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
                     l_Names += std::format("{}{}", l_Names.empty() ? "" : ", ", it_Known.Name);
                 }
 
-                TR_ERROR("Forge: this version of Trinity in {} has no template '{}', but {}, so no project was made", ToUtf8(l_Root), *it_Template, l_Names.empty() ? std::string("none") : l_Names);
+                TR_ERROR("Forge: Trinity in {} has no template '{}', but {}, so no project was made", ToUtf8(l_Root), *it_Template, l_Names.empty() ? std::string("none") : l_Names);
             }
         }
 
         if (!l_Language)
         {
-            TR_ERROR("Forge: --new-project needs --language=CSharp or --language=Cpp, the language the project's scripts are written in, which it keeps, so no project was made");
+            TR_ERROR("Forge: --new-project needs --language=CSharp or --language=Cpp. No project made");
         }
 
-        // Started to make a project, as Hub's New Project starts it, it ends with 1 when none was made, so whoever started it knows
+        // Started to make a project, as Hub does. It ends with 1 when none was made, so the starter knows
         if (!l_Language || !l_Found || !CreateProject(FromUtf8(*it_Directory), *l_Language, l_Template ? &*l_Template : nullptr))
         {
             Trinity::Application::Get().Close(1);
@@ -947,7 +947,7 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
     }
     else if (const auto it_Upgrade = args.GetOption("upgrade-project"))
     {
-        // Started to move a project to this version, as Hub's Open With starts a newer version's Forge, it ends with 1 when the project was not moved and opened, so whoever started it knows
+        // Started to upgrade a project, as Hub's Open With does. It ends with 1 on failure
         if (!UpgradeProject(FromUtf8(*it_Upgrade), l_Language))
         {
             Trinity::Application::Get().Close(1);
@@ -957,7 +957,7 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
     }
     else if (const auto it_Project = args.GetOption("project"))
     {
-        // Started for a project another Forge has open, as Hub or a shortcut to the project starts one, it brings that one forward and has nothing left to do. One asked to export it fails, as the export cannot be made
+        // Another Forge has it open: that one is brought forward. An export asked of it fails
         if (!LockProject(FromUtf8(*it_Project)))
         {
             Trinity::Application::Get().Close(args.HasOption("export") ? 1 : 0);
@@ -965,7 +965,7 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
             return;
         }
 
-        // An export waits on no question, so a project of another version is refused for it, one of an older version to be moved first with --upgrade-project
+        // An export waits on no question, so a project of another version is refused for it
         if (args.HasOption("export"))
         {
             const Trinity::Expected<std::filesystem::path, std::string> l_File = Trinity::Project::FindFile(FromUtf8(*it_Project));
@@ -978,7 +978,7 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
                 }
                 else
                 {
-                    TR_ERROR("Forge: {} was made with Trinity {}, so it is not exported until it is moved to Trinity {}, as --upgrade-project moves it", l_Info->Name, l_Info->EngineVersion.empty() ? std::string("of an unknown version") : l_Info->EngineVersion, Trinity::GetVersionString());
+                    TR_ERROR("Forge: {} is of Trinity {}. To export it, --upgrade-project it to Trinity {}", l_Info->Name, l_Info->EngineVersion.empty() ? std::string("of an unknown version") : l_Info->EngineVersion, Trinity::GetVersionString());
                 }
 
                 Trinity::Application::Get().Close(1);
@@ -991,13 +991,13 @@ void EditorSession::Start(const Trinity::ApplicationCommandLineArgs& args)
     }
     else
     {
-        TR_INFO("No project given. Use File > New Project or Open Project, start Forge from Trinity-Hub, or pass --project=<path>.");
+        TR_INFO("No project given. Use File > New Project, Open Project, or --project=<path>.");
     }
 
     UpdateTitle();
 }
 
-// From the UI, which is mid-frame. The work waits for Update, where a native dialog can block without an ImGui frame open
+// From the UI, mid-frame. The work waits for Update, where a native dialog can block safely
 void EditorSession::Request(Command command)
 {
     m_Pending.push_back([this, command] { Run(command); });
@@ -1017,7 +1017,7 @@ void EditorSession::Update()
     if (const std::optional<ModelImportReport> l_Report = m_ModelImports.Update())
     {
         FinishModelImports(*l_Report);
-        // A model imported again, or given its file's new name, reaches its instances, and one imported at last its stand-ins
+        // A model imported again, or renamed, reaches its instances, and one imported at last its stand-ins
         if (l_Report->Imported != 0 || l_Report->Renamed != 0)
         {
             UpdateChangedPrefabs();
@@ -1069,7 +1069,7 @@ void EditorSession::Update()
         BeginPlay();
     }
 
-    // A backup is kept only while the scene has changes no file holds, so it goes once they are saved, undone, or left behind for another scene
+    // Kept only while the scene has changes no file holds: it goes once they are saved, undone or left
     if (m_HasBackup && !IsDirty())
     {
         RemoveBackup();
@@ -1088,7 +1088,7 @@ void EditorSession::DrawPopups()
     DrawUpgradePopup();
 }
 
-// The project, the scene and an asterisk while unsaved, then Forge's version and commit. The renderer adds the backend and frame rate
+// The project, the scene and an asterisk while unsaved, then Forge's version and commit
 void EditorSession::UpdateTitle()
 {
     const std::string l_Forge = std::format("{} {}", c_ApplicationTitle, Trinity::GetVersionDescription());
@@ -1120,7 +1120,7 @@ bool EditorSession::RequestClose()
     return false;
 }
 
-// Refresh comes whenever Forge regains focus, and a build reloads the module or loads the scripts, and each leaves a playing scene running
+// Refresh comes whenever Forge regains focus, and a build reloads code. Each leaves a scene playing
 void EditorSession::Run(Command command)
 {
     if (command != Command::Refresh && command != Command::BuildModule && command != Command::BuildAssembly)
@@ -1219,7 +1219,7 @@ void EditorSession::Run(Command command)
 
             break;
         }
-        // Kept from the project's folder while it is inside it, so the project takes it along when it moves, and as a whole path otherwise
+        // Kept relative to the project's folder while inside it, so it moves with the project, else whole
         case Command::ChooseExportFolder:
         {
             if (l_HasProject)
@@ -1303,7 +1303,7 @@ void EditorSession::Run(Command command)
     }
 }
 
-// A native dialog where the platform has one, which blocks here, and otherwise a text field in a popup
+// A native dialog where the platform has one, which blocks here, else a text field in a popup
 void EditorSession::AskPath(PathRequest request)
 {
     if (!Trinity::FileDialog::IsSupported())
@@ -1341,7 +1341,7 @@ void EditorSession::AskPath(PathRequest request)
     }
 }
 
-// Prefab mode closes first, after asking about its own unsaved changes, and then the scene's are asked about
+// Prefab mode closes first, asking about its own unsaved changes, then the scene's are asked about
 void EditorSession::ConfirmDiscard(Action action)
 {
     ConfirmClosePrefab([this, l_Action = std::move(action)]() mutable
@@ -1358,7 +1358,7 @@ void EditorSession::ConfirmDiscard(Action action)
     });
 }
 
-// What waits runs once prefab mode is closed, at once when it has no unsaved changes, and otherwise once they are saved or discarded
+// What waits runs once prefab mode is closed: at once, or once its changes are saved or discarded
 void EditorSession::ConfirmClosePrefab(Action then)
 {
     if (IsPrefabDirty())
@@ -1373,7 +1373,7 @@ void EditorSession::ConfirmClosePrefab(Action then)
     then();
 }
 
-// Before another project opens: edits held outside the scene are settled first, then the scene's unsaved changes are asked about
+// Before another project opens: edits held outside the scene are settled, then the scene's asked
 void EditorSession::ConfirmCloseProject(Action action)
 {
     Action l_Then = [this, l_Action = std::move(action)]() mutable { ConfirmDiscard(std::move(l_Action)); };
@@ -1389,7 +1389,7 @@ void EditorSession::SetUnappliedEdits(std::function<bool()> pending, std::functi
     m_SettleUnappliedEdits = std::move(settle);
 }
 
-// Takes what waits only when there is something to settle, and runs it at the next Update once settled, so a file dialog it opens never blocks with a frame open
+// Runs what waits at the next Update once settled, so a file dialog it opens never blocks mid-frame
 bool EditorSession::SettleUnappliedEdits(Action& then)
 {
     if (!m_HasUnappliedEdits || !m_SettleUnappliedEdits || !m_HasUnappliedEdits())
@@ -1402,7 +1402,7 @@ bool EditorSession::SettleUnappliedEdits(Action& then)
     return true;
 }
 
-// A new project opens on its start scene: its template's, or else an empty one, saved and given a UUID at once so the project file never names a missing scene, with its C# project or C++ module made. The template's assets are copied in by Project::Create, which takes away what it made when it fails
+// A new project opens on its start scene, saved at once so the project file names a real scene
 bool EditorSession::CreateProject(const std::filesystem::path& directory, Trinity::ScriptLanguage language, const Trinity::ProjectTemplate* projectTemplate)
 {
     CloseProject();
@@ -1417,7 +1417,7 @@ bool EditorSession::CreateProject(const std::filesystem::path& directory, Trinit
     }
 
     m_Project = std::move(*l_Project);
-    // Nothing else can have a project just made open, so it is locked once it is there, its folder having had to be empty
+    // Nothing else can have a project just made open, so it is locked once it is there
     if (std::optional<Trinity::FileLock> l_Lock = LockProject(m_Project->GetFilePath()))
     {
         m_ProjectLock = std::move(*l_Lock);
@@ -1460,14 +1460,14 @@ bool EditorSession::CreateProject(const std::filesystem::path& directory, Trinit
     return true;
 }
 
-// Saved with the project by whoever made it. A Forge that cannot build the language, as one without .NET or one linked statically, leaves it for the Scripts menu, and the project is made all the same
+// A Forge that cannot build the language leaves it for the Scripts menu. The project is still made
 void EditorSession::CreateScripts()
 {
     if (m_Project->GetLanguage() == Trinity::ScriptLanguage::CSharp)
     {
         if (!AssemblyHost::IsSupported())
         {
-            TR_WARN("Forge: {} has no C# project yet, as this Forge has no .NET to build one with. Scripts > Create C# Project makes it once it has", m_Project->GetName());
+            TR_WARN("Forge: {} has no C# project yet, as this Forge has no .NET to build one with", m_Project->GetName());
 
             return;
         }
@@ -1479,7 +1479,7 @@ void EditorSession::CreateScripts()
 
     if (!ModuleHost::IsSupported())
     {
-        TR_WARN("Forge: {} has no C++ module yet, as this Forge's engine is linked statically. Scripts > Create C++ Module in a Debug or Release Forge makes it", m_Project->GetName());
+        TR_WARN("Forge: {} has no C++ module yet, as this Forge's engine is linked statically", m_Project->GetName());
 
         return;
     }
@@ -1500,7 +1500,7 @@ void EditorSession::ApplyTemplate(const Trinity::ProjectTemplate& projectTemplat
         const Trinity::AssetRecord* l_Record = m_Registry->FindByPath(std::format("{}/{}", Trinity::Project::c_AssetsMount, path));
         if (l_Record == nullptr)
         {
-            TR_WARN("Forge: the {} template names {}, which its assets do not hold, so the project has none in its place", projectTemplate.Name, path);
+            TR_WARN("Forge: the {} template names {}, which its assets lack, so the project has none", projectTemplate.Name, path);
         }
 
         return l_Record;
@@ -1531,7 +1531,7 @@ void EditorSession::ApplyTemplate(const Trinity::ProjectTemplate& projectTemplat
     }
 }
 
-// Locked before the open project closes, so asking for one another Forge has open leaves this one's open. One of an older version or format is asked about first, as Unity asks before it opens a project of an older editor, and opens once backed up and moved to this version, its language picked there when it is older than format 10 with both languages or neither. One of a newer version is refused, as this Forge cannot know what it holds
+// Locked before the open project closes. An older one is asked about first. A newer one is refused
 void EditorSession::OpenProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language)
 {
     const Trinity::Expected<std::filesystem::path, std::string> l_File = Trinity::Project::FindFile(path);
@@ -1552,7 +1552,7 @@ void EditorSession::OpenProject(const std::filesystem::path& path, std::optional
             return;
         }
 
-        TR_INFO("Forge: {} was made with Trinity {}, so it opens here once it is backed up and moved to Trinity {}", l_Info->Name, l_Info->EngineVersion.empty() ? std::string("of an unknown version") : l_Info->EngineVersion, Trinity::GetVersionString());
+        TR_INFO("Forge: {} is of Trinity {}, so it opens once backed up and moved to Trinity {}", l_Info->Name, l_Info->EngineVersion.empty() ? std::string("of an unknown version") : l_Info->EngineVersion, Trinity::GetVersionString());
         m_UpgradeQuestion = UpgradeQuestion{ .File = *l_File, .Info = *l_Info, .Backup = ProjectMigration::GetBackupPath(l_File->parent_path(), l_Info->EngineVersion), .Language = l_Info->Language ? l_Info->Language : language };
         m_OpenUpgradePopup = true;
 
@@ -1562,7 +1562,7 @@ void EditorSession::OpenProject(const std::filesystem::path& path, std::optional
     static_cast<void>(LoadProject(path, std::nullopt, false));
 }
 
-// Of this version already, it opens as it is. One older than format 10 with both languages or neither cannot be moved without being given its language, as Hub gives it
+// Of this version already, it opens as it is. One older than format 10 may need its language given
 bool EditorSession::UpgradeProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language)
 {
     const Trinity::Expected<std::filesystem::path, std::string> l_File = Trinity::Project::FindFile(path);
@@ -1597,7 +1597,7 @@ bool EditorSession::UpgradeProject(const std::filesystem::path& path, std::optio
     const std::optional<Trinity::ScriptLanguage> l_Language = l_Info->Language ? l_Info->Language : language;
     if (!l_Language)
     {
-        TR_ERROR("Forge: {} was made before a project had one language, and has {}, so it is moved to this version only with --language=CSharp or --language=Cpp, the language it keeps, and is left as it is", l_Info->Name, l_Info->HasModule ? "both a C++ module and a C# project" : "no scripts yet");
+        TR_ERROR("Forge: {} has {}, so it is upgraded only with --language=CSharp or Cpp", l_Info->Name, l_Info->HasModule ? "both a C++ module and a C# project" : "no scripts yet");
 
         return false;
     }
@@ -1609,17 +1609,17 @@ void EditorSession::ReportNewer(const Trinity::ProjectFileInfo& info)
 {
     if (info.Format > Trinity::Project::c_FormatVersion)
     {
-        TR_ERROR("Forge: {} is of project format {}, which a newer Trinity wrote, and this Trinity {} reads format {} and older, so it is not opened", info.Name, info.Format, Trinity::GetVersionString(), Trinity::Project::c_FormatVersion);
+        TR_ERROR("Forge: {} is of format {}, and this Trinity {} reads {} and older. Not opened", info.Name, info.Format, Trinity::GetVersionString(), Trinity::Project::c_FormatVersion);
 
 
         return;
     }
 
 
-    TR_ERROR("Forge: {} was made with Trinity {}, newer than this Trinity {}, so it is not opened, as a project never moves to an older version. Open it with Trinity {} or newer", info.Name, info.EngineVersion, Trinity::GetVersionString(), info.EngineVersion);
+    TR_ERROR("Forge: {} is of Trinity {}, newer than this {}, so not opened. Use {} or newer", info.Name, info.EngineVersion, Trinity::GetVersionString(), info.EngineVersion);
 }
 
-// Moving it, the backup comes first, while the lock is held and before anything of the project changes, and nothing of the project is touched when it fails. Its files this version writes are saved again once the registry knows them and before any opens, and its scripts are built again against this version, which imports as ever what an importer of this version cooks otherwise
+// The backup comes first, with the lock held and before anything changes. Then files are resaved
 bool EditorSession::LoadProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language, bool upgrade)
 {
     std::optional<Trinity::FileLock> l_Lock = LockProject(path);
@@ -1671,7 +1671,7 @@ bool EditorSession::LoadProject(const std::filesystem::path& path, std::optional
     {
         m_Project->SetCurrentEngineVersion();
         SaveProject();
-        TR_INFO("Forge: {} is a project of Trinity {} from now on, saved in project format {} from format {}, its scripts {}", m_Project->GetName(), Trinity::GetVersionString(), Trinity::Project::c_FormatVersion, l_Before->Format, GetScriptLanguageLabel(m_Project->GetLanguage()));
+        TR_INFO("Forge: {} is now a Trinity {} project, format {} from format {}, its scripts {}", m_Project->GetName(), Trinity::GetVersionString(), Trinity::Project::c_FormatVersion, l_Before->Format, GetScriptLanguageLabel(m_Project->GetLanguage()));
     }
 
     Trinity::ScriptRuntime::SetLanguage(m_Project->GetLanguage());
@@ -1681,10 +1681,10 @@ bool EditorSession::LoadProject(const std::filesystem::path& path, std::optional
         const ProjectMigration::Report l_Report = ProjectMigration::SaveAgain(*m_Registry);
         if (l_Report.Failed != 0)
         {
-            TR_WARN("Forge: {} file(s) of {} could not be saved in this version's formats and are left as they were, as the log says above. The backup holds the project as it was", l_Report.Failed, m_Project->GetName());
+            TR_WARN("Forge: {} file(s) of {} could not be resaved and are left as they were", l_Report.Failed, m_Project->GetName());
         }
 
-        TR_INFO("Forge: saved {}'s files in Trinity {}'s formats: {} rewritten, {} already as it writes them, {} that could not be, left as they were", m_Project->GetName(), Trinity::GetVersionString(), l_Report.Rewritten, l_Report.Unchanged, l_Report.Failed);
+        TR_INFO("Forge: resaved {}'s files for Trinity {}: {} rewritten, {} unchanged, {} failed", m_Project->GetName(), Trinity::GetVersionString(), l_Report.Rewritten, l_Report.Unchanged, l_Report.Failed);
     }
 
     m_Module.Open(*m_Project);
@@ -1728,14 +1728,14 @@ void EditorSession::CloseProject()
 {
     StopPlay();
     ClosePrefab();
-    // Closing as it should, so this session's backup goes, while one left by a crash and not yet answered stays to be asked about again
+    // Closing as it should, so this session's backup goes. One a crash left stays to be asked about
     RemoveBackup();
     m_Recovery.reset();
     m_OpenRecoveryPopup = false;
     m_Module.Close();
     m_Assembly.Close();
 
-    // The texture being encoded, the environment being filtered and the clip being cooked are finished, since none can be left halfway, and the rest wait for the project to open again
+    // Imports in hand are finished, since none can be left halfway. The rest wait for the next open
     m_ImportAgain = false;
     m_TexturesAfterModels = false;
     if (m_ModelImports.IsRunning())
@@ -1767,7 +1767,7 @@ void EditorSession::CloseProject()
     m_AudioPreview.Clear();
     m_Audition.Clear();
     m_SoundEventSelection = {};
-    // Heard through Master alone again, as without a project, and the mixer let go with the project's other assets
+    // Heard through Master alone again, as without a project. The mixer goes with the other assets
     m_MixerID = {};
     m_Mixer = {};
     m_MixerScan = 0;
@@ -1779,10 +1779,10 @@ void EditorSession::CloseProject()
     // Its components name the project's assets
     m_CopiedEntity.reset();
     m_RecentScenes.clear();
-    // Read again for the start screen, which shows it once no project is open, with whatever has gone since
+    // Read again for the start screen, which shows it once no project is open
     ReadRecentProjects();
 
-    // Everything holding the project's assets lets go of them, so none are left loaded from it when another project's registry is set
+    // Everything holding the project's assets lets go, so none stay loaded for the next project
     for (auto& [it_ID, it_Listener] : m_CloseListeners)
     {
         it_Listener();
@@ -1888,7 +1888,7 @@ void EditorSession::ReloadChangedUIFiles()
     l_UI->ReloadFiles(l_Paths);
 }
 
-// Every texture, model, environment and audio clip the scan finds is cooked into /cache in the background, unless the cache already holds it for the same files and settings
+// Everything the scan finds is cooked into /cache in the background, unless the cache holds it
 void EditorSession::ScanAssets()
 {
     if (!m_Registry)
@@ -1910,7 +1910,7 @@ void EditorSession::ScanAssets()
     StartImports();
 }
 
-// A prefab changed outside Forge, as by a text editor or version control, or a model its import changed, reaches the edited scene's instances as the files are scanned, each made again from it, keeping what it changes, and so do the prefabs holding it and their instances, and the instances nested in the open prefab. Not a step of either history, as in Unity, and a scene playing keeps the prefab it started with
+// A prefab changed outside Forge reaches the scene's instances as files are scanned. Not undoable
 void EditorSession::UpdateChangedPrefabs()
 {
     for (auto& [it_Prefab, it_Text] : m_Prefabs.FindChanged(m_Registry.get()))
@@ -1921,18 +1921,18 @@ void EditorSession::UpdateChangedPrefabs()
         const Trinity::Expected<std::size_t, std::string> l_Made = ReplacePrefabs(std::span(&l_Text, 1), nullptr);
         if (!l_Made)
         {
-            TR_ERROR("Forge: {} {} changed, and cannot be read now, so its instances stay as they are: {}", l_Model ? "model" : "prefab", l_Path, l_Made.GetError());
+            TR_ERROR("Forge: {} {} changed and cannot be read, so its instances stay as they are: {}", l_Model ? "model" : "prefab", l_Path, l_Made.GetError());
 
             continue;
         }
 
         if (l_Model)
         {
-            TR_INFO("Forge: model {} changed as it was imported, so its {} instance(s) in the scene were made again from it", l_Path, *l_Made);
+            TR_INFO("Forge: model {} was reimported, so its {} instance(s) in the scene were remade", l_Path, *l_Made);
         }
         else
         {
-            TR_INFO("Forge: prefab {} changed outside Forge, so its {} instance(s) in the scene were made again from it", l_Path, *l_Made);
+            TR_INFO("Forge: prefab {} changed outside Forge, so its {} instance(s) here were remade", l_Path, *l_Made);
         }
     }
 
@@ -1950,12 +1950,12 @@ void EditorSession::UpdateChangedPrefabs()
     }
 }
 
-// The instances are saved against the templates they were made from first, so made again each keeps what it changes, and what one changes of an entity of its prefab that went, with the entity or with its component, is logged once by name. The count is of the scene's instances holding the first prefab given, as the logs name them, though the open prefab's are made again too
+// Instances are saved against their old templates first, so each keeps what it changes
 Trinity::Expected<std::size_t, std::string> EditorSession::ReplacePrefabs(std::span<const Trinity::SceneSerializer::PrefabText> texts, const Trinity::Scene* own)
 {
     using Kind = Trinity::SceneSerializer::PrefabOverride::Kind;
 
-    // A value an instance changes, or a component it adds, of one of its prefab's entities, named as they are before
+    // A value an instance changes, or a component it adds, on one of its prefab's entities
     struct Change
     {
         Trinity::Scene* Scene = nullptr;
@@ -2031,7 +2031,7 @@ Trinity::Expected<std::size_t, std::string> EditorSession::ReplacePrefabs(std::s
     return l_Count;
 }
 
-// Each prefab instances stand in for, as the scenes' own stand-ins do or as one nested in a template kept does, that can be read now, as a model once its import is done or a prefab once its file is back, is given again with its own text, which reads every prefab holding it again and makes their instances again, and each of the scenes' own stand-ins for it is then made from the text it keeps, where it is, before it goes, so one that cannot be made stays as it was. One a template or the open prefab holds back, as it would hold itself through it, stays. Not a step of either history, as in Unity
+// A prefab that reads again replaces its stand-ins, each made from the text it kept. Not undoable
 void EditorSession::RestoreStandIns()
 {
     std::vector<Trinity::Scene*> l_Scenes{ &m_Scene };
@@ -2040,7 +2040,7 @@ void EditorSession::RestoreStandIns()
         l_Scenes.push_back(&m_Stage->Scene);
     }
 
-    // A stand-in nested in an instance has no component of its own, as its prefab's template has it, so each one seen is the scene's own. The open prefab's stand-in for a prefab holding it stays, as placing one there is refused
+    // A stand-in nested in an instance has no component of its own, so each one seen is the scene's own
     const auto a_Restores = [this](const Trinity::Scene* scene, Trinity::UUID prefab)
     {
         return scene == &m_Scene || !Trinity::Prefab::Holds(prefab, m_Stage->Prefab);
@@ -2109,7 +2109,7 @@ void EditorSession::RestoreStandIns()
                 const Trinity::Expected<Trinity::Entity, std::string> l_Instance = Trinity::SceneSerializer::LoadEntityFromText(*it_Scene, Trinity::SceneSerializer::SaveEntityToText(*it_Scene, it_StandIn), it_StandIn.GetParent(), it_StandIn);
                 if (!l_Instance)
                 {
-                    TR_ERROR("Forge: {} stands in for {}, which can be read now, but cannot be made from it: {}", GetEntityLabel(it_StandIn), GetPrefabName(it_Prefab), l_Instance.GetError());
+                    TR_ERROR("Forge: {} stands in for {}, readable now, but cannot be made from it: {}", GetEntityLabel(it_StandIn), GetPrefabName(it_Prefab), l_Instance.GetError());
 
                     continue;
                 }
@@ -2123,12 +2123,12 @@ void EditorSession::RestoreStandIns()
 
         if (l_Count != 0)
         {
-            TR_INFO("Forge: {} {} can be read now, so {} instance(s) of it in the scene were made from it", IsModel(it_Prefab) ? "model" : "prefab", GetPrefabName(it_Prefab), l_Count);
+            TR_INFO("Forge: {} {} can be read now, so {} instance(s) of it in the scene were made", IsModel(it_Prefab) ? "model" : "prefab", GetPrefabName(it_Prefab), l_Count);
         }
     }
 }
 
-// The open prefab follows its file: one gone from the project closes prefab mode, and one changed outside Forge is read again while prefab mode has nothing unsaved, keeping its history, as the scene keeps its own. With unsaved changes they are kept, so Save writes over that change
+// A prefab gone from the project closes prefab mode. One changed outside is reread if all is saved
 void EditorSession::UpdatePrefabStage()
 {
     if (!m_Stage)
@@ -2139,7 +2139,7 @@ void EditorSession::UpdatePrefabStage()
     const Trinity::AssetRecord* l_Record = m_Registry->Find(m_Stage->Prefab);
     if (l_Record == nullptr)
     {
-        TR_WARN("Forge: the prefab open in prefab mode is no longer in the project, so prefab mode closed{}", IsPrefabDirty() ? ", and its unsaved changes with it" : "");
+        TR_WARN("Forge: the open prefab is no longer in the project, so prefab mode closed{}", IsPrefabDirty() ? ", and its unsaved changes with it" : "");
         Notify("The prefab open in prefab mode is no longer in the project, so prefab mode closed");
         ClosePrefab();
 
@@ -2154,11 +2154,11 @@ void EditorSession::UpdatePrefabStage()
 
     if (IsPrefabDirty())
     {
-        TR_WARN("Forge: prefab {} changed outside Forge while prefab mode has unsaved changes, which are kept, so Save writes over that change", l_Record->Path);
+        TR_WARN("Forge: prefab {} changed outside Forge. Unsaved changes stay: Save overwrites it", l_Record->Path);
     }
     else if (const Trinity::Expected<void, std::string> l_Loaded = Trinity::SceneSerializer::LoadPrefabFromText(m_Stage->Scene, *l_Text, m_Stage->Prefab); !l_Loaded)
     {
-        TR_ERROR("Forge: prefab {} changed outside Forge, and cannot be read now, so prefab mode keeps it as it was: {}", l_Record->Path, l_Loaded.GetError());
+        TR_ERROR("Forge: prefab {} changed outside Forge and cannot be read, so it is kept: {}", l_Record->Path, l_Loaded.GetError());
     }
     else
     {
@@ -2173,7 +2173,7 @@ void EditorSession::UpdatePrefabStage()
     m_Stage->Text = std::move(*l_Text);
 }
 
-// Until every import the scans so far asked for is over, with the last report of each kind. For tests, which need the cache filled before they go on, so models are cooked before textures start here
+// For tests, which need the cache filled before they go on: models are cooked before textures start
 EditorSession::ImportReport EditorSession::WaitForImports()
 {
     ImportReport l_Report;
@@ -2214,7 +2214,7 @@ EditorSession::ImportReport EditorSession::WaitForImports()
     return l_Report;
 }
 
-// A scan while imports run imports again once they are over, since each batch has the records it started with. Models go first, and textures once the models are planned, so a texture beside a model is encoded the way the model uses it. Environments and audio clips need nothing else, so they start at once
+// Models go first, and textures once the models are planned, so each is encoded as its model needs
 void EditorSession::StartImports()
 {
     if (IsImportRunning())
@@ -2264,7 +2264,7 @@ void EditorSession::StartImports()
     m_TexturesAfterModels = true;
 }
 
-// Texture files only, since a model encodes the textures it holds itself. Textures the background reimport is busy with are left to it
+// Texture files only, since a model encodes the textures it holds. Those being reimported are left
 void EditorSession::StartTextureImports()
 {
     std::vector<Trinity::AssetRecord> l_Records;
@@ -2301,7 +2301,7 @@ void EditorSession::FinishImports(const TextureImportReport& report)
 
     if (report.Stopped != 0)
     {
-        TR_INFO("Textures: the import was stopped with {} texture(s) left, which are imported at the next refresh or when the project opens again", report.Stopped);
+        TR_INFO("Textures: the import was stopped with {} texture(s) left for the next refresh", report.Stopped);
     }
 }
 
@@ -2319,7 +2319,7 @@ void EditorSession::FinishEnvironmentImports(const EnvironmentImportReport& repo
 
     if (report.Stopped != 0)
     {
-        TR_INFO("Environments: the import was stopped with {} environment(s) left, which are imported at the next refresh or when the project opens again", report.Stopped);
+        TR_INFO("Environments: the import was stopped with {} left for the next refresh", report.Stopped);
     }
 }
 
@@ -2332,11 +2332,11 @@ void EditorSession::FinishAudioClipImports(const AudioClipImportReport& report)
 
     if (report.Stopped != 0)
     {
-        TR_INFO("Audio: the import was stopped with {} clip(s) left, which are imported at the next refresh or when the project opens again", report.Stopped);
+        TR_INFO("Audio: the import was stopped with {} clip(s) left for the next refresh", report.Stopped);
     }
 }
 
-// The engine plays the project's mixer from the frame it loads, and each version after it, as Step 8's panel saves them. With each scan the asset is looked for again, and read again, so a file restored or changed outside Forge, as by version control, is heard once Forge has the focus back. Without a project or a mixer, while one first loads, and for one that never could, Master alone
+// The engine plays the project's mixer from the frame it loads. Each scan looks for the asset again
 void EditorSession::UpdateMixer()
 {
     const Trinity::UUID l_Named = m_Project ? m_Project->GetAudioSettings().Mixer : Trinity::UUID();
@@ -2384,7 +2384,7 @@ void EditorSession::ApplyMixer(const Trinity::AudioMixerAsset* asset)
     static_cast<void>(l_Engine->GetMixer().Apply(asset != nullptr ? asset->GetData() : Trinity::AudioMixerData::MakeDefault()));
 }
 
-// Each Play starts, and Stop leaves Forge, at the start snapshot with nothing set from code, as Unity's mixer is when Play mode starts and ends, and with the sound events' global parameters back at their defaults. The Audio Mixer panel's snapshot is let go, and held again from the next frame while it is to be
+// Each Play starts, and Stop ends, at the start snapshot with nothing set from code, as in Unity
 void EditorSession::ResetMixer()
 {
     if (Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine(); l_Engine != nullptr)
@@ -2395,7 +2395,7 @@ void EditorSession::ResetMixer()
     }
 }
 
-// The Audio Mixer panel's snapshot is heard while no scene plays, and while one does with Edit in Play Mode on, when it is one of the project mixer's, which the engine's mixer looks to
+// The panel's snapshot is heard while no scene plays, or while one does with Edit in Play Mode on
 void EditorSession::HoldMixer()
 {
     if (Trinity::AudioEngine* l_Engine = Trinity::Application::Get().GetAudioEngine(); l_Engine != nullptr)
@@ -2416,12 +2416,12 @@ void EditorSession::FinishModelImports(const ModelImportReport& report)
     ++m_ModelImportCount;
     if (report.Imported != 0 || report.Failed != 0 || report.Stopped != 0)
     {
-        TR_INFO("Models: {} in the project, {} imported, {} from the cache, {} failed, with {} embedded texture(s) encoded and {} from the cache", report.Models, report.Imported, report.Cached, report.Failed, report.TexturesEncoded, report.TexturesCached);
+        TR_INFO("Models: {} in project, {} imported, {} cached, {} failed; {} textures, {} cached", report.Models, report.Imported, report.Cached, report.Failed, report.TexturesEncoded, report.TexturesCached);
     }
 
     if (report.Stopped != 0)
     {
-        TR_INFO("Models: the import was stopped with {} model(s) left, which are imported at the next refresh or when the project opens again", report.Stopped);
+        TR_INFO("Models: the import was stopped with {} model(s) left for the next refresh", report.Stopped);
     }
 }
 
@@ -2516,7 +2516,7 @@ std::string EditorSession::FormatAge(std::chrono::system_clock::time_point time)
     return l_Seconds < 86400 ? a_Count(l_Seconds / 3600, "hour") : a_Count(l_Seconds / 86400, "day");
 }
 
-// The ten opened lately, newest first, from Hub's list, which every Forge adds to and Hub's Projects page shows whole. Those Hub listed and no Forge has opened since are not recent, and are left to Hub
+// The ten opened lately, newest first, from Hub's list. Those no Forge has opened are left to Hub
 void EditorSession::ReadRecentProjects()
 {
     m_RecentProjects.clear();
@@ -2542,7 +2542,7 @@ void EditorSession::ReadRecentProjects()
     }
 }
 
-// A line a project of the file Forge kept before Hub's list: when it was opened, in seconds since 1970, its name and its file, apart by tabs. Each goes into Hub's list unless it is there and opened since, and the file goes once they are in, so this happens once
+// Forge's list from before Hub's: seconds since 1970, name and file, apart by tabs. Moved over once
 void EditorSession::TakeOverRecentProjects()
 {
     const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(c_RecentProjectsPath);
@@ -2591,7 +2591,7 @@ void EditorSession::TakeOverRecentProjects()
 
     if (const Trinity::Expected<void, Trinity::FileError> l_Removed = Trinity::FileSystem::RemoveFile(c_RecentProjectsPath); !l_Removed)
     {
-        TR_WARN("Forge: {} could not be deleted once its projects were in the projects list, so they are added again as Forge next starts, which changes nothing: {}", c_RecentProjectsPath, Trinity::ToString(l_Removed.GetError()));
+        TR_WARN("Forge: {} could not be deleted, so its projects are listed again next start: {}", c_RecentProjectsPath, Trinity::ToString(l_Removed.GetError()));
     }
 
     TR_INFO("Forge: moved {} project(s) from {} into the projects list, {}", l_Kept.size(), c_RecentProjectsPath, ToUtf8(m_ProjectListFile));
@@ -2613,7 +2613,7 @@ void EditorSession::RememberProject()
     }
 }
 
-// A line a scene, newest first: its UUID and the path it had, apart by a tab, in the project's Cache, per user as Unity keeps its recent scenes
+// A line a scene, newest first: its UUID and the path it had, apart by a tab, in the project Cache
 void EditorSession::ReadRecentScenes()
 {
     m_RecentScenes.clear();
@@ -2708,7 +2708,7 @@ void EditorSession::SetAudioDevice(std::string_view name)
     }
 }
 
-// A line a setting, name=value, and lines starting with # left for people. One that cannot be read keeps its default, and one Forge does not know is left out. A kept console variable the command line sets keeps the command line's value, and the file's is held to be written back
+// A line a setting, name=value. # lines are for people. A bad value keeps its default
 void EditorSession::ReadPreferences(const Trinity::ApplicationCommandLineArgs& args)
 {
     for (const std::string_view it_Assignment : args.GetAllOptions("set"))
@@ -2816,7 +2816,7 @@ void EditorSession::WritePreferences()
     m_HasPreferencesFile = true;
 }
 
-// A debugger attached already plays at once, and a Play asked for while one is awaited changes nothing. A build running or about to is waited for first, and a Play asked for while waiting stops the wait. Refused in prefab mode, which has no scene to play
+// A build is waited for first, and Play again stops the wait. Refused in prefab mode
 void EditorSession::RequestPlay()
 {
     m_Pending.push_back([this]
@@ -2860,7 +2860,7 @@ void EditorSession::RequestPlay()
     });
 }
 
-// Once no build is running. Refused while a build has failed, as Unity refuses to play with compile errors, since the scripts would run as they were before the change. Then a debugger first, when Play is to wait for one
+// Refused while a build has failed, as Unity refuses with compile errors. Then the debugger wait
 void EditorSession::BeginPlay()
 {
     if (m_Play || !m_Project || m_Stage)
@@ -2870,7 +2870,7 @@ void EditorSession::BeginPlay()
 
     if (const std::string l_Failed = GetFailedBuilds(); !l_Failed.empty())
     {
-        TR_ERROR("Forge: {} failed to build, and every build error has to be fixed before the scene can play. The build indicator in the menu bar shows them", l_Failed);
+        TR_ERROR("Forge: {} failed to build. Fix every build error before the scene can play", l_Failed);
         Notify("All build errors have to be fixed before you can enter Play mode");
 
         return;
@@ -2984,7 +2984,7 @@ void EditorSession::RequestStop()
     m_Pending.push_back([this] { StopPlay(); });
 }
 
-// After the session's own work, before the transform pass the frame draws with. A paused scene takes only the step asked for, and its sounds hold where they are, so a Step plays none. A selection the scene switched to does not have is let go
+// A paused scene takes only the step asked for. A selection the new scene lacks is let go
 void EditorSession::UpdatePlay(Trinity::Timestep timestep)
 {
     m_Audition.Update(Trinity::Application::Get().GetAudioEngine(), timestep);
@@ -3013,7 +3013,7 @@ void EditorSession::UpdatePlay(Trinity::Timestep timestep)
     }
 }
 
-// The copy is the edited scene saved to the binary form a cooked game loads and read into a scene of its own, so it keeps every UUID and the selection carries over, with its instances still instances of their prefabs. A scene the serializer cannot read back is not played. Its PlayerPrefs are the project's
+// The copy is the scene saved to the binary a cooked game loads and read back, keeping every UUID
 void EditorSession::StartPlay()
 {
     if (m_Play || !m_Project || m_Stage)
@@ -3037,7 +3037,7 @@ void EditorSession::StartPlay()
     }
 
     const double l_Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - l_Start).count();
-    // As Unity backs up the open scene as Play starts, since a crash while playing is the likeliest way to lose what was not saved. Only a scene with unsaved changes is written as text for it
+    // As Unity backs up the open scene as Play starts, since a crash while playing is the likely loss
     if (IsDirty())
     {
         WriteBackup(Trinity::SceneSerializer::SaveToText(m_Scene));
@@ -3048,7 +3048,7 @@ void EditorSession::StartPlay()
     m_Paused = false;
     m_StepRequested = false;
     const std::size_t l_Entities = l_Copy->GetEntityCount();
-    // The scene's sounds play on Forge's own output, through the project's mixer, which the engine already plays, from its start snapshot, with the project's voice limits, Doppler factor and occlusion
+    // Through the project's mixer from its start snapshot, with the project's own audio settings
     m_EditMixerInPlay = false;
     ResetMixer();
     Trinity::PlayerPrefs::SetPath(c_PlayerPrefsPath);
@@ -3057,7 +3057,7 @@ void EditorSession::StartPlay()
     TR_INFO("Forge: playing {}, {} entities copied in {:.1f} ms", GetSceneName(), l_Entities, l_Milliseconds);
 }
 
-// An IDE sets its breakpoints as it attaches, and one that debugs native and managed code at once attaches each in turn, so with only one seen the scene plays a moment later, and with both at once
+// A mixed-mode debugger attaches each half in turn, so with one seen the scene plays a moment later
 void EditorSession::UpdateDebuggerWait()
 {
     if (!m_DebuggerWait)
@@ -3088,7 +3088,7 @@ void EditorSession::UpdateDebuggerWait()
     }
 }
 
-// The runtime goes before the scene it runs, and whichever scene plays goes, the copy or one a script switched to, then the PlayerPrefs it set are saved and let go. The selection is kept when its entity is in the edited scene
+// The runtime goes before the scene it runs. Then the PlayerPrefs it set are saved and let go
 void EditorSession::StopPlay()
 {
     m_DebuggerWait.reset();
@@ -3112,7 +3112,7 @@ void EditorSession::StopPlay()
     TR_INFO("Forge: stopped playing {}, which is as it was", GetSceneName());
 }
 
-// The scene's text under two lines naming the scene it was opened from and when, which the scene's reader takes for comments
+// Under two lines naming the scene it was opened from and when, which the reader takes for comments
 void EditorSession::WriteBackup(std::string_view sceneText)
 {
     const std::int64_t l_Seconds = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -3179,7 +3179,7 @@ std::optional<EditorSession::Recovery> EditorSession::ReadBackup() const
     return l_Recovery;
 }
 
-// The backup's scene as the open scene, unsaved, with the path it was opened from while that is still a scene, so Save writes it there. Its file stays until the scene is saved or discarded, so a second crash still leaves it
+// Opened unsaved, with its old path if still a scene. Its file stays until saved or discarded
 void EditorSession::RestoreBackup()
 {
     std::optional<Recovery> l_Recovery = std::exchange(m_Recovery, std::nullopt);
@@ -3204,11 +3204,11 @@ void EditorSession::RestoreBackup()
     m_History.Clear();
     m_History.MarkUnsaved();
     m_HasBackup = true;
-    TR_INFO("Forge: restored {} from its backup, with the changes that were not saved. Saving keeps them", GetSceneName());
+    TR_INFO("Forge: restored {} from its backup, with its unsaved changes. Saving keeps them", GetSceneName());
     ReportMissingReferences();
 }
 
-// Named New Folder, or New Folder 1 and on when that is taken. An empty folder has no assets, so the registry need not scan
+// Named New Folder, or New Folder 1 and on. An empty folder has no assets, so no scan is needed
 std::optional<std::string> EditorSession::CreateFolder(std::string_view parent)
 {
     if (!m_Project)
@@ -3230,7 +3230,7 @@ std::optional<std::string> EditorSession::CreateFolder(std::string_view parent)
     return l_Path;
 }
 
-// Renames, or moves into another folder, or both. A file takes its .meta along, so it keeps its UUID and everything naming it still finds it
+// Renames, or moves into another folder, or both. A file takes its .meta along, so keeps its UUID
 bool EditorSession::MoveAsset(std::string_view path, std::string_view folder, std::string_view name)
 {
     if (!m_Project || !m_Registry)
@@ -3299,7 +3299,7 @@ bool EditorSession::MoveAsset(std::string_view path, std::string_view folder, st
     return true;
 }
 
-// For good, with its .meta and everything cooked from it in Cache, a model's sub-assets included. Assets still in use read as failed, so sprites using a deleted texture draw white. The open scene stays
+// For good, with its .meta and everything cooked from it. Assets still in use then read as failed
 bool EditorSession::DeleteAsset(std::string_view path)
 {
     if (!m_Project || !m_Registry)
@@ -3421,7 +3421,7 @@ std::optional<std::string> EditorSession::CreateScript(std::string_view folder, 
 
     if (!IsClassName(className))
     {
-        TR_ERROR("Forge: \"{}\" cannot name a class, which takes letters, digits and _ and does not start with a digit", className);
+        TR_ERROR("Forge: \"{}\" cannot name a class: use letters, digits and _, not a digit first", className);
 
         return std::nullopt;
     }
@@ -3486,7 +3486,7 @@ std::optional<std::string> EditorSession::CreateScene(std::string_view folder)
     return l_Path;
 }
 
-// Files are copied without their .meta, since the registry would let whichever path sorts first keep the UUID, and "Name 1" sorts before "Name". The first scan gives the copies UUIDs of their own, their originals' settings follow, and only then does the second scan import them, so each cooks once and as its original does
+// Copied without their .meta. The first scan gives them UUIDs, settings follow, the second imports
 std::optional<std::string> EditorSession::DuplicateAsset(std::string_view path)
 {
     if (!m_Project || !m_Registry)
@@ -3597,7 +3597,7 @@ std::optional<std::string> EditorSession::CreateInputActions(std::string_view fo
     return l_Path;
 }
 
-// As Set as Default Input Actions does. The mix follows it from the next frame, a scene playing included, since the engine plays one mixer for everything
+// As Set as Default Input Actions does. The mix follows from the next frame, even while playing
 void EditorSession::SetProjectMixer(Trinity::UUID asset)
 {
     const Trinity::AssetRecord* l_Record = m_Project ? m_Registry->Find(asset) : nullptr;
@@ -3677,7 +3677,7 @@ const EditorSession::AudioMixerFile* EditorSession::ReadAudioMixer(Trinity::UUID
     return &l_File;
 }
 
-// What is kept and played is the data as the file reads back, which is what the asset loads from it, so the mix is left as it is when the asset arrives. The project's mixer takes it now, since the asset loads a frame or more later, and a fader's drag is heard as it moves
+// Kept as the file reads back. The project's mixer takes it now, as the asset loads a frame later
 bool EditorSession::SaveAudioMixer(Trinity::UUID asset, const Trinity::AudioMixerData& data)
 {
     const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(asset) : nullptr;
@@ -3981,7 +3981,7 @@ bool EditorSession::EditInputActions(Trinity::UUID asset, const Trinity::InputAc
     return GetHistory().Execute(Trinity::CreateScope<SetInputActionsCommand>([this](Trinity::UUID id, const Trinity::InputActionsData& data) { return SaveInputActions(id, data); }, asset, before, after, std::move(field), l_Label));
 }
 
-// Only the default asset's actions are what the fields name, as Play reads that one. In prefab mode the fields are the open prefab's, whose history takes the rename
+// Only the default asset's actions are what fields name. In prefab mode they are the open prefab's
 bool EditorSession::RenameInputActions(Trinity::UUID asset, const Trinity::InputActionsData& before, const Trinity::InputActionsData& after, std::string_view what)
 {
     const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(asset) : nullptr;
@@ -4045,7 +4045,7 @@ void EditorSession::ImportAsset(const std::filesystem::path& file, const std::st
     ScanAssets();
 }
 
-// Refused while imports run, since a batch writes the keys of what it cooks as it ends and would undo the reimport
+// Refused while imports run, since a batch writes its keys as it ends and would undo the reimport
 bool EditorSession::ReimportAssets(std::string_view path)
 {
     if (!m_Registry)
@@ -4055,7 +4055,7 @@ bool EditorSession::ReimportAssets(std::string_view path)
 
     if (IsImportingAssets())
     {
-        TR_WARN("Forge: {} was not reimported, since assets are importing. Reimport it once they are done", path);
+        TR_WARN("Forge: {} was not reimported, since assets are importing. Retry once done", path);
 
         return false;
     }
@@ -4076,7 +4076,7 @@ bool EditorSession::ReimportAssets(std::string_view path)
     return true;
 }
 
-// A project path names one of its mounts, and any other path not rooted is where build output puts it, relative to the project's folder
+// A project path names one of its mounts. Any other path not rooted is from the project's folder
 bool EditorSession::OpenScript(std::string_view path, std::uint32_t line)
 {
     if (!m_Project)
@@ -4164,7 +4164,7 @@ bool EditorSession::OpenModuleFolder()
     return IdeLauncher::OpenWorkspace(m_Preferences.Editor, m_Project->GetSourceDirectory());
 }
 
-// Rider and Visual Studio debug with the solution open, and VS Code opens the folder of whichever it is, where Forge wrote its launch.json
+// Rider and Visual Studio debug with the solution open. VS Code opens the folder with launch.json
 bool EditorSession::AttachDebugger()
 {
     if (!m_Project)
@@ -4241,7 +4241,7 @@ bool EditorSession::WriteMaterial(Trinity::UUID material, const Trinity::Materia
         const Trinity::AssetRecord* l_Model = m_Registry->Find(l_Record->Parent);
         if (!l_Key || !l_Imported || l_Model == nullptr)
         {
-            TR_ERROR("Forge: {} has no imported version to compare an edit with, so it can be edited once its model is imported again", l_Record->Path);
+            TR_ERROR("Forge: {} has no imported version to compare with. Reimport its model to edit it", l_Record->Path);
 
             return false;
         }
@@ -4281,7 +4281,7 @@ bool EditorSession::EditMaterial(Trinity::UUID material, const Trinity::Material
     return GetHistory().Execute(Trinity::CreateScope<SetMaterialCommand>([this](Trinity::UUID id, const Trinity::MaterialData& data) { return WriteMaterial(id, data); }, material, before, after, std::move(field), l_Name));
 }
 
-// Into the .meta at once, and then encoded in the background. Sprites keep the old texture until the new one has loaded
+// Into the .meta at once, then encoded in the background. Sprites keep the old texture meanwhile
 bool EditorSession::ApplyImportSettings(Trinity::UUID id, Trinity::AssetSettings settings)
 {
     if (!m_Registry || !m_Registry->SetSettings(id, std::move(settings)))
@@ -4291,7 +4291,7 @@ bool EditorSession::ApplyImportSettings(Trinity::UUID id, Trinity::AssetSettings
 
     const Trinity::AssetRecord* l_Record = m_Registry->Find(id);
     TR_INFO("Forge: reimporting {} with its new settings", l_Record->Path);
-    // Their cache keys hold their settings, so the model or the clip imports again while every other stays cached. A clip loaded somewhere is loaded again once its import ends, and its next play takes the new settings
+    // Their cache keys hold their settings, so only the model or the clip imports again
     if (l_Record->Importer == ModelImporter::c_Importer || l_Record->Importer == AudioClipImporter::c_Importer)
     {
         StartImports();
@@ -4304,7 +4304,7 @@ bool EditorSession::ApplyImportSettings(Trinity::UUID id, Trinity::AssetSettings
     return true;
 }
 
-// Written under the local IDs a new instance UUID tells back from the subtree's UUIDs, so linking the entity changes none of them, and what it names outside the subtree stays the instance's own. An original made from an instance is written from a copy unpacked until its root is no instance's, so its own entities are the prefab's, and once linked only its root is an instance's, everything else nested in the prefab
+// Written under local IDs a new instance UUID maps back, so linking the entity changes no UUID
 std::optional<std::string> EditorSession::CreatePrefab(Trinity::UUID entity, std::string_view folder, PrefabKind kind)
 {
     Trinity::Scene& l_Scene = GetEditedScene();
@@ -4406,7 +4406,7 @@ std::optional<std::string> EditorSession::CreatePrefab(Trinity::UUID entity, std
     return l_Path;
 }
 
-// Made from an instance of the prefab in a scene of its own, saved as the root of a new prefab's first instance, which nests it as that prefab's root
+// Made from an instance of the prefab in a scene of its own, saved as the root of a new prefab
 std::optional<std::string> EditorSession::CreatePrefabVariant(Trinity::UUID prefab)
 {
     const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(prefab) : nullptr;
@@ -4494,7 +4494,7 @@ std::optional<std::string> EditorSession::CreateEmptyPrefab(std::string_view fol
     return l_Path;
 }
 
-// In prefab mode no parent is the open prefab's root, as anything made there goes, and a position given in the world becomes the root's own. A model still importing, or one whose import failed, has no prefab yet
+// In prefab mode no parent is the open prefab's root. A model still importing has no prefab yet
 bool EditorSession::InstantiatePrefab(Trinity::UUID prefab, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position)
 {
     const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(prefab) : nullptr;
@@ -4534,7 +4534,7 @@ bool EditorSession::RevertPrefabOverrides(Trinity::UUID root, std::vector<Trinit
     return m_History.Execute(Trinity::CreateScope<RevertPrefabCommand>(root, std::move(overrides), subject, std::format("Revert {}", what)));
 }
 
-// Each level's prefab down to the one applied to gives its text before, which undo writes back for those the apply writes
+// Each level's prefab down to the one applied to gives its text before, which undo writes back
 bool EditorSession::ApplyPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject, std::size_t level)
 {
     UpdateChangedPrefabs();
@@ -4596,7 +4596,7 @@ bool EditorSession::ApplyPrefabOverrides(Trinity::UUID root, std::vector<Trinity
     return GetHistory().Execute(Trinity::CreateScope<ApplyPrefabCommand>([this](std::span<const Trinity::SceneSerializer::PrefabText> texts, const Trinity::Scene& own) { return WritePrefabs(texts, &own).has_value(); }, root, std::move(overrides), level, std::move(l_Old), subject, l_Label));
 }
 
-// The files first, so a prefab that cannot be written keeps its template, with those written before it written back, and then the templates and their instances, from the same texts. The count of the scene's instances made again, or nothing, logged
+// Files first, so a prefab that cannot be written keeps its template. Then templates and instances
 std::optional<std::size_t> EditorSession::WritePrefabs(std::span<const Trinity::SceneSerializer::PrefabText> texts, const Trinity::Scene* own)
 {
     for (std::size_t it_Index = 0; it_Index < texts.size(); ++it_Index)
@@ -4637,7 +4637,7 @@ std::optional<std::size_t> EditorSession::WritePrefabs(std::span<const Trinity::
     const Trinity::Expected<std::size_t, std::string> l_Made = ReplacePrefabs(texts, own);
     if (!l_Made)
     {
-        TR_ERROR("Forge: prefab {} was written, but does not read back, so its instances keep the prefab they were made from: {}", GetPrefabName(texts.front().Prefab), l_Made.GetError());
+        TR_ERROR("Forge: prefab {} was written but does not read back. Instances keep the old: {}", GetPrefabName(texts.front().Prefab), l_Made.GetError());
 
         return std::nullopt;
     }
@@ -4645,7 +4645,7 @@ std::optional<std::size_t> EditorSession::WritePrefabs(std::span<const Trinity::
     return *l_Made;
 }
 
-// One level gives the root no link, or its base's for a variant, and each instance nested in its prefab its own, and completely every instance in the subtree gives up its link, as the scene's instances nested in others have none
+// One level unlinks the root and gives each nested instance its own link. Completely unlinks all
 bool EditorSession::UnpackPrefab(Trinity::UUID root, bool completely)
 {
     Trinity::Scene& l_Scene = GetEditedScene();
@@ -4705,7 +4705,7 @@ bool EditorSession::UnpackPrefab(Trinity::UUID root, bool completely)
     return GetHistory().Execute(Trinity::CreateScope<LinkPrefabCommand>(std::move(l_Links), root, std::format("Unpack prefab {}{}", GetEntityLabel(l_Root), completely ? " completely" : "")));
 }
 
-// Through the templates unpacking reaches: the instance's prefab's, and completely those of every prefab nested in it and of each instance in the subtree
+// Through the templates unpacking reaches: the instance's prefab's, and completely every nested one
 std::optional<std::string> EditorSession::FindUnpackProblem(Trinity::Entity root, bool completely)
 {
     Trinity::Scene& l_Scene = *root.GetScene();
@@ -4751,7 +4751,7 @@ std::optional<std::string> EditorSession::FindUnpackProblem(Trinity::Entity root
     return std::nullopt;
 }
 
-// From its file as it is now, with its root selected. The scene's instances take a change made to the file outside Forge first, so they are what prefab mode opens
+// From its file as it is now, with its root selected. An outside change reaches the scene first
 void EditorSession::OpenPrefab(Trinity::UUID prefab)
 {
     const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(prefab) : nullptr;
@@ -4797,7 +4797,7 @@ void EditorSession::ClosePrefab()
     m_Stage.reset();
 }
 
-// Saved as the template it now is, and each instance of it in the scene made again from it, keeping what it changes, as when the file changes outside Forge, with the prefabs holding it and their instances. A step of neither history. The instances are saved against the template they were made from, even after a change outside Forge not yet scanned, which Save writes over, so what they change stays theirs
+// Saved as the template it now is, and each instance of it made again from it. No history step
 bool EditorSession::SavePrefab()
 {
     if (!m_Stage)
@@ -4841,7 +4841,7 @@ std::string EditorSession::GetOpenPrefabName() const
     return l_Record != nullptr ? ToUtf8(FromUtf8(l_Record->Path).stem()) : std::string();
 }
 
-// What the Hierarchy moves among an instance's entities goes after the prefab's own children there, so it stays where a reload puts it
+// What the Hierarchy moves among an instance's entities goes after the prefab's own children there
 bool EditorSession::MoveEntity(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before)
 {
     if (IsPrefabRoot(entity))
@@ -4911,7 +4911,7 @@ bool EditorSession::CanTakeChildren(Trinity::UUID parent)
     return !l_Problem;
 }
 
-// In prefab mode no parent means last under the prefab's root, since a prefab holds one entity and its subtree
+// In prefab mode no parent means last under the prefab's root, since a prefab holds one entity
 EditorSession::Place EditorSession::FindPlace(Trinity::UUID parent, Trinity::UUID before)
 {
     const Trinity::Entity l_Root = m_Stage && !parent ? m_Stage->Scene.GetFirstRoot() : Trinity::Entity();
@@ -4936,7 +4936,7 @@ bool EditorSession::IsPrefabRoot(Trinity::UUID entity)
     return l_Root && l_Root.GetUUID() == entity;
 }
 
-// In prefab mode, with a notice, for the open prefab or one holding it, an instance of which there would make it hold itself
+// In prefab mode, with a notice, for the open prefab or one holding it, which would hold itself
 bool EditorSession::RefuseHoldingPrefab(Trinity::UUID prefab)
 {
     if (!m_Stage || !Trinity::Prefab::Holds(prefab, m_Stage->Prefab))
@@ -4991,7 +4991,7 @@ bool EditorSession::CreateAudioSource(std::string name, Trinity::UUID resource, 
     const Trinity::AssetRecord* l_Record = m_Registry ? m_Registry->Find(resource) : nullptr;
     if (l_Record == nullptr || (l_Record->Importer != Trinity::AudioClipAsset::c_AssetType && l_Record->Importer != Trinity::SoundEventAsset::c_AssetType))
     {
-        TR_WARN("Forge: only an audio clip or a sound event dropped into the scene makes an AudioSource");
+        TR_WARN("Forge: only an audio clip or a sound event dropped in makes an AudioSource");
 
         return false;
     }
@@ -5037,7 +5037,7 @@ bool EditorSession::AddScript(Trinity::UUID entity, std::string_view path)
 
     if (a_Class == l_Classes.end())
     {
-        TR_WARN("Forge: {} cannot be added, since no loaded code has a {} class named {}. A script's class is named after its file, and is there once its build loads it", path, GetScriptLanguageLabel(l_Language), l_Name);
+        TR_WARN("Forge: {} cannot be added, since no loaded code has a {} class named {}", path, GetScriptLanguageLabel(l_Language), l_Name);
 
         return false;
     }
@@ -5110,7 +5110,7 @@ bool EditorSession::PasteEntityAsChild(Trinity::UUID parent)
     return m_CopiedEntity && GetEditedScene().FindEntityByUUID(parent) && PasteEntityAt(parent, {});
 }
 
-// Under the parent it was copied from, it keeps its transform, as Duplicate does, and under another it keeps its place in the world, as moving it there in the Hierarchy does. Among an instance's entities it goes after the prefab's own children there. An instance copied while its prefab was there would be pasted as plain entities once the prefab is gone, so it waits for the prefab
+// Under its old parent it keeps its transform, as Duplicate does. Elsewhere, its place in the world
 bool EditorSession::PasteEntityAt(Trinity::UUID parent, Trinity::UUID before)
 {
     const Place l_Place = FindPlace(parent, before);
@@ -5226,7 +5226,7 @@ void EditorSession::NewScene()
     m_History.Clear();
 }
 
-// On an error the scene is left as it was, with the prefabs it was made from. Otherwise each prefab is read again as the new scene asks for it, so one changed or deleted since the last scene opened is as its file is now
+// On an error the scene is left as it was. Otherwise each prefab is read again as the scene asks
 void EditorSession::OpenScene(const std::string& assetPath)
 {
     PrefabTemplateCache l_Prefabs = std::exchange(m_Prefabs, {});
@@ -5247,7 +5247,7 @@ void EditorSession::OpenScene(const std::string& assetPath)
     ReportMissingReferences();
 }
 
-// One warning listing every slot of the open scene that names an asset the project no longer has, or an entity the scene no longer has, as Properties shows each as Missing. The Console shows its first line, and the rest under the list once it is selected
+// One warning listing every missing asset or entity the scene names, as Properties shows as Missing
 void EditorSession::ReportMissingReferences()
 {
     if (!m_Registry)
@@ -5406,7 +5406,7 @@ void EditorSession::DrawUnsavedPopup()
     ImGui::EndPopup();
 }
 
-// Save, then close prefab mode and go on, which Don't Save does at once. Cancel, Escape or closing the popup stays in prefab mode, as does a Save that fails
+// Save, then close prefab mode and go on. Don't Save goes on at once. Cancel or a failed Save stays
 void EditorSession::DrawUnsavedPrefabPopup()
 {
     if (std::exchange(m_OpenPrefabPopup, false))
@@ -5524,7 +5524,7 @@ void EditorSession::DrawPathPopup()
     ImGui::EndPopup();
 }
 
-// Over everything while the batch runs, so nothing edits or opens a texture still being imported. The import itself runs in the background, so Forge keeps drawing. It waits for any other popup to close, since opening it would close that one, and comes back once a popup that took its place has closed. Cancel lets the texture being encoded finish
+// Over everything while the batch runs. It waits for any other popup to close, then comes back
 void EditorSession::DrawImportPopup()
 {
     const bool l_Running = m_Imports.IsRunning();
@@ -5599,7 +5599,7 @@ void EditorSession::DrawImportPopup()
     ImGui::EndPopup();
 }
 
-// Over everything while Play waits for a debugger, with what is attached so far. Attach starts the script editor's debugger, Play Now plays without one, and Cancel or Escape plays nothing. It closes by itself once the scene plays
+// Attach starts the script editor's debugger, Play Now plays without one, Cancel plays nothing
 void EditorSession::DrawDebuggerPopup()
 {
     if (std::exchange(m_OpenDebuggerPopup, false))
@@ -5689,7 +5689,7 @@ void EditorSession::DrawDebuggerPopup()
     ImGui::EndPopup();
 }
 
-// Forge did not close as it should and left a backup of a scene with unsaved changes. Restore and Discard settle it, and closing the popup leaves the backup to be asked about when the project opens again
+// Forge left a backup of unsaved changes. Closing the popup leaves it to be asked about next time
 void EditorSession::DrawRecoveryPopup()
 {
     if (std::exchange(m_OpenRecoveryPopup, false))
@@ -5744,7 +5744,7 @@ void EditorSession::DrawRecoveryPopup()
     ImGui::EndPopup();
 }
 
-// Picked once, as the project is made or first opened in one language, and never changed, as the popup says. Cancel makes or opens nothing
+// Picked once, as the project is made or first opened, and never changed. Cancel does nothing
 void EditorSession::DrawLanguagePopup()
 {
     if (std::exchange(m_OpenLanguagePopup, false))
@@ -5828,7 +5828,7 @@ void EditorSession::DrawLanguagePopup()
     ImGui::EndPopup();
 }
 
-// As Unity asks before opening a project of an older editor: what moving it does, and the language it keeps when it has both or neither, which must be picked before it moves. Cancel leaves every file of it as it is
+// As Unity asks before opening an older project. Cancel leaves every file of it as it is
 void EditorSession::DrawUpgradePopup()
 {
     if (std::exchange(m_OpenUpgradePopup, false))

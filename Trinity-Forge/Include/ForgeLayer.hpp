@@ -90,19 +90,19 @@ private:
     SoundEventPanel* m_SoundEventPanel = nullptr;
     ConsolePanel* m_Console = nullptr;
     std::string m_AboutTitle;
-    // The status bar's line, the last logged at Info or above, copied from the history only when a newer one arrives
+    // The last line logged at Info or above, copied from the history only when a newer one arrives
     std::string m_StatusText;
     Trinity::LogLevel m_StatusLevel = Trinity::LogLevel::Info;
     std::uint64_t m_StatusSequence = 0;
     // The sequence after the last line Error Pause looked at
     std::uint64_t m_ErrorScanSequence = 0;
-    // Whether the export's popup was opened, so one that another popup closed opens again once that one has
+    // Whether the export's popup was opened, so one another popup closed opens again
     bool m_ExportPopupOpen = false;
     bool m_ShowDemoWindow = false;
     bool m_ShowAbout = false;
     bool m_ResetLayout = false;
     bool m_DockedNewPanels = false;
-    // Whether a copy played last frame, so the Game panel comes to the front as one starts and the Scene panel as it stops
+    // Whether a copy played last frame, so the Game panel comes forward at Play and the Scene at Stop
     bool m_WasPlaying = false;
     int m_TintedColors = 0;
 };

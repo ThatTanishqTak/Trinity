@@ -5,7 +5,7 @@
 
 namespace
 {
-    // In front of the listener by less than any event's nearest distance, so the event is heard at its full volume, from ahead
+    // In front of the listener by less than any event's nearest distance, so it is heard at full volume
     constexpr glm::vec3 c_AuditionPoint{ 0.0f, 0.0f, -0.01f };
 }
 
@@ -30,7 +30,7 @@ void SoundEventAudition::Stop(float fadeSeconds)
     }
 }
 
-// The scene goes before the engine it plays on is let go, and its sound with it. A play asked for starts with every value given to its parameters, a global one's already the engine's
+// The scene goes before the engine it plays on is let go. A play starts with every value given
 void SoundEventAudition::Update(Trinity::AudioEngine* engine, Trinity::Timestep timestep)
 {
     if (engine != m_Engine)

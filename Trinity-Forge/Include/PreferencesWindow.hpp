@@ -8,7 +8,7 @@
 #include <vector>
 
 
-// Edit > Preferences..., Forge's settings for the person using it, as Unity's Preferences window shows them: its sections listed down the left under a search that filters them by their settings' names, and the chosen section's settings on the right. Each applies as it changes and is saved with the preferences, and a section's Reset to Defaults puts it back as Forge first had it
+// As Unity's Preferences: sections on the left under a search, settings on the right, applied live
 class PreferencesWindow
 {
 public:

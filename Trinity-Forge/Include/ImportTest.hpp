@@ -69,7 +69,7 @@ private:
     void BeginStandalone();
     void FinishStandalone();
     void FinishMaterials(bool passed);
-    // The materials' records as the table should hold them, compared with the table's own copy and, when just read back, the GPU's. Empty when all match
+    // The materials' records as they should be, against the table's copy and the GPU's. Empty if equal
     [[nodiscard]] std::string CheckRecords(std::span<const Trinity::UUID> materials, bool readBack) const;
     [[nodiscard]] bool AreTexturesReady(const Trinity::MaterialData& material) const;
 
@@ -108,7 +108,7 @@ private:
     Trinity::MaterialData m_StandaloneData;
     bool m_MaterialsPassed = true;
 
-    // MetalRoughSpheres among 1,024 point and spot lights, seen through a perspective camera and drawn offscreen by clusters and by every light, and its meshes scattered at random for the culling check
+    // MetalRoughSpheres among 1,024 point and spot lights, drawn offscreen by clusters and every light
     std::unique_ptr<Trinity::Scene> m_RenderScene;
     std::unique_ptr<Trinity::Scene> m_CullScene;
     Trinity::RenderView m_RenderView;
@@ -126,7 +126,7 @@ private:
     bool m_RenderAdded = false;
     bool m_ClustersBuilt = false;
 
-    // The material table copied into a readback buffer by a pass of the frame after one is asked for, and read once that frame has finished
+    // Copied into a readback buffer by a pass of the frame after one is asked for, then read
     Trinity::RHI::BufferHandle m_TableReadback;
     std::uint64_t m_TableReadbackSize = 0;
     bool m_ReadbackWanted = false;

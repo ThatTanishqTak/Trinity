@@ -229,7 +229,7 @@ namespace ProjectMigration
         return {};
     }
 
-    // Read from the files through the project's mounts, and written back through them only where the text differs, so a file this version writes the same keeps its time and is not imported again
+    // Written back only where the text differs, so an unchanged file keeps its time and its imports
     Report SaveAgain(Trinity::AssetRegistry& registry)
     {
         Report l_Report;

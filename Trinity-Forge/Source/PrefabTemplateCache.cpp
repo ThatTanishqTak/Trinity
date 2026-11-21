@@ -5,7 +5,7 @@
 #include <string>
 #include <utility>
 
-// A model is read once its import has cooked its hierarchy. What would not read is kept, so the file is found changed only once it holds something else
+// A model is read once its import has cooked its hierarchy. A bad text is kept until it changes
 Trinity::Scene* PrefabTemplateCache::Find(Trinity::UUID prefab, const Trinity::AssetRegistry* registry)
 {
     if (const auto a_Template = m_Templates.find(prefab); a_Template != m_Templates.end())
@@ -25,7 +25,7 @@ Trinity::Scene* PrefabTemplateCache::Find(Trinity::UUID prefab, const Trinity::A
     const Trinity::Expected<void, std::string> l_Loaded = l_Text ? Trinity::SceneSerializer::LoadPrefabFromText(*l_Entry.Template, *l_Text, prefab) : Trinity::Expected<void, std::string>(Trinity::Unexpected{ l_Text.GetError() });
     if (!l_Loaded)
     {
-        TR_ERROR("Forge: {} {} cannot be read, so its instances are kept as the scene file has them: {}", l_Model ? "model" : "prefab", l_Record->Path, l_Loaded.GetError());
+        TR_ERROR("Forge: {} {} cannot be read, so its instances stay as the scene has them: {}", l_Model ? "model" : "prefab", l_Record->Path, l_Loaded.GetError());
         l_Entry.Template.reset();
         l_Entry.Refused = l_Text ? std::move(*l_Text) : std::string();
     }
@@ -51,10 +51,10 @@ std::uint64_t PrefabTemplateCache::GetVersion(Trinity::UUID prefab) const
     return a_Template != m_Templates.end() && a_Template->second.Template ? a_Template->second.Version : 0;
 }
 
-// Inner ones first: a prefab is read once each other one to be read that it holds is, or, while each left holds another, as when they hold each other, the first left. A new template is read while the one it replaces is still kept, and a text given that does not read puts back every template replaced before it
+// Inner ones first. A text given that does not read puts back every template replaced before it
 Trinity::Expected<std::vector<Trinity::UUID>, std::string> PrefabTemplateCache::Replace(std::span<const Trinity::SceneSerializer::PrefabText> texts)
 {
-    // A prefab to read again, from a text given or the text it was made from, with the prefabs that text holds
+    // A prefab to read again, from a text given or the text it was made from, with those it holds
     struct Pending
     {
         Trinity::UUID Prefab;
@@ -124,7 +124,7 @@ Trinity::Expected<std::vector<Trinity::UUID>, std::string> PrefabTemplateCache::
                 return Trinity::Unexpected{ l_Loaded.GetError() };
             }
 
-            TR_ERROR("Forge: prefab {} holds one that changed, and cannot be read again, so its instances are kept as the scene file has them: {}", l_Next.Prefab, l_Loaded.GetError());
+            TR_ERROR("Forge: prefab {} holds one that changed and cannot be reread, instances kept: {}", l_Next.Prefab, l_Loaded.GetError());
             l_Template.reset();
         }
 
@@ -137,7 +137,7 @@ Trinity::Expected<std::vector<Trinity::UUID>, std::string> PrefabTemplateCache::
     return l_Made;
 }
 
-// A model's file is the hierarchy its import cooked, so it changes as the model is imported again, or its file renamed
+// A model's file is the hierarchy its import cooked, so it changes as the model is reimported
 std::vector<std::pair<Trinity::UUID, std::string>> PrefabTemplateCache::FindChanged(const Trinity::AssetRegistry* registry) const
 {
     std::vector<std::pair<Trinity::UUID, std::string>> l_Changed;

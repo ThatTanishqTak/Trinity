@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <vector>
 
-// The ground grid the Viewport shows in 3D, drawn as the scene's overlay so the scene's depth hides it
+// The ground grid the Viewport shows in 3D, drawn as the scene's overlay so its depth hides it
 class EditorGrid3D
 {
 public:

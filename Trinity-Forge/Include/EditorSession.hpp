@@ -64,28 +64,28 @@ public:
         AudioClipImportReport AudioClips;
     };
 
-    // A line shown over the editor for a moment, as Unity's notifications are, for something asked for that did not happen
+    // A line shown over the editor for a moment, for something asked for that did not happen
     struct Notice
     {
         std::string Text;
         std::chrono::steady_clock::time_point Shown;
     };
 
-    // Work going on in the background, for the status bar: what it is, and how far along from 0 to 1 when that can be told
+    // Background work for the status bar: what it is, and how far along from 0 to 1 when known
     struct Activity
     {
         std::string Text;
         std::optional<float> Progress;
     };
 
-    // What a prefab made from an instance's root is, as Unity asks when one is dragged into the Project window: an original, whose own entities are those the instance's prefab gave it, with the prefabs nested in that one nested in it still, or a variant of the instance's prefab, which keeps what the instance changes of it
+    // As Unity asks when an instance's root is dragged to the Project window: an original or a variant
     enum class PrefabKind : std::uint8_t
     {
         Original,
         Variant
     };
 
-    // What a new script starts as: an empty script, or a character that walks by the Move action and jumps by Jump, in 3D on a CharacterController or in 2D on a CharacterController2D, which it adds when its entity has none
+    // An empty script, or a character that walks by Move and jumps by Jump, in 3D or 2D
     enum class ScriptTemplate : std::uint8_t
     {
         Script,
@@ -93,7 +93,7 @@ public:
         Character2D
     };
 
-    // A project opened or created lately: its file, its name then and when, and whether the file was gone as the list was last read, as Forge starts and as a project closes
+    // Its file, its name then and when, and whether the file was gone as the list was last read
     struct RecentProject
     {
         std::filesystem::path Path;
@@ -102,14 +102,14 @@ public:
         bool Missing = false;
     };
 
-    // A scene of the project opened or saved lately, by its UUID, so it is followed as its file moves, with the path it had then, for one the project no longer has
+    // By UUID, so it is followed as its file moves, with its path then, for one the project lost
     struct RecentScene
     {
         Trinity::UUID ID;
         std::string Path;
     };
 
-    // An input actions asset as its file holds it: what it holds, or why it could not be read, kept until the files are scanned again
+    // What its file holds, or why it could not be read, kept until the files are scanned again
     struct InputActionsFile
     {
         Trinity::UUID Asset;
@@ -136,7 +136,7 @@ public:
         std::string Error;
     };
 
-    // What the Sound Event panel shows: the event, the container chosen in its tree, if any, and the parameter whose curves are edited, if any
+    // The event, the container chosen in its tree, if any, and the parameter whose curves are edited
     struct SoundEventSelection
     {
         Trinity::UUID Asset;
@@ -146,7 +146,7 @@ public:
         [[nodiscard]] bool operator==(const SoundEventSelection&) const = default;
     };
 
-    // What the Audio Mixer panel shows: the mixer, the snapshot whose values are edited, and the group or effect chosen, if any
+    // The mixer, the snapshot whose values are edited, and the group or effect chosen, if any
     struct MixerSelection
     {
         Trinity::UUID Asset;
@@ -167,11 +167,11 @@ public:
     EditorSession& operator=(const EditorSession&) = delete;
 
     void Start(const Trinity::ApplicationCommandLineArgs& args);
-    // In the language its scripts are written in, which it keeps, with a template's assets and settings, or else with an empty start scene alone. False when it could not be made
+    // In the language its scripts keep, from a template or with an empty start scene. False on failure
     bool CreateProject(const std::filesystem::path& directory, Trinity::ScriptLanguage language, const Trinity::ProjectTemplate* projectTemplate = nullptr);
-    // One of an older version or format is asked about first, and opens once backed up and moved to this version. language answers in that question for a project older than format 10 with both a C++ module and a C# project, or neither
+    // An older one is asked about first. language answers for one older than format 10 that needs it
     void OpenProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language = std::nullopt);
-    // As the question's Back Up and Open, without asking, as --upgrade-project does when Hub's Open With starts a newer version's Forge. One of this version opens as it is. False, logged, for one of a newer version, one older than format 10 with both languages or neither given none, and one that could not be backed up or opened
+    // As the question's Back Up and Open, without asking, as --upgrade-project does. False, logged
     bool UpgradeProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language);
     void ScanAssets();
     ImportReport WaitForImports();
@@ -183,18 +183,18 @@ public:
 
     [[nodiscard]] bool RequestClose();
 
-    // Play runs a copy of the edited scene, made through the serializer, in a SceneManager, so its scripts may switch it to other scenes, and Stop throws whichever scene runs away, so the edited scene, its history and whether it is saved are as they were. Pause holds the copy where it is, and Step takes one fixed step and holds it there. The history takes no edit of the scene while playing, though it takes an asset's. Each is asked for mid-frame and done at the next Update, and any command but Refresh and the builds stops playing first, since a build reloads the module while the scene plays on
+    // Each is asked for mid-frame and done at the next Update. Stop leaves the edited scene as it was
     void RequestPlay();
     void RequestPause();
     void RequestStep();
     void RequestStop();
-    // With the frame's time, after the session's own work, the Sound Event panel's audition first, which plays whether a scene does or not
+    // With the frame's time, after the session's own work, the Sound Event panel's audition first
     void UpdatePlay(Trinity::Timestep timestep);
     [[nodiscard]] bool IsPlaying() const { return m_Play != nullptr; }
     [[nodiscard]] bool IsPaused() const { return m_Play != nullptr && m_Paused; }
-    // Play waits for a C++ or C# build running or about to, as Unity waits for scripts to compile, then plays once every build is good. Play again stops it waiting
+    // Play waits for a build running or about to, then plays once every build is good
     [[nodiscard]] bool IsWaitingForBuild() const { return m_PlayAfterBuild; }
-    // The builds whose last run failed, such as "the C++ module Game", which Play is refused for until they build. Empty when none has
+    // The builds whose last run failed, such as "the C++ module Game". Empty when none has
     [[nodiscard]] std::string GetFailedBuilds() const;
 
     void Notify(std::string text) { m_Notice = Notice{ std::move(text), std::chrono::steady_clock::now() }; }
@@ -203,11 +203,11 @@ public:
     [[nodiscard]] Trinity::SceneRuntime* GetRuntime() { return m_Play ? m_Play->GetRuntime() : nullptr; }
     [[nodiscard]] bool IsDirty() const { return !m_History.IsSaved(); }
 
-    // The scene the panels show: the scene playing, the copy or one a script switched to, and otherwise the edited scene
+    // The scene the panels show: the scene playing, and otherwise the edited scene
     [[nodiscard]] Trinity::Scene& GetScene() { return m_Play && m_Play->GetScene() ? *m_Play->GetScene() : GetEditedScene(); }
-    // The scene itself, as the Game panel shows it: the scene playing, and otherwise the edited scene, in prefab mode too, as Unity's Game view goes on showing the scene
+    // As the Game panel shows it: the scene playing, else the scene itself, in prefab mode too
     [[nodiscard]] Trinity::Scene& GetMainScene() { return m_Play && m_Play->GetScene() ? *m_Play->GetScene() : m_Scene; }
-    // What the history edits: in prefab mode the open prefab, which its file holds once saved, and otherwise the scene, which the scene file holds, whether or not a copy plays
+    // What the history edits: in prefab mode the open prefab, and otherwise the scene
     [[nodiscard]] Trinity::Scene& GetEditedScene() { return m_Stage ? m_Stage->Scene : m_Scene; }
     // In prefab mode the open prefab's own, so nothing done there reaches the scene's
     [[nodiscard]] CommandStack& GetHistory() { return m_Stage ? m_Stage->History : m_History; }
@@ -216,9 +216,9 @@ public:
     [[nodiscard]] bool HasProject() const { return m_Project != nullptr; }
     [[nodiscard]] const ModuleHost& GetModule() const { return m_Module; }
     [[nodiscard]] const AssemblyHost& GetAssembly() const { return m_Assembly; }
-    // Through the history, so it undoes in one step, and saved with the project as it runs and as it is undone. A scene playing keeps the settings it started with, and the next Play takes the new ones
+    // Through the history, and saved with the project. A scene playing keeps what it started with
     bool EditPhysicsSettings(const Trinity::PhysicsSettings& settings, std::string field);
-    // As EditPhysicsSettings, but for the mixer, which the engine plays from the next frame, a scene playing included
+    // As EditPhysicsSettings, but the engine plays the mixer from the next frame, even while playing
     bool EditAudioSettings(const Trinity::AudioSettings& settings, std::string field);
     // As EditPhysicsSettings, for what the project exports, which nothing playing reads
     bool EditExportSettings(const Trinity::ExportSettings& settings, std::string field);
@@ -227,7 +227,7 @@ public:
     // The scene's file name without its extension, or Untitled for a scene never saved
     [[nodiscard]] std::string GetSceneName() const;
 
-    // In prefab mode the open prefab's, and otherwise the scene's, which is kept for when prefab mode closes
+    // In prefab mode the open prefab's. Otherwise the scene's, which is kept while prefab mode is open
     [[nodiscard]] Trinity::UUID GetSelection() const { return m_Stage ? m_Stage->Selection : m_Selection; }
     void SetSelection(Trinity::UUID selection)
     {
@@ -253,9 +253,9 @@ public:
 
     std::uint64_t AddCloseListener(std::move_only_function<void()> listener);
     void RemoveCloseListener(std::uint64_t id);
-    // Edits held outside the scene that nothing has saved yet, as Properties holds import settings not applied: whether there are any, and the question that settles them, applying or reverting, then runs what waited for it. Asked before Forge closes or another project opens
+    // Edits held outside the scene, as unapplied import settings. Settled before Forge closes
     void SetUnappliedEdits(std::function<bool()> pending, std::function<void(std::move_only_function<void()>)> settle);
-    // Called just before a scene starts playing, and just before a C++ or C# build starts, before either logs, as the Console's Clear on Play and Clear on Build need
+    // Just before a scene plays or a build starts, before either logs, as the Console's Clear needs
     void SetBeforePlay(std::function<void()> beforePlay) { m_BeforePlay = std::move(beforePlay); }
     void SetBeforeBuild(std::function<void()> beforeBuild) { m_BeforeBuild = std::move(beforeBuild); }
 
@@ -275,62 +275,62 @@ public:
     bool DeleteAsset(std::string_view path);
     bool ApplyImportSettings(Trinity::UUID id, Trinity::AssetSettings settings);
     [[nodiscard]] std::optional<std::string> CreateMaterial(std::string_view folder);
-    // A script of the language from the template asked for, its class and file named as given, in Scripts or a folder in it for C#, and Source or a folder in it for C++, which its build picks up as the folder's watcher sees it. Its project path, or nothing, logged, for a name that cannot name a class, a file there already, a folder outside the language's, or a project without that language's scripts
+    // In Scripts for C# and Source for C++. Its project path, or nothing, logged, if it cannot be made
     [[nodiscard]] std::optional<std::string> CreateScript(std::string_view folder, Trinity::ScriptLanguage language, std::string_view className, ScriptTemplate kind = ScriptTemplate::Script);
-    // The full name of the class CreateScript makes, in the assembly's namespace for C#, as Game.Player, or the module's for C++, as Game::Player
+    // In the assembly's namespace for C#, as Game.Player, or the module's for C++, as Game::Player
     [[nodiscard]] std::string GetScriptClassName(Trinity::ScriptLanguage language, std::string_view className) const;
-    // As Unity adds a script file dropped on its Inspector or Hierarchy: the loaded class of the file's language named after the file, as Player for Player.cs, with its fields at their defaults, in one command. Refused, with why, while no loaded code has that class, as before the script's first build
+    // The loaded class named after the file, as Player for Player.cs. Refused before its first build
     bool AddScript(Trinity::UUID entity, std::string_view path);
-    // Letters, digits and underscores, not starting with a digit, which both languages take for a class's name
+    // Letters, digits and underscores, not starting with a digit, as both languages take
     [[nodiscard]] static bool IsClassName(std::string_view name);
-    // Empty, as New Scene makes one, named New Scene, or New Scene 1 and on when that is taken. Its project path, or nothing, logged
+    // Named New Scene, or New Scene 1 and on when taken. Its project path, or nothing, logged
     [[nodiscard]] std::optional<std::string> CreateScene(std::string_view folder);
-    // A copy beside the file or folder, named as Unity names one: Name 1, or one more than the number its name ends in. Each file copied gets a UUID of its own and keeps its original's import settings. Its project path, or nothing, logged
+    // Named as Unity names a copy: Name 1. Each file copied gets its own UUID and keeps its settings
     [[nodiscard]] std::optional<std::string> DuplicateAsset(std::string_view path);
-    // A file from anywhere, chosen in a dialog at the next Update so it never blocks with a frame open, copied into the folder and numbered when its name is taken there
+    // Chosen in a dialog at the next Update, so it never blocks mid-frame. Numbered if its name is used
     void RequestImportAsset(std::string folder);
-    // Everything cooked from the file, or from every file in the folder, cooked again, since the importers forget what they cooked it from. Assets in use load again as their imports end. Refused, logged, while imports run
+    // Cooks everything from the file or folder again. Refused, logged, while imports run
     bool ReimportAssets(std::string_view path);
     [[nodiscard]] bool IsImportingAssets() const { return IsImportRunning() || m_ImportAgain; }
-    // The project's default input actions, whose first map Play enables, saved with the project at once. Anything but an input actions asset is refused
+    // The project's default, whose first map Play enables, saved at once. Other asset types are refused
     void SetDefaultInputActions(Trinity::UUID asset);
-    // With the starter actions in Gameplay: Move from WASD, the arrows and the left stick, Look from the mouse and the right stick, and Jump from Space and the A button, as the character templates find them, and the UI map the game UI reads, with Unity's default Navigate, Submit and Cancel. Named New Input Actions, or New Input Actions 1 and on when that is taken, and the project's default while it has none, or one it no longer has. Its project path, or nothing, logged
+    // With starter Move, Look and Jump and the UI map. The project's default while it has none
     [[nodiscard]] std::optional<std::string> CreateInputActions(std::string_view folder);
-    // As the Input Actions panel and Properties read it each frame, from its file the first time and again once the files are scanned, as when Forge gets the focus back, so an edit made outside it is seen. Null for an asset that is not one
+    // From its file the first time and again after each scan, so an outside edit is seen. Null if none
     [[nodiscard]] const InputActionsFile* ReadInputActions(Trinity::UUID asset);
-    // Its file, only once what is written reads back, and the asset loaded again where it is in use, so a scene playing reads it from the next frame
+    // Written only once it reads back. The asset reloads, so a scene playing reads it next frame
     bool SaveInputActions(Trinity::UUID asset, const Trinity::InputActionsData& data);
-    // Through the history, so it undoes in one step, named for what it did, such as "Add action Jump", and the asset. Edits of the same field in a row become one, as a drag's do, and one with no field is always a step of its own. Taken while a scene plays, which reads it at once, and kept once it stops
+    // One undo step, named by what. Edits of one field in a row merge. Taken while a scene plays
     bool EditInputActions(Trinity::UUID asset, const Trinity::InputActionsData& before, const Trinity::InputActionsData& after, std::string_view what, std::string field = {});
-    // As EditInputActions, for a rename of a map or an action, which in the project's default asset also rewrites the edited scene's input action fields that named it, in the same step. Refused with a notice while a scene plays and a field would change, since the scene takes no edit then
+    // A rename also rewrites the scene's fields that named it. Refused while a scene plays, if any do
     bool RenameInputActions(Trinity::UUID asset, const Trinity::InputActionsData& before, const Trinity::InputActionsData& after, std::string_view what);
-    // The project's Audio Mixer, which everything Forge plays goes through from the frame it loads, a scene playing included, saved with the project at once. Anything but an audio mixer asset is refused
+    // Everything Forge plays goes through it, saved at once. Other asset types are refused
     void SetProjectMixer(Trinity::UUID asset);
-    // Master alone at 0 dB, named New Audio Mixer, or New Audio Mixer 1 and on when that is taken, and the project's mixer while it has none, or one it no longer has. Its project path, or nothing, logged
+    // Master alone at 0 dB, named New Audio Mixer. The project's mixer while it has none
     [[nodiscard]] std::optional<std::string> CreateAudioMixer(std::string_view folder);
-    // As the Audio Mixer panel reads it each frame, from its file the first time and again once the files are scanned, as when Forge gets the focus back, so an edit made outside it is seen. Null for an asset that is not one
+    // From its file the first time and again after each scan, so an outside edit is seen. Null if none
     [[nodiscard]] const AudioMixerFile* ReadAudioMixer(Trinity::UUID asset);
-    // Its file, only once what is written reads back, kept as it reads back, and the asset loaded again, so the project's mixer is heard as saved from this frame on, a scene playing included
+    // Written only once it reads back. The asset reloads, so the mix is heard as saved this frame
     bool SaveAudioMixer(Trinity::UUID asset, const Trinity::AudioMixerData& data);
-    // Through the history, so it undoes in one step, named for what it did, such as "Add group Music", and the asset. Edits of the same field in a row become one, as a fader's drag does, and one with no field is always a step of its own. Refused, logged, for data that breaks a mixer's rules, as a group moved under one it sends to. Taken while a scene plays, which hears it at once, and kept once it stops
+    // As EditInputActions. Refused, logged, for data that breaks a mixer's rules
     bool EditAudioMixer(Trinity::UUID asset, const Trinity::AudioMixerData& before, const Trinity::AudioMixerData& after, std::string_view what, std::string field = {});
     [[nodiscard]] const MixerSelection& GetMixerSelection() const { return m_MixerSelection; }
     void SetMixerSelection(const MixerSelection& selection) { m_MixerSelection = selection; }
-    // Unity's Edit in Play Mode: while a scene plays, the project's mixer is held at the snapshot selected, and edited, only with it on. Off again as each Play starts, so a scene starts on its own mix
+    // Unity's Edit in Play Mode: the mixer is edited while playing only with it on. Off at each Play
     [[nodiscard]] bool IsEditingMixerInPlay() const { return m_EditMixerInPlay; }
     void SetEditMixerInPlay(bool edit) { m_EditMixerInPlay = edit; }
-    // Always but while the mixer is the project's and a scene plays with Edit in Play Mode off, when the Audio Mixer panel and Properties follow the mix it plays
+    // False only while the mixer is the project's and a scene plays with Edit in Play Mode off
     [[nodiscard]] bool IsMixerEditable(Trinity::UUID asset) const;
-    // A Random named Root with nothing in it, as Unity's new Audio Random Container is, named New Sound Event, or New Sound Event 1 and on when that is taken. Its project path, or nothing, logged
+    // A Random named Root with nothing in it, named New Sound Event. Its path, or nothing, logged
     [[nodiscard]] std::optional<std::string> CreateSoundEvent(std::string_view folder);
-    // A document whose body fills the game view and lets the mouse through but where an element takes it, named New UI Document, and a style sheet with an empty rule for the body, named New UI Style Sheet, or with 1 and on when that is taken, each written in any text editor and reloaded as it saves. The project path, or nothing, logged
+    // A document and a style sheet, named New UI Document and New UI Style Sheet. The document's path
     [[nodiscard]] std::optional<std::string> CreateUIDocument(std::string_view folder);
     [[nodiscard]] std::optional<std::string> CreateUIStyleSheet(std::string_view folder);
     // As ReadAudioMixer, for the Sound Event panel. Null for an asset that is not one
     [[nodiscard]] const SoundEventFile* ReadSoundEvent(Trinity::UUID asset);
-    // Its file, only once what is written reads back, kept as it reads back, and the asset loaded again, so every instance playing it, the audition's and a scene's, moves to it as each of its containers next triggers
+    // Written only once it reads back. Instances playing move to it as their containers next trigger
     bool SaveSoundEvent(Trinity::UUID asset, const Trinity::SoundEventData& data);
-    // As EditAudioMixer: one undo step, edits of one field in a row becoming one, as a slider's drag does, and refused, logged, for data that breaks an event's rules
+    // As EditAudioMixer. Refused, logged, for data that breaks an event's rules
     bool EditSoundEvent(Trinity::UUID asset, const Trinity::SoundEventData& before, const Trinity::SoundEventData& after, std::string_view what, std::string field = {});
     [[nodiscard]] const SoundEventSelection& GetSoundEventSelection() const { return m_SoundEventSelection; }
     void SetSoundEventSelection(const SoundEventSelection& selection) { m_SoundEventSelection = selection; }
@@ -341,30 +341,30 @@ public:
     // Forge's settings for the person using it, saved once nothing is being dragged or typed into
     [[nodiscard]] const EditorPreferences& GetPreferences() const { return m_Preferences; }
     void SetPreferences(const EditorPreferences& preferences);
-    // One of the console variables kept with them, which the command line no longer holds once it is set here
+    // One of the console variables kept with them, which the command line no longer holds once set
     void SetPreferenceVariable(std::string_view name, std::string_view value);
-    // Whether Preferences.txt was there as Forge started, or has been written since. Until it is, imgui.ini's settings from before it are read into it
+    // Whether Preferences.txt exists. Until it does, imgui.ini's older settings are read into it
     [[nodiscard]] bool HasPreferencesFile() const { return m_HasPreferencesFile; }
 
     // What scripts open in, which the preferences keep
     [[nodiscard]] ScriptEditor GetScriptEditor() const { return m_Preferences.Editor; }
     void SetScriptEditor(ScriptEditor editor);
-    // A file of the project at its line, counted from 1, or at its top for 0, in the script editor, with the C# solution for a .cs file and the module's folder for any other. The path is a project path, such as /project/Scripts/Player.cs, one relative to the project's folder, as build errors name them, or a native one
+    // At its line, from 1, or its top for 0. A project path, one from the project's folder, or native
     bool OpenScript(std::string_view path, std::uint32_t line = 0);
-    // A script class's file at the class, as Unity's Edit Script opens it: the file named after the class in the project's Scripts folder for C#, or its Source folder for C++, or else the first there that declares it
+    // As Unity's Edit Script: the file named after the class, or else the first that declares it
     bool EditScript(Trinity::ScriptLanguage language, std::string_view className);
     // The C# solution beside the project file, or the C++ module's Source folder, in the script editor
     bool OpenSolution();
     bool OpenModuleFolder();
-    // The script editor's debugger on this Forge, with the C# solution open, or the module's folder without one
+    // The script editor's debugger on this Forge, with the C# solution open, or the module's folder
     bool AttachDebugger();
-    // Whether Play waits for a debugger first, which the preferences keep. While it waits, a popup shows Forge's process ID and what is attached, and the scene plays once a native or a managed debugger is, or at Play Now
+    // While it waits, a popup shows Forge's process ID. It plays once one attaches, or on Play Now
     [[nodiscard]] bool GetWaitForDebugger() const { return m_Preferences.WaitForDebugger; }
     void SetWaitForDebugger(bool wait);
-    // The output Forge plays through, which the preferences keep, moved to at once, or the system's default for an empty name. Kept even when it will not open, so the default plays until it is there
+    // Moved to at once, or the system's default for an empty name. Kept even when it will not open
     void SetAudioDevice(std::string_view name);
     [[nodiscard]] bool IsWaitingForDebugger() const { return m_DebuggerWait.has_value(); }
-    // Where the material lives: its own file, or for a model's material the fields that differ from the import, in the model's .meta, and its cooked file. A loaded material shows it the same frame
+    // Its own file, or for a model's material the differing fields in the model's .meta, and its cook
     bool WriteMaterial(Trinity::UUID material, const Trinity::MaterialData& data);
     // Through the history, so it undoes in one step
     bool EditMaterial(Trinity::UUID material, const Trinity::MaterialData& before, const Trinity::MaterialData& after, std::string field);
@@ -374,31 +374,31 @@ public:
     [[nodiscard]] std::optional<Trinity::MaterialData> ReadImportedMaterial(Trinity::UUID material) const;
     // A model's material's key, or nothing for a material of its own
     [[nodiscard]] std::optional<std::string> GetMaterialKey(Trinity::UUID material) const;
-    // A prefab of the entity and its subtree, written into the folder as a file named after the entity, numbered when that is taken, and the entity made its first instance in one command, keeping every UUID it has. The instances in the subtree are nested in it, and an instance's root makes the kind asked for: an original, as though the instance were unpacked first, or a variant, named after the entity as Enemy Variant. In prefab mode the open prefab's entity becomes an instance nested in it. Undo makes them as they were and leaves the file, as in Unity. Its project path, or nothing, with a notice for an entity that cannot become one. Not while a copy plays
+    // The entity becomes its first instance, keeping every UUID. Undo leaves the file, as in Unity
     [[nodiscard]] std::optional<std::string> CreatePrefab(Trinity::UUID entity, std::string_view folder, PrefabKind kind = PrefabKind::Original);
-    // A variant of the prefab, or of a model, beside its file, as Unity's Create > Prefab Variant makes one: its root an instance of it that changes nothing, named after it, as Enemy Variant, numbered when that is taken. Not a step of the history, as no new asset is. Its project path, or nothing, logged
+    // As Unity's Create > Prefab Variant: its root an instance that changes nothing. Not undoable
     [[nodiscard]] std::optional<std::string> CreatePrefabVariant(Trinity::UUID prefab);
-    // As Unity's Create > Prefab makes one: a root alone, with nothing but its transform, which prefab mode fills, it and its file named as given, in Assets or a folder in it. Not a step of the history, as nothing in the scene changes. Its project path, or nothing, logged, for a name that cannot name a file, a file there already, or a folder outside Assets
+    // As Unity's Create > Prefab: a root alone with its transform. Not undoable. Its path, or nothing
     [[nodiscard]] std::optional<std::string> CreateEmptyPrefab(std::string_view folder, std::string_view name);
-    // A new instance of the prefab, or of a model, whose prefab is made from its hierarchy, in one command, last under the parent or among the roots, or before the sibling. Its root goes to the position when one is given, as a drop into the Scene panel gives, which is then the instance's own, and otherwise keeps the prefab's transform, as a drop into the Hierarchy does. In prefab mode it is nested in the open prefab, refused with a notice for a prefab holding that one, which would then hold itself, and for a model not imported yet
+    // In one command. At the position if given, else the prefab's transform. Refused if it nests itself
     bool InstantiatePrefab(Trinity::UUID prefab, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position);
-    // The template the open scene's instances of the prefab are made from, which names the entities an instance removed. Null as the serializer finds none
+    // The template the scene's instances of the prefab are made from. Null as the serializer finds none
     [[nodiscard]] Trinity::Scene* FindPrefabTemplate(Trinity::UUID prefab) { return m_Prefabs.Find(prefab, m_Registry.get()); }
-    // Changes each time the prefab's template is made again, as a save, an Apply, a change outside Forge or one to a prefab nested in it makes it, so the Content Browser draws its thumbnail again. 0 until FindPrefabTemplate finds it
+    // Changes each time the prefab's template is made again. 0 until FindPrefabTemplate finds it
     [[nodiscard]] std::uint64_t GetPrefabTemplateVersion(Trinity::UUID prefab) const { return m_Prefabs.GetVersion(prefab); }
-    // Whether the prefab is a variant, its root an instance of another, as its template has it. Not one the project does not have, or whose file cannot be read
+    // Whether its root is an instance of another prefab. False for one missing or unreadable
     [[nodiscard]] bool IsPrefabVariant(Trinity::UUID prefab);
-    // Whether the asset is a model, whose prefab is made from its file's hierarchy, so it opens in no prefab mode and takes nothing applied to it, as in Unity
+    // Whether the asset is a model, which opens in no prefab mode and takes nothing applied to it
     [[nodiscard]] bool IsModel(Trinity::UUID asset) const;
     // Its file's name without the extension, as Enemy, or its UUID for one the project no longer has
     [[nodiscard]] std::string GetPrefabName(Trinity::UUID prefab) const;
-    // What an instance changes of its prefab undone, in one command, so it is as its prefab has it. What names the changes, such as Position of Body, and the subject is the entity shown, which stays selected. Not while a copy plays
+    // In one command. what names the changes, and subject is the entity shown. Not while a copy plays
     bool RevertPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject);
-    // What an instance changes of its prefab made the own of the prefab at the level, 0 for the instance's prefab and each level down one nested in it, as SceneSerializer::GetOverrideLevels names them, in one command: the file of that prefab, and of each between it and the instance that changed the same, is written at once, and every instance of them, in the scene and in the open prefab, is made again from them, each keeping what else it changes. Undo writes the files back. A change made to a file outside Forge since the files were scanned is read first, so it is kept. Refused with a notice for a prefab whose file is gone, for a model's level, whose prefab is made from its file, and for an instance added that the prefab would then hold itself through. Not while a copy plays
+    // Level 0 is the instance's prefab. Files are written at once. Refused, noticed, if a file is gone
     bool ApplyPrefabOverrides(Trinity::UUID root, std::vector<Trinity::SceneSerializer::PrefabOverride> overrides, std::string_view what, Trinity::UUID subject, std::size_t level = 0);
-    // As Unity's Unpack: the instance's own entities made plain ones, keeping every UUID and what they hold, so nothing links them to its prefab, with each instance nested in that prefab made an instance of its own, and a variant's root its base's instance, in one command. Completely, as Unpack Completely, the instance and every instance in it are unpacked, so its subtree holds plain entities alone. Refused with a notice for an entity standing in for a missing prefab, which has nothing to unpack until the prefab is back, and for one whose prefab holds an instance whose prefab is missing, which only that prefab's file keeps
+    // As Unity's Unpack, keeping every UUID, or Unpack Completely. Refused for a missing prefab
     bool UnpackPrefab(Trinity::UUID root, bool completely = false);
-    // As Unity's prefab mode: the prefab, as its file holds it, edited in isolation in a scene of its own, with a selection and a history of its own, while the scene keeps its own as they were. Save writes the file and makes every instance of it in the scene again from it, keeping what each changes, a step of neither history. Asked for mid-frame and opened at the next Update, once a copy playing has stopped and the unsaved changes of a prefab open already are settled. Play is refused while it is open. A model opens in none, as its prefab is made from its file, so a variant of it is what changes it
+    // As Unity's prefab mode, with its own selection and history. Opened at the next Update
     void RequestOpenPrefab(Trinity::UUID prefab);
     // Back to the scene, after asking what to do with unsaved changes, which Cancel keeps open
     void RequestClosePrefab();
@@ -407,34 +407,34 @@ public:
     [[nodiscard]] bool IsPrefabDirty() const { return m_Stage && !m_Stage->History.IsSaved(); }
     // Its file's name without the extension. Empty while none is open
     [[nodiscard]] std::string GetOpenPrefabName() const;
-    // As the Hierarchy moves an entity, keeping its place in the world, in one command. One of a prefab's entities in an instance keeps the place its prefab gives it, as in Unity, and nothing goes under an entity standing in for a missing prefab, each refused with a notice
+    // Keeps its place in the world, in one command. Refused with a notice for a prefab's own entity
     bool MoveEntity(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before);
-    // Just after the original, in one command. Refused with a notice for an entity holding an instance whose prefab is missing, which only it can keep
+    // Just after the original, in one command. Refused with a notice if it holds a missing prefab
     bool DuplicateEntity(Trinity::UUID entity);
     // In one command, as the Delete key and the Hierarchy's menu ask
     bool DeleteEntity(Trinity::UUID entity);
-    // A sprite of the texture at the point, its size in units, as a texture dropped into the Scene panel makes one, in one command
+    // A sprite of the texture at the point, its size in units, in one command
     bool CreateSprite(std::string name, Trinity::UUID texture, glm::vec3 position, glm::vec2 size);
-    // An entity with an AudioSource that plays the clip or the sound event as the scene starts, as one dropped into the Scene panel or the Hierarchy makes it, in one command, last under the parent or among the roots, or before the sibling. At the point in the world when one is given, heard from there in 3D when spatialize says so, and otherwise at the parent's origin, heard as it is. Refused, logged, for an asset that is neither
+    // Plays the clip or event as the scene starts. At the point if given, else at the parent's origin
     bool CreateAudioSource(std::string name, Trinity::UUID resource, Trinity::UUID parent, Trinity::UUID before, std::optional<glm::vec3> position, bool spatialize);
-    // A built-in shape with its MeshRenderer and the collider that fits it, in one command. Under a parent it sits at the parent's origin, and otherwise at the spawn point. In prefab mode, as Unity keeps a prefab to one root, whatever is made, pasted or moved with no parent goes last under the prefab's root, keeping its place in the world, and the root is never moved, duplicated or deleted, each refused with a notice. No instance of a prefab holding the open one goes into it, which would then hold itself
+    // At the parent's origin, else the spawn point. In prefab mode it goes under the prefab's root
     bool CreatePrimitive(Trinity::BuiltInMesh mesh, Trinity::UUID parent);
     // As Unity's GameObject menu makes them, each in one command and placed as a built-in shape is
     bool CreateEmpty(Trinity::UUID parent);
     bool CreateLight(Trinity::LightType type, Trinity::UUID parent);
     // Perspective while the Scene panel shows the scene in 3D, and orthographic in 2D
     bool CreateCamera(Trinity::UUID parent);
-    // The entity and its subtree as they are now, to paste into this scene or another until the project closes. While a copy plays, as the playing entity is, to paste once it stops. Refused with a notice, as Duplicate is, for one holding an instance whose prefab is missing
+    // As it is now, to paste until the project closes. Refused with a notice, as Duplicate is
     void CopyEntity(Trinity::UUID entity);
     [[nodiscard]] bool HasCopiedEntity() const { return m_CopiedEntity.has_value(); }
-    // As Unity pastes: right after the original while the scene has it, else last under the parent it was copied from, else last among the roots. Not while a copy plays, nor while what was copied holds an instance whose prefab is gone since, or in prefab mode one whose prefab holds the open one
+    // After the original, else under its old parent, else among the roots. Not while a copy plays
     bool PasteEntity();
     // Last under the parent
     bool PasteEntityAsChild(Trinity::UUID parent);
-    // Where the Scene panel's camera looks, which the panel sets each frame with whether it shows the scene in 3D: the 3D camera's focus, or the 2D camera's centre at Z 0
+    // Where the Scene panel's camera looks: the 3D camera's focus, or the 2D camera's centre at Z 0
     [[nodiscard]] glm::vec3 GetSpawnPoint() const { return m_SpawnPoint; }
     [[nodiscard]] bool IsSceneView3D() const { return m_SceneView3D; }
-    // Whether the Scene panel shows a scene it has kept no view of in 3D, as a project made from a template asks, once
+    // Whether the Scene panel starts a scene it has no view of in 3D, as a template asks, once
     [[nodiscard]] std::optional<bool> TakeStartView3D() { return std::exchange(m_StartView3D, std::nullopt); }
     void SetSpawnPoint(glm::vec3 point, bool view3D)
     {
@@ -444,9 +444,9 @@ public:
     [[nodiscard]] bool IsImporting(Trinity::UUID id) const { return m_Reimporter.IsBusy(id); }
     [[nodiscard]] bool IsImportingModels() const { return m_ModelImports.IsRunning() || m_ImportAgain; }
     [[nodiscard]] bool IsImportingAudioClips() const { return m_AudioClipImports.IsRunning() || m_ImportAgain; }
-    // What the Content Browser and Properties play clips and draw their waveforms through, which stops as the project closes
+    // What the Content Browser and Properties play clips and draw waveforms through
     [[nodiscard]] AudioClipPreview& GetAudioPreview() { return m_AudioPreview; }
-    // What the engine mixes everything through: the project's mixer once it has loaded, and Master alone before then, without one, and without a project. Null without an audio engine
+    // The project's mixer once it has loaded, else Master alone. Null without an audio engine
     [[nodiscard]] const Trinity::AudioMixer* GetMixer() const;
     [[nodiscard]] std::uint64_t GetScanCount() const { return m_ScanCount; }
     // Model import batches finished, so what reads cooked model files knows to read them again
@@ -462,7 +462,7 @@ private:
         std::optional<std::chrono::steady_clock::time_point> AttachedAt;
     };
 
-    // A scene backup a crash left, found as the project opened: the scene's text, the asset path it was opened from, empty for an untitled scene, and when it was written
+    // A scene backup a crash left: its text, the asset path it was opened from, and when it was written
     struct Recovery
     {
         std::string Text;
@@ -487,7 +487,7 @@ private:
         PathAction OnChosen;
     };
 
-    // What the language popup asks for: the folder a new project is made in, and its template, which it is made from once its language is chosen
+    // The folder a new project is made in, and its template, used once its language is chosen
     struct LanguageQuestion
     {
         std::filesystem::path Path;
@@ -496,7 +496,7 @@ private:
         std::size_t Template = 0;
     };
 
-    // What the upgrade popup asks before a project of an older version or format opens here: its file, what the file says, the backup it would be given, and for one older than format 10 with both languages or neither, the language it keeps, which must be picked
+    // Its file, what the file says, the backup it would get, and the language to pick, if it needs one
     struct UpgradeQuestion
     {
         std::filesystem::path File;
@@ -505,7 +505,7 @@ private:
         std::optional<Trinity::ScriptLanguage> Language;
     };
 
-    // What Copy took, with where the original was and its place in the world, which a paste away from that parent keeps
+    // What Copy took, with where the original was and its place in the world, which a paste keeps
     struct CopiedEntity
     {
         std::string Text;
@@ -514,7 +514,7 @@ private:
         Trinity::TransformComponent World;
     };
 
-    // A prefab open in prefab mode: its entities under their local IDs in a scene of their own, and the text its file held as it was last read or saved, which a change made outside Forge is found against
+    // Its entities in a scene of their own, and its file's text, to find outside changes against
     struct PrefabStage
     {
         Trinity::UUID Prefab;
@@ -539,15 +539,15 @@ private:
     [[nodiscard]] bool SettleUnappliedEdits(Action& then);
 
     void CloseProject();
-    // The lock on the project a path names, Cache/Forge.lock, taken before any of it opens. None when another Forge has it open, which is brought forward, and one not held when it could not be had for another reason, which is warned of, or the path names no project, which opening it says
+    // Cache/Forge.lock. None when another Forge has it open. Not held, with a warning, on other errors
     [[nodiscard]] std::optional<Trinity::FileLock> LockProject(const std::filesystem::path& path);
-    // The project opened once locked. upgrade backs it up first, before anything of it changes, and moves it to this version as it opens
+    // The project opened once locked. upgrade backs it up first, then moves it to this version
     bool LoadProject(const std::filesystem::path& path, std::optional<Trinity::ScriptLanguage> language, bool upgrade);
     // Why a project of a newer version or format is not opened, logged
     static void ReportNewer(const Trinity::ProjectFileInfo& info);
-    // A new project's C# project and solution, or its C++ module, in the language chosen for it, which builds as the project opens, as Hub's New Project makes a project ready to script
+    // A new project's C# project and solution, or its C++ module, which builds as the project opens
     void CreateScripts();
-    // The template's settings, once its assets are in the project and scanned: its start scene, which becomes the build's only scene and is opened, its input actions and its mixer
+    // Once its assets are scanned: its start scene, which is opened, its input actions and its mixer
     void ApplyTemplate(const Trinity::ProjectTemplate& projectTemplate);
     void ReadPreferences(const Trinity::ApplicationCommandLineArgs& args);
     void WritePreferences();
@@ -582,7 +582,7 @@ private:
     void FinishEnvironmentImports(const EnvironmentImportReport& report);
     void FinishAudioClipImports(const AudioClipImportReport& report);
     void UpdateMixer();
-    // The UI documents and stylesheets that saved since the last frame are read again by the game UI, while a scene plays too
+    // The UI documents and stylesheets saved since the last frame are read again by the game UI
     void ReloadChangedUIFiles();
     [[nodiscard]] std::optional<std::string> CreateTextAsset(std::string_view folder, std::string_view stem, std::string_view extension, std::string_view text, std::string_view kind);
     void ApplyMixer(const Trinity::AudioMixerAsset* asset);
@@ -631,7 +631,7 @@ private:
     CommandStack m_History{ m_Scene, m_Selection };
     Trinity::UUID m_InspectedAsset;
     std::optional<CopiedEntity> m_CopiedEntity;
-    // What the serializer finds prefabs in, since Forge opens a scene at once, before the asset manager could load them
+    // The serializer's prefabs, as Forge opens a scene before the asset manager could load them
     PrefabTemplateCache m_Prefabs;
     // The prefab prefab mode has open, or null while the scene is edited
     Trinity::Scope<PrefabStage> m_Stage;
@@ -653,7 +653,7 @@ private:
     AudioClipImportBatch m_AudioClipImports;
     AudioClipPreview m_AudioPreview;
     SoundEventAudition m_Audition;
-    // The project's mixer, which the engine's mix follows: the asset the project names, held while it is a mixer, the scan it was last looked for in, so a file that comes back or changes outside Forge is found again, and the version applied, 0 for Master alone
+    // The asset the project names, the scan it was last looked for in, and the version applied
     Trinity::UUID m_MixerID;
     Trinity::AssetRef<Trinity::AudioMixerAsset> m_Mixer;
     std::uint64_t m_MixerScan = 0;
@@ -666,7 +666,7 @@ private:
     // The project's Assets, watched for UI files saved in other programs
     Trinity::DirectoryWatcher m_AssetWatcher;
     EditorPreferences m_Preferences;
-    // The kept console variables the command line set, each with the value the file had, written back in its place. Empty for one the file did not have
+    // Console variables the command line set, each with the file's value, which is written back
     std::map<std::string, std::string, std::less<>> m_HeldVariables;
     bool m_HasPreferencesFile = false;
     bool m_PreferencesChanged = false;
@@ -674,7 +674,7 @@ private:
     bool m_OpenDebuggerPopup = false;
     bool m_PlayAfterBuild = false;
     std::optional<Notice> m_Notice;
-    // Whether this session wrote the backup in the cache, which it removes once the scene has no unsaved changes or the project closes as it should
+    // Whether this session wrote the backup in the cache, which it removes once the scene is saved
     bool m_HasBackup = false;
     std::optional<Recovery> m_Recovery;
     bool m_OpenRecoveryPopup = false;
