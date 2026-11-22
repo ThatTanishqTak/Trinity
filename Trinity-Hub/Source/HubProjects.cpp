@@ -89,7 +89,7 @@ void HubProjects::Watch()
     }
 }
 
-// When the file was written is taken before it is read, so a write in between is read at the next look
+// The file's time is taken before it is read, so a write in between is read at the next look
 void HubProjects::Read(Reading& reading)
 {
     std::error_code l_Error;

@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-// What this machine has for each version's projects, found through Trinity-Tools as that version's Forge finds it: the .NET SDK band its C# builds with, and for C++ and for exports the compiler its manifest names, CMake 3.30 or newer and Ninja, and on Windows the GameInput runtime and a Vulkan loader, which Forge runs without. The tools are looked for on a job as Hub starts, on Check Again and once a version names a compiler not looked at yet, since Visual Studio's environment takes seconds, and each version's needs are read against what was found
+// What this machine has for each version, found through Trinity-Tools on a job as Forge finds it
 class HubRequirements
 {
 public:
@@ -34,7 +34,7 @@ public:
         std::string Remedy;
         // What to know of one found, as a compiler of another minor version than the version was built with
         std::string Note;
-        // Without it a language's scripts cannot build, so New Project greys that language. A row stopping neither is only noted
+        // Without it a language's scripts cannot build, so New Project greys it. Others are only noted
         bool StopsCSharp = false;
         bool StopsCpp = false;
     };
@@ -59,9 +59,9 @@ public:
     HubRequirements(const HubRequirements&) = delete;
     HubRequirements& operator=(const HubRequirements&) = delete;
 
-    // Every tool looked for again, on a job, for these versions, each version's toolchain read again. One asked for while a look is running starts once it ends
+    // Every tool looked for again, on a job. One asked for while a look runs starts once it ends
     void Check(const HubInstalls& installs);
-    // Once a frame: a look taken once it ends, and another started once a version listed since names a compiler not looked at yet
+    // Once a frame: a look taken once it ends, and another started for a compiler not looked at yet
     void Update(const HubInstalls& installs);
 
     [[nodiscard]] bool IsChecking() const { return m_Looking != nullptr; }
@@ -69,7 +69,7 @@ public:
     [[nodiscard]] std::optional<Report> GetReport(const HubInstall& install) const;
 
 private:
-    // What a C++ build in a version's Forge would use, found once for each compiler the versions were built with, as on Windows each is set up from its own Visual Studio
+    // What a C++ build in a version's Forge would use, found once for each compiler
     struct CppTools
     {
         std::string EnvironmentError;
@@ -103,7 +103,7 @@ private:
     };
 
     static void Look(Looking& looking);
-    // What a version's TrinityToolchain.cmake hands a module's build, from the first of its configurations that has one
+    // What a version's TrinityToolchain.cmake hands a module's build, from its first configuration
     [[nodiscard]] static std::filesystem::path FindPreferredCompiler(const HubInstall& install);
     [[nodiscard]] static Report Read(const Machine& machine, const HubInstall& install, const std::filesystem::path& compiler);
 

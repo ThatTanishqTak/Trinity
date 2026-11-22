@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-// The engine versions Hub knows, newest first, from Installs.yaml: each with its number, commit, date, configurations, the platforms it exports to, what this machine has for it, its folder and its size. Locate lists a folder holding a manifest, Install from File unpacks a version's zip, and Remove takes a located version off the list, or deletes an installed one's files once asked. A version's needs open in a popup with every tool, where it was found or where to get it. Beside them, in a tab of their own, Trinity's releases on GitHub, which Download installs
+// The engine versions Hub knows, newest first, and in a second tab Trinity's releases on GitHub
 class InstallsPage final : public HubPage
 {
 public:
@@ -41,15 +41,15 @@ private:
     void DrawDeletePopup();
     // What a version's Needs column shows, which opens its popup when clicked
     void DrawNeeds(const HubInstall& install);
-    // Every tool the version needs, found or not, what each is for and where to get one, what that comes to for each language, and Check Again
+    // Every tool the version needs, found or not, what each is for, where to get one, and Check Again
     void DrawNeedsPopup();
-    // needsNewerHub when it failed on something a newer Trinity or Hub wrote, so Get the Latest Hub is offered beneath it
+    // needsNewerHub when it failed on something newer, so Get the Latest Hub is offered beneath it
     void Report(std::string message, bool failed, bool needsNewerHub = false);
     // What is listed here that this Hub cannot read, with Get the Latest Hub
     void DrawNewerNotice();
     // Installed or located here, and not missing
     [[nodiscard]] bool IsInstalled(const HubRelease& release) const;
-    // Each installed version by the name its folder takes, so one installed again replaces it where it is
+    // Each installed version by the name its folder takes, so a reinstall replaces it where it is
     [[nodiscard]] std::vector<std::pair<std::string, std::filesystem::path>> GetInstalledFolders() const;
 
     HubInstalls& m_Installs;

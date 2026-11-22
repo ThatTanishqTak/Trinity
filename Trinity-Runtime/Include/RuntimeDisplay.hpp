@@ -2,11 +2,11 @@
 
 #include <Trinity.hpp>
 
-// The player's window, as its player and the game's scripts choose it through Screen: framed at a size, or borderless over its monitor at the monitor's own size, with vsync or without. Alt+Enter switches between the two. A change applies once the frame's update ends, as Unity's do. The choice, with the monitor the window is on and where it was while windowed, is kept in Display.yaml in the saves whenever it changes and as the player closes, so the next start opens as this one left it. A headless player is on no monitor, so where its window is is not kept
+// The player's window, as chosen through Screen, kept in Display.yaml. Alt+Enter toggles fullscreen
 class RuntimeDisplay final : public Trinity::ScreenHost
 {
 public:
-    // The game's window with its player's choice over it, read once the saves are mounted, before the window is made
+    // The game's window with its player's choice over it, read once the saves are mounted
     [[nodiscard]] static Trinity::DisplaySettings Load(const Trinity::WindowSettings& game);
     static void Configure(const Trinity::DisplaySettings& settings, Trinity::WindowSpecification& window);
 

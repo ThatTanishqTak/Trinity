@@ -9,7 +9,7 @@
 #include <span>
 #include <string>
 
-// Asks for a file or folder as Forge does: with the platform's own dialog, which opens between frames so it never blocks with one open, or with a text field in a popup where the platform has none
+// Asks for a file or folder as Forge does: the platform's dialog between frames, or a popup
 class HubPathPrompt
 {
 public:

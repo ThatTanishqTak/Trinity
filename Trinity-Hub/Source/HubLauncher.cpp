@@ -38,7 +38,7 @@ namespace
         return exitCode < 0 || exitCode > 255 ? std::format("{:#x}", static_cast<std::uint32_t>(exitCode)) : std::to_string(exitCode);
     }
 
-    // The message of the last line the log gives as an error or worse, without its time, logger and level, as [2026-11-07 05:41:29.123] FORGE   error    message, or empty when it has none
+    // The last line the log gives as an error or worse, without its time, logger and level, or empty
     std::string FindLastError(const std::filesystem::path& log)
     {
         std::ifstream l_Stream(log, std::ios::binary);
@@ -109,7 +109,7 @@ HubLauncher::Report HubLauncher::Open(const HubProject& project, const HubInstal
     return Start(project, install, Purpose::Open, { std::format("--project={}", HubText::ToUtf8(project.Entry.File)) });
 }
 
-// Forge backs the project up before anything of it changes, and ends with an error, the project as it was, when it cannot, and when one older than format 10 with both languages or neither is given none
+// Forge backs the project up before anything changes, and ends with an error when it cannot
 HubLauncher::Report HubLauncher::Upgrade(const HubProject& project, const HubInstall& install, std::optional<Trinity::ScriptLanguage> language)
 {
     std::vector<std::string> l_Options{ std::format("--upgrade-project={}", HubText::ToUtf8(project.Entry.File)) };
@@ -121,7 +121,7 @@ HubLauncher::Report HubLauncher::Upgrade(const HubProject& project, const HubIns
     return Start(project, install, Purpose::Upgrade, std::move(l_Options));
 }
 
-// The lock is only looked at, and let go of at once, so the Forge started takes it. One Hub started moments ago may not have taken it yet, so that one is asked after too. A project open in a Forge is not moved, as that Forge has it in its own version
+// The lock is only looked at, so the Forge started takes it. A project open in a Forge is not moved
 HubLauncher::Report HubLauncher::Start(const HubProject& project, const HubInstall& install, Purpose purpose, std::vector<std::string> options)
 {
     const std::string& l_Name = project.GetName();
@@ -184,7 +184,7 @@ HubLauncher::Report HubLauncher::Start(const HubProject& project, const HubInsta
     return { std::format("Opening {} in {}, process {}", l_Name, l_Version, l_ID), false };
 }
 
-// Started in Hub's own folder, logging into its Logs, as the project's folder must be new or empty for Forge to make it. Forge adds the project to the list as it makes it, through --hub, and opens it once made
+// Started in Hub's own folder, logging into its Logs, as the project's folder must be new or empty
 HubLauncher::Report HubLauncher::Create(const Creation& creation, const HubInstall& install)
 {
     const std::string l_Name = HubText::ToUtf8(creation.Directory.filename());
@@ -255,7 +255,7 @@ HubLauncher::Report HubLauncher::RunBuild(const HubProject& project)
     return { std::format("Running {}{}, exported {}from {}", l_Export->Product, l_Export->Development ? ", a Development Build" : "", l_Finished ? std::format("{} ", HubText::DescribeAge(*l_Finished)) : std::string(), HubText::ToUtf8(l_Folder)), false };
 }
 
-// Each Forge is asked every frame, which costs a call to the system, and the exports they record are looked at once a second. One moving a project fails until the project names its new version, as its backup may take far longer than the first seconds
+// Each Forge is asked every frame, and exports looked at once a second
 std::optional<HubLauncher::Report> HubLauncher::Update()
 {
     if (m_Launched.empty())
@@ -310,7 +310,7 @@ bool HubLauncher::TakeChanged()
     return std::exchange(m_Changed, false);
 }
 
-// A Forge that ended before its log was opened, as one missing a library does, left the log of the time before, if any, which is not read
+// A Forge that ended before opening its log left the log of the time before, which is not read
 std::string HubLauncher::DescribeFailure(const Launched& launched, int exitCode)
 {
     const std::string l_Code = DescribeExitCode(exitCode);
@@ -328,7 +328,7 @@ std::string HubLauncher::DescribeFailure(const Launched& launched, int exitCode)
     return std::format("Forge could not {} {}, and ended with exit code {}{}{}. Its log is {}", l_Doing, launched.Name, l_Code, l_Error.empty() ? std::string() : std::format(": {}", l_Error), l_Left, HubText::ToUtf8(launched.Log));
 }
 
-// Read from the disk as it ends, since the Forge writes the project's file with its new version once it is backed up and opened
+// Read from the disk as it ends, since Forge writes the project's new version once it is backed up
 bool HubLauncher::IsUnmoved(const Launched& launched)
 {
     if (launched.Doing != Purpose::Upgrade)
@@ -341,7 +341,7 @@ bool HubLauncher::IsUnmoved(const Launched& launched)
     return l_Info && l_Info->EngineVersion == launched.FromVersion;
 }
 
-// A Forge that failed by itself took away what it made, so a folder still there is what one that crashed left. Only a folder that was not there before Create is taken away, so nothing the person had is touched, and the project comes off the list, which Forge may have added it to
+// Only a folder that was not there before Create is taken away, so nothing of the person's is
 std::string HubLauncher::RemoveFailedCreation(const Launched& launched) const
 {
     const std::filesystem::path l_Directory = launched.ProjectFile.parent_path();

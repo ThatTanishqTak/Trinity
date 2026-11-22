@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-// Installs a version from its zip, which it may download from GitHub first, or deletes an installed one's files, on a job, one at a time. A download is checked against the release's .sha256, or GitHub's digest of it, as it arrives. An install checks the zip against the .sha256 beside it, when there is one, reads its manifest and checks every file it holds before it unpacks anything, then unpacks it into a staging folder beside the version's, which is renamed to the version's only once every file is there, so a failed or cancelled install leaves nothing behind, and one over a version already installed keeps that version until the new one is whole
+// On a job, one at a time. Unpacked to a staging folder, renamed once whole, so failure leaves none
 class HubInstaller
 {
 public:
@@ -48,9 +48,9 @@ public:
     HubInstaller(const HubInstaller&) = delete;
     HubInstaller& operator=(const HubInstaller&) = delete;
 
-    // installed names, as Trinity-<version>-<platform>-<architecture>, the folders of the versions installed already, so a version installed elsewhere is replaced where it is
+    // installed names the folders of versions installed already, so one is replaced where it is
     void Install(std::filesystem::path zip, std::filesystem::path installsDirectory, std::vector<std::pair<std::string, std::filesystem::path>> installed);
-    // Into a folder beside the versions, which is deleted once the install is done, whatever came of it, and then installed as a zip from the disk is
+    // Into a folder beside the versions, deleted once the install is done, then installed as a zip
     void Download(const HubRelease& release, std::filesystem::path installsDirectory, std::vector<std::pair<std::string, std::filesystem::path>> installed);
     // While Asking: unpacks over the version installed, or leaves it
     void Replace();
@@ -69,7 +69,7 @@ public:
     // What is being done, in one line
     [[nodiscard]] std::string Describe() const;
 
-    // What an install or delete cut short by Hub ending left in the folder: a download or a staging folder, which is deleted, and a version moved aside to be replaced, which is put back when its replacement never took its place, and otherwise deleted
+    // What a cut-short install or delete left: a download or staging folder, or a version moved aside
     static void CleanUp(const std::filesystem::path& installsDirectory);
 
 private:
@@ -84,7 +84,7 @@ private:
         std::vector<std::pair<std::string, std::filesystem::path>> Installed;
         std::filesystem::path Destination;
         Trinity::ZipArchive Archive;
-        // What the zip's paths begin with above the version's own files, its top folder and a slash, or nothing
+        // What the zip's paths begin with above the version's own files, its top folder and a slash
         std::string Root;
         Trinity::EngineManifest Manifest;
         bool Replacing = false;

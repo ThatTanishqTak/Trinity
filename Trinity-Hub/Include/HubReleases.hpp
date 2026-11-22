@@ -33,22 +33,22 @@ struct HubRelease
     // GitHub's own SHA-256 of the zip, in lowercase, or empty where it gives none
     std::string Digest;
 
-    // A download is checked against the .sha256, or else against GitHub's digest, and one with neither is not offered
+    // A download is checked against the .sha256, or GitHub's digest. One with neither is not offered
     [[nodiscard]] bool CanCheck() const { return !Sha256Url.empty() || !Digest.empty(); }
 };
 
-// The GitHub Releases of Trinity, through GitHub's REST API without a token, which answers 60 requests an hour from one address, so Hub asks at most once a minute, and asks again with the list's ETag, which GitHub answers with no list, and does not count, when nothing has changed. The last list is kept in Releases.yaml, so a Hub that cannot reach GitHub still shows it
+// GitHub's REST API without a token allows 60 requests an hour, so Hub asks at most once a minute
 class HubReleases
 {
 public:
     static constexpr std::uint32_t c_FormatVersion = 1;
     static constexpr std::string_view c_Path = "/saves/Releases.yaml";
     static constexpr std::string_view c_Repository = "ThatTanishqTak/Trinity";
-    // Hub's own releases are tagged so, as hub-v0.1.0, and hold a TrinityHub zip, which is no engine version, so the list leaves them out and does not count them
+    // Hub's own releases are tagged so, as hub-v0.1.0, and are no engine version, so are left out
     static constexpr std::string_view c_HubTagPrefix = "hub-v";
     static constexpr std::chrono::seconds c_Interval{ 60 };
 
-    // url is GitHub's list of the repository's releases, or a stand-in serving GitHub's replies, as --releases-url names one
+    // url is GitHub's list of the repository's releases, or a stand-in, as --releases-url names one
     explicit HubReleases(std::string url);
     ~HubReleases();
 
@@ -58,9 +58,9 @@ public:
     [[nodiscard]] static std::string GetDefaultUrl();
     // As GitHub requires of every request, naming Hub and Hub's own version
     [[nodiscard]] static std::string GetUserAgent();
-    // The repository's Releases page on GitHub, where the latest Hub's zip is got from, as Hub never updates itself
+    // The repository's Releases page on GitHub, where the latest Hub is, as Hub never updates itself
     [[nodiscard]] static std::string GetReleasesPage();
-    // The releases in GitHub's JSON with a zip for this platform and architecture, newest first, and how many have none
+    // The releases with a zip for this platform and architecture, newest first, and how many have none
     [[nodiscard]] static Trinity::Expected<std::vector<HubRelease>, std::string> Parse(std::string_view json, std::string_view platform, std::string_view architecture, std::size_t* others = nullptr);
 
     // The list kept from the last time, when it was got from the same address

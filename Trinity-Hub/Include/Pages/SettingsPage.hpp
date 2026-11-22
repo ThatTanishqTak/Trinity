@@ -8,7 +8,7 @@
 #include <string>
 #include <string_view>
 
-// Hub's appearance, where it installs versions and where New Project makes projects, which it keeps in Settings.yaml, the folder it keeps its lists in, and what Hub is
+// Hub's appearance, its installs and projects folders, the folder for its lists, and what Hub is
 class SettingsPage final : public HubPage
 {
 public:
@@ -20,7 +20,7 @@ public:
 
 private:
     void DrawAppearance();
-    // As Unity Hub's Installs and Projects locations: the folder a setting names now, with Change and, while it names one, Use Default for the folder Hub uses without it
+    // The folder a setting names now, with Change and, while it names one, Use Default
     void DrawLocation(std::string_view section, std::string& setting, const std::filesystem::path& directory, const std::filesystem::path& defaultDirectory, std::string_view prompt, std::string_view note);
     void DrawFolders();
     void DrawAbout();

@@ -19,7 +19,7 @@
 namespace
 {
     constexpr ImGuiWindowFlags c_ShellFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
-    // As Unity Hub's default projects location, in the person's Documents, or in Hub's working folder where there are none
+    // As Unity Hub's default projects location, in Documents, or in Hub's working folder without
     constexpr std::string_view c_ProjectsFolder = "Trinity Projects";
 }
 
@@ -29,7 +29,7 @@ HubLayer::HubLayer(std::filesystem::path directory, std::filesystem::path instal
     m_DefaultProjectsDirectory = std::filesystem::absolute(m_DefaultProjectsDirectory, l_Error);
     Trinity::Scope<InstallsPage> l_Installs = Trinity::CreateScope<InstallsPage>(m_Installs, m_Releases, m_Settings, m_PathPrompt, m_Requirements, m_DefaultInstallsDirectory);
     InstallsPage* l_InstallsPage = l_Installs.get();
-    // A version a project names, downloaded from the project's offer, is installed by the Installs page, which is shown so the download can be watched
+    // A version downloaded from a project's offer is installed by the Installs page, which is shown
     Trinity::Scope<ProjectsPage> l_Projects = Trinity::CreateScope<ProjectsPage>(m_Projects, m_Installs, m_Releases, m_PathPrompt, m_Launcher, [this, l_InstallsPage](const HubRelease& release)
     {
         l_InstallsPage->DownloadRelease(release);
@@ -40,7 +40,7 @@ HubLayer::HubLayer(std::filesystem::path directory, std::filesystem::path instal
         m_NewProject->OnShow();
     });
     ProjectsPage* l_ProjectsPage = l_Projects.get();
-    // A project New Project started making is told of on the Projects page, where it is listed once its Forge has added it
+    // A project New Project started is told of on the Projects page, listed once Forge adds it
     m_NewProject = Trinity::CreateScope<NewProjectPage>(m_Installs, m_Settings, m_PathPrompt, m_Launcher, m_Requirements, m_DefaultProjectsDirectory, [this, l_ProjectsPage](HubLauncher::Report report)
     {
         l_ProjectsPage->ShowReport(std::move(report));
@@ -59,7 +59,7 @@ void HubLayer::ShowPage(std::size_t page)
     m_Pages[m_Page]->OnShow();
 }
 
-// Only the UI is drawn, so the window gets no scene under it. What an install cut short by Hub ending left is cleared before the versions are listed, and the tools their projects build with are looked for once they are
+// Only the UI is drawn, so the window gets no scene. A cut-short install is cleared first
 void HubLayer::OnAttach()
 {
     m_Settings = HubSettings::Load();
@@ -78,7 +78,7 @@ void HubLayer::OnAttach()
     TR_INFO("Hub: keeping its lists and settings in {}, and installing versions in {}", HubText::ToUtf8(m_Directory), HubText::ToUtf8(m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory)));
 }
 
-// A dialog asked for opens here, between frames, and every page takes what its jobs finished, chosen or not
+// A dialog asked for opens here, between frames, and every page takes what its jobs finished
 void HubLayer::OnUpdate([[maybe_unused]] Trinity::Timestep timestep)
 {
     m_PathPrompt.Update();
@@ -125,7 +125,7 @@ void HubLayer::OnImGuiRender()
     ImGui::End();
 }
 
-// The pages by icon and name, the chosen one lit, under Hub's name, and Hub's own version at the foot, with the engine it is built on when hovered
+// The pages by icon and name, the chosen one lit, under Hub's name, with its version at the foot
 void HubLayer::DrawSidebar()
 {
     const float l_Width = ImGui::GetFontSize() * 13.0f;

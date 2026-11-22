@@ -42,7 +42,7 @@ void SettingsPage::Draw()
     DrawAbout();
 }
 
-// As Forge's preferences offer them: a theme of ImGui's three, and a size on top of the monitor's own scale, which Hub follows by itself
+// As Forge's preferences offer them: one of ImGui's three themes, and a size over the monitor's
 void SettingsPage::DrawAppearance()
 {
     HubPages::DrawSection("Appearance");
@@ -86,7 +86,7 @@ void SettingsPage::DrawAppearance()
     }
 }
 
-// The buttons come first and the folder below them, so a long path never pushes them out of the page. The setting is a member of m_Settings, so the folder chosen is kept in it when the dialog answers, between frames
+// The buttons come first and the folder below them, so a long path never pushes them off the page
 void SettingsPage::DrawLocation(std::string_view section, std::string& setting, const std::filesystem::path& directory, const std::filesystem::path& defaultDirectory, std::string_view prompt, std::string_view note)
 {
     ImGui::PushID(section.data(), section.data() + section.size());

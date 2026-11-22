@@ -2,7 +2,7 @@
 
 #include <string_view>
 
-// One of Hub's pages, which the sidebar lists by its icon and name and draws beside itself while it is chosen, as Unity Hub's are
+// One of Hub's pages, which the sidebar lists by its icon and name, as Unity Hub's are
 class HubPage
 {
 public:
@@ -12,7 +12,7 @@ public:
     [[nodiscard]] virtual const char* GetIcon() const = 0;
     // Each time the sidebar chooses it
     virtual void OnShow() {}
-    // Once a frame between frames, whether it is chosen or not, so what it started finishes while another page is shown
+    // Once a frame between frames, chosen or not, so what it started finishes on another page
     virtual void Update() {}
     virtual void Draw() = 0;
 };
@@ -31,6 +31,6 @@ namespace HubPages
     void DrawWarning(std::string_view text);
     // The text, and the whole of it in a tooltip while hovered, for a column too narrow to show it all
     void DrawClipped(std::string_view text);
-    // What a newer Trinity or Hub wrote that this Hub cannot read, in one line without its full stop, as a warning that says this Hub, by its version, needs updating, and Get the Latest Hub beneath it, which opens Hub's releases on GitHub, as Hub never updates itself
+    // A warning that this Hub needs updating, with Get the Latest Hub, as Hub never updates itself
     void DrawNeedsNewerHub(std::string_view text);
 }

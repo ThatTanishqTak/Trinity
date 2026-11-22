@@ -8,11 +8,11 @@
 #include <optional>
 #include <string>
 
-// Plays a game from its pack, as its Game.trgame describes it: through its physics, its mixer and its input actions, with its C++ module linked in or loaded from beside the pack, and its C# scripts compiled ahead of time beside it, from the first scene of its build, or the one --scene names, through the scene's primary camera, in a window as its player last left it. It never reads a project
+// Plays a game from its pack, as its Game.trgame describes it. It never reads a project
 class RuntimeLayer final : public Trinity::Layer
 {
 public:
-    // The game, or none for one that could not be opened, which was reported, so the player closes. Its folder holds its pack, and its module beside a shared engine. The display is the game's window with its player's choice over it, as the window was opened
+    // The game, or none for one that could not be opened, which was reported, so the player closes
     RuntimeLayer(std::optional<Trinity::GameSettings> game, std::filesystem::path gameDirectory, Trinity::DisplaySettings display);
 
     void OnAttach() override;

@@ -12,7 +12,7 @@
 
 namespace
 {
-    // How often Hub draws while it is behind another window or minimized, so left open it costs next to nothing
+    // How often Hub draws while behind another window or minimized, so it costs next to nothing
     constexpr float c_BackgroundFrameRate = 10.0f;
 
     std::optional<std::filesystem::path> GetSavesOption(const Trinity::ApplicationCommandLineArgs& args)
@@ -25,13 +25,13 @@ namespace
         return std::nullopt;
     }
 
-    // Where Hub keeps its lists, settings and lock: Hub in Trinity's folder of the user's data, where every Forge finds its projects list, or the folder --saves names, as every program's saves go there, so a check run with saves of its own never meets the person's Hub
+    // Hub in Trinity's user data folder, where every Forge finds it, or the folder --saves names
     std::filesystem::path GetHubDirectory(const Trinity::ApplicationCommandLineArgs& args)
     {
         return GetSavesOption(args).value_or(Trinity::ProjectList::GetHubDirectory());
     }
 
-    // Where Hub asks for Trinity's releases: GitHub's API, or the stand-in --releases-url names, serving GitHub's replies, as a check does
+    // GitHub's API, or the stand-in --releases-url names, serving GitHub's replies, as a check does
     std::string GetReleasesUrl(const Trinity::ApplicationCommandLineArgs& args)
     {
         if (const std::optional<std::string_view> l_Url = args.GetOption("releases-url"); l_Url && !l_Url->empty())
@@ -42,7 +42,7 @@ namespace
         return HubReleases::GetDefaultUrl();
     }
 
-    // Where Hub installs versions unless its settings name another: Versions beside Hub's own folder, or in the folder --saves names, for the same reason
+    // Versions beside Hub's own folder, or in the folder --saves names, unless the settings say
     std::filesystem::path GetInstallsDirectory(const Trinity::ApplicationCommandLineArgs& args)
     {
         const std::optional<std::filesystem::path> l_Saves = GetSavesOption(args);
@@ -66,7 +66,7 @@ private:
     Trinity::FileLock m_Lock;
 };
 
-// One Hub runs at a time: a second one started finds the first holding Hub.lock, brings its window forward, and ends before opening one of its own
+// One Hub runs at a time: a second finds the first holding Hub.lock, brings it forward and ends
 Trinity::Application* Trinity::CreateApplication(ApplicationCommandLineArgs args)
 {
     const std::filesystem::path l_Directory = GetHubDirectory(args);

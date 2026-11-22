@@ -36,7 +36,7 @@ namespace
         }
     };
 
-    // The PNG as an ImGui texture of its own, which ImGui's renderer creates at the next frame, or none when it cannot be read
+    // The PNG as an ImGui texture, which ImGui's renderer creates next frame, or none if unreadable
     std::unique_ptr<ImTextureData> LoadThumbnail(const std::filesystem::path& file)
     {
         std::ifstream l_Stream(file, std::ios::binary);
@@ -61,7 +61,7 @@ namespace
         return l_Texture;
     }
 
-    // Why a name cannot name a project's folder, by the rules of Windows, the narrowest of the platforms, so a project moves between them, or empty when it can. Spaces and any other letters are welcome
+    // Why a name cannot name a project's folder, by Windows' rules, the narrowest, or empty when it can
     std::string GetNameRefusal(std::string_view name)
     {
         if (name.find_first_not_of(' ') == std::string_view::npos)
@@ -109,7 +109,7 @@ NewProjectPage::NewProjectPage(const HubInstalls& installs, const HubSettings& s
 
 }
 
-// Layers are detached the last pushed first, so ImGui's overlay has gone by now, having destroyed every texture it drew, and only their memory is left. Were ImGui still here, each would be let go of first, so it keeps no pointer to one freed
+// Layers detach last pushed first, so ImGui has destroyed every texture by now. Only memory is left
 NewProjectPage::~NewProjectPage()
 {
     if (ImGui::GetCurrentContext() == nullptr)
@@ -132,7 +132,7 @@ const char* NewProjectPage::GetIcon() const
     return Trinity::Icons::c_Plus;
 }
 
-// The cards are read again at the next frame, as the version's folder may have been built again since
+// The cards are read again at the next frame, as the version's folder may have been rebuilt
 void NewProjectPage::OnShow()
 {
     const HubInstall* l_Newest = m_Installs.FindNewestUsable();
@@ -146,7 +146,7 @@ void NewProjectPage::OnShow()
     m_Problem.clear();
 }
 
-// A thumbnail never changes once uploaded, so its pixels are let go of, and ImGui's renderer destroys one released at its next frame
+// A thumbnail never changes once uploaded, so its pixels are let go of
 void NewProjectPage::Update()
 {
     for (const std::unique_ptr<ImTextureData>& it_Texture : m_Thumbnails)
@@ -181,7 +181,7 @@ void NewProjectPage::Draw()
             Leave();
         }
 
-        HubPages::DrawEmpty("No version to make a project in", "A project is made by a version of Trinity installed here. The Installs page installs one from GitHub or from a file, or lists a build with Locate.");
+        HubPages::DrawEmpty("No version to make a project in", "A project is made by a version of Trinity installed here. The Installs page installs or locates one.");
 
         return;
     }
@@ -213,7 +213,7 @@ void NewProjectPage::Draw()
     ImGui::EndChild();
 }
 
-// The versions this machine can make projects in, as the Installs page lists them, newest first, in a box as wide as the longest of them
+// The versions this machine can make projects in, newest first, in a box as wide as the longest
 void NewProjectPage::DrawVersion()
 {
     const HubInstall* l_Version = GetVersion();
@@ -281,7 +281,7 @@ void NewProjectPage::DrawCards()
     }
 }
 
-// The whole card is one selectable, drawn over with its thumbnail and its name, the chosen one lit and outlined
+// The whole card is one selectable, drawn over with its thumbnail and name, the chosen one lit
 void NewProjectPage::DrawCard(std::size_t index, float width)
 {
     const Card& l_Card = m_Cards[index];
@@ -369,7 +369,7 @@ void NewProjectPage::DrawLanguage()
     }
 
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Picked once, as the project is made, and never changed. Forge shows only that language's menus, templates and scripts, and builds only it. Its platform is picked in Forge's Build panel.");
+    ImGui::TextWrapped("Picked once, as the project is made, and never changed. Forge builds only that language.");
     ImGui::PopStyleColor();
     if (!l_Report)
     {
@@ -394,7 +394,7 @@ void NewProjectPage::DrawLanguage()
     }
 }
 
-// The name, the folder it goes in and the language, then the folder the project is made in, or why it cannot be, and Create
+// The name, its folder and the language, then where the project is made, or why not, and Create
 void NewProjectPage::DrawSettings()
 {
     HubPages::DrawSection("Project");
@@ -465,7 +465,7 @@ void NewProjectPage::DrawPicture(const Card& card, const ImVec2& minimum, const 
     l_DrawList.AddRectFilled(minimum, maximum, ImGui::GetColorU32(ImGuiCol_FrameBg), ImGui::GetStyle().FrameRounding);
     const float l_Width = maximum.x - minimum.x;
     const float l_Height = maximum.y - minimum.y;
-    // Once ImGui's renderer has made the texture, which it does in the frame after the thumbnail is read, so a texture it could not make is never drawn
+    // Once ImGui's renderer has made the texture, a frame after it is read, so a failed one never draws
     if (card.Thumbnail != nullptr && card.Thumbnail->Status == ImTextureStatus_OK && card.Thumbnail->Width > 0 && card.Thumbnail->Height > 0)
     {
         const float l_Scale = std::min(l_Width / static_cast<float>(card.Thumbnail->Width), l_Height / static_cast<float>(card.Thumbnail->Height));
@@ -583,7 +583,7 @@ void NewProjectPage::Leave()
     m_Cancelled();
 }
 
-// The card chosen before is chosen again in the version read, by its template's name, and the 3D one at first
+// The card chosen before is chosen again in the version read, by its template's name
 void NewProjectPage::ReadTemplates()
 {
     std::string l_Chosen(c_FirstTemplate);

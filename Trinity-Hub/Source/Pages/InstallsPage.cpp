@@ -52,7 +52,7 @@ const char* InstallsPage::GetIcon() const
     return Trinity::Icons::c_Cube;
 }
 
-// A build tree built again since shows its new commit, and GitHub is asked for its releases, unless it was within the last minute
+// A build tree built again shows its new commit, and GitHub is asked, at most once a minute
 void InstallsPage::OnShow()
 {
     m_Installs.Refresh();
@@ -95,7 +95,7 @@ void InstallsPage::Draw()
             ImGui::Spacing();
             if (m_Installs.GetInstalls().empty())
             {
-                HubPages::DrawEmpty("No engine versions yet", "Install a version from its zip, or locate one, such as a build tree's bin. Each is listed here, with the platforms it exports games to.");
+                HubPages::DrawEmpty("No engine versions yet", "Install a version from its zip, or locate one, such as a build tree's bin. Each is listed here.");
             }
             else
             {
@@ -158,7 +158,7 @@ void InstallsPage::Locate(const std::filesystem::path& directory)
     Report(std::format("Located {} in {}", l_Description, l_Directory), false);
 }
 
-// Into the installs folder, unless the version is installed somewhere already, which it then replaces where it is, once asked
+// Into the installs folder, or over the version where it is already installed, once asked
 void InstallsPage::InstallFromFile(const std::filesystem::path& zip)
 {
     if (m_Installer.IsBusy())
@@ -172,7 +172,7 @@ void InstallsPage::InstallFromFile(const std::filesystem::path& zip)
     m_Installer.Install(zip, m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory), GetInstalledFolders());
 }
 
-// Downloaded, checked against its hash, then installed as a zip from the disk is, so one already installed is asked about first
+// Downloaded, checked against its hash, then installed as a zip from the disk is
 void InstallsPage::DownloadRelease(const HubRelease& release)
 {
     if (m_Installer.IsBusy())
@@ -193,7 +193,7 @@ void InstallsPage::DownloadRelease(const HubRelease& release)
     m_Installer.Download(release, m_Settings.GetInstallsDirectory(m_DefaultInstallsDirectory), GetInstalledFolders());
 }
 
-// A located version, or one whose folder is gone, leaves the list at once. An installed one's files are deleted, once asked
+// A located version, or one whose folder is gone, leaves the list at once. Others ask first
 void InstallsPage::Remove(const std::filesystem::path& directory)
 {
     const HubInstall* l_Install = m_Installs.Find(directory);
@@ -243,7 +243,7 @@ void InstallsPage::DrawToolbar()
     ImGui::EndDisabled();
 }
 
-// What is being done with its progress and Cancel, the question an install over an installed version asks, or what the last thing done came to
+// What is being done with its progress and Cancel, a replace question, or the last result
 void InstallsPage::DrawStatus()
 {
     const HubInstaller::Stage l_Stage = m_Installer.GetStage();
@@ -312,12 +312,12 @@ void InstallsPage::DrawStatus()
     }
 }
 
-// Installs.yaml a newer Hub wrote, which lists nothing here, or versions whose manifests a newer Trinity wrote
+// Installs.yaml a newer Hub wrote, which lists nothing here, or manifests a newer Trinity wrote
 void InstallsPage::DrawNewerNotice()
 {
     if (m_Installs.IsFromNewerHub())
     {
-        HubPages::DrawNeedsNewerHub("Installs.yaml was written by a newer Hub, in a format this one does not read, so no version is listed from it, and it is left as it is, keeping none located or installed here");
+        HubPages::DrawNeedsNewerHub("Installs.yaml was written by a newer Hub, in a format this one does not read, so no version is listed from it");
         ImGui::Spacing();
 
         return;
@@ -473,7 +473,7 @@ void InstallsPage::DrawList()
     }
 }
 
-// Ready, or what is missing in the colour of a warning, either opening the popup, and nothing for a version this machine cannot run
+// Ready, or what is missing in the warning colour, either opening the popup
 void InstallsPage::DrawNeeds(const HubInstall& install)
 {
     if (!HubInstalls::IsUsable(install))
@@ -525,7 +525,7 @@ void InstallsPage::DrawNeeds(const HubInstall& install)
     }
 }
 
-// Closes by itself once the version is off the list, and shows the last look while another is running
+// Closes by itself once the version is off the list, and shows the last look while one runs
 void InstallsPage::DrawNeedsPopup()
 {
     if (std::exchange(m_OpenNeedsPopup, false))
@@ -695,7 +695,7 @@ void InstallsPage::DrawDeletePopup()
     ImGui::EndPopup();
 }
 
-// GitHub's releases with a zip for this platform, newest first, pre-releases only when asked for. Refresh asks again, at most once a minute, and a list GitHub could not give says why, with the last one kept
+// GitHub's releases with a zip for this platform, newest first. Refresh asks at most once a minute
 void InstallsPage::DrawReleases()
 {
     const bool l_Fetching = m_Releases.IsFetching();

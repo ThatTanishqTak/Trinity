@@ -116,7 +116,7 @@ void HubRequirements::Check(const HubInstalls& installs)
     Trinity::JobSystem::Submit([l_Looking] { Look(*l_Looking); }, &m_Jobs);
 }
 
-// A version listed since the last look is read once, and looked at again only for a compiler no version named before
+// A version listed since the last look is read once, and looked at again only for a new compiler
 void HubRequirements::Update(const HubInstalls& installs)
 {
     if (m_Looking && m_Looking->Done.load(std::memory_order_acquire))
@@ -165,7 +165,7 @@ std::optional<HubRequirements::Report> HubRequirements::GetReport(const HubInsta
     return Read(*m_Machine, install, a_Compiler->second);
 }
 
-// The .NET SDKs once for every version, and the C++ tools once for each compiler, in the environment that compiler's Forge builds in
+// The .NET SDKs once for every version, and the C++ tools once for each compiler's environment
 void HubRequirements::Look(Looking& looking)
 {
     Machine& l_Found = looking.Found;
@@ -243,7 +243,7 @@ std::filesystem::path HubRequirements::FindPreferredCompiler(const HubInstall& i
     return {};
 }
 
-// C# builds with the .NET SDK alone, though NativeAOT links an exported game with a C++ compiler, and C++ needs the compiler, CMake, and Ninja, or on Linux Make in its place. GameInput and the Vulkan loader stop neither, as Forge runs without them
+// C# needs the .NET SDK. C++ needs the compiler, CMake and Ninja. The rest stop neither
 HubRequirements::Report HubRequirements::Read(const Machine& machine, const HubInstall& install, const std::filesystem::path& compiler)
 {
     const Trinity::EngineManifest& l_Manifest = install.Manifest;

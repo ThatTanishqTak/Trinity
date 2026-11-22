@@ -68,7 +68,7 @@ HubSettings HubSettings::Load()
 
     if (l_Format > c_FormatVersion)
     {
-        TR_WARN("Hub: {} was written in format {} by a newer Hub, and this one reads format {} and older, so it starts with its own settings", c_Path, l_Format, c_FormatVersion);
+        TR_WARN("Hub: {} is format {} from a newer Hub. It reads {} and older: defaults used", c_Path, l_Format, c_FormatVersion);
 
         return l_Settings;
     }
@@ -80,7 +80,7 @@ HubSettings HubSettings::Load()
     }
     else if (!l_Theme.empty())
     {
-        TR_WARN("Hub: {} names a theme {}, which is none of dark, light and classic, so Hub is drawn {}", c_Path, l_Theme, l_Settings.ThemeKey);
+        TR_WARN("Hub: {} names a theme {}, not dark, light or classic, so Hub is drawn {}", c_Path, l_Theme, l_Settings.ThemeKey);
     }
 
     const std::string l_ScaleText = ReadScalar(l_Root, "Scale");
@@ -94,7 +94,7 @@ HubSettings HubSettings::Load()
         }
         else
         {
-            TR_WARN("Hub: {} names a scale {}, which is not a number from {} to {}, so Hub is drawn at {}", c_Path, l_ScaleText, Trinity::ImGuiLayer::c_MinimumUserScale, Trinity::ImGuiLayer::c_MaximumUserScale, l_Settings.Scale);
+            TR_WARN("Hub: {} names a scale {}, not a number from {} to {}, so Hub is drawn at {}", c_Path, l_ScaleText, Trinity::ImGuiLayer::c_MinimumUserScale, Trinity::ImGuiLayer::c_MaximumUserScale, l_Settings.Scale);
         }
     }
 

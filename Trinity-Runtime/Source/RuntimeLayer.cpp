@@ -55,7 +55,7 @@ RuntimeLayer::RuntimeLayer(std::optional<Trinity::GameSettings> game, std::files
 
 }
 
-// A game that cannot be played was reported where it failed, so the player only closes. The screen is the scripts' from the first one created
+// A game that cannot be played was reported where it failed, so the player only closes
 void RuntimeLayer::OnAttach()
 {
     Trinity::Application& l_Application = Trinity::Application::Get();
@@ -70,7 +70,7 @@ void RuntimeLayer::OnAttach()
     }
 }
 
-// The scene and its scripts go before the module whose code made them, and the game's assets before the registry that finds them. The window's settings are kept once no script can change them
+// The scene and its scripts go before the module that made them, and assets before the registry
 void RuntimeLayer::OnDetach()
 {
     m_Scenes.reset();
@@ -88,7 +88,7 @@ void RuntimeLayer::OnDetach()
     }
 }
 
-// The mix is the game's from the frame its mixer is ready, as Play's is in Forge, and the scene's UI shows over the window as it runs
+// The mix is the game's from the frame its mixer is ready, as Play's is in Forge
 void RuntimeLayer::OnUpdate(Trinity::Timestep timestep)
 {
     if (!m_MixerApplied && m_Mixer.IsReady())
@@ -126,7 +126,7 @@ void RuntimeLayer::OnEvent(Trinity::Event& event)
     }
 }
 
-// Through the scene's primary camera, for the window's shape, with the camera's exposure and curve, the scene's sprites and 4x MSAA, as the Game panel draws it. Nothing is drawn while the start scene loads, or in a scene with no camera
+// Through the scene's primary camera, as the Game panel draws it. Nothing while the scene loads
 void RuntimeLayer::OnPrepareRender([[maybe_unused]] Trinity::RHI::CommandList& commands)
 {
     Trinity::Scene* l_Scene = m_Scenes ? m_Scenes->GetScene() : nullptr;
@@ -160,7 +160,7 @@ void RuntimeLayer::OnPrepareRender([[maybe_unused]] Trinity::RHI::CommandList& c
     l_Renderer.SubmitScene(*l_Scene, Trinity::RenderView::FromCamera(l_Component, l_Camera.Get<Trinity::WorldTransformComponent>().Matrix, l_AspectRatio), l_Options);
 }
 
-// The pack's asset table, which finds each asset the build holds by its UUID or its path in the project, and reads it where the pack has it. No .meta file is read, and no project folder
+// The pack's asset table finds each asset by UUID or project path. No .meta or project is read
 bool RuntimeLayer::OpenAssets()
 {
     const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_Table = Trinity::FileSystem::ReadFile(Trinity::AssetTable::GetPath());
@@ -180,7 +180,7 @@ bool RuntimeLayer::OpenAssets()
     }
 
     Trinity::AssetManager::SetRegistry(m_Registry.get());
-    // A game ships one language's scripts, as its project has, so a script of the other kept in a scene is told of once
+    // A game ships one language's scripts, so a script of the other kept in a scene is told of once
     Trinity::ScriptRuntime::SetLanguage(!m_Game->Scripts.empty() ? std::optional(Trinity::ScriptLanguage::CSharp) : !m_Game->Module.empty() ? std::optional(Trinity::ScriptLanguage::Cpp) : std::nullopt);
     LoadModule();
     LoadScripts();
@@ -190,7 +190,7 @@ bool RuntimeLayer::OpenAssets()
     return true;
 }
 
-// A player trinity_add_game made has the module linked in, and registers its classes now that the engine has started. Beside the shared engine, the module's build beside the pack is loaded as Forge loads it. The prebuilt player with the static engine cannot load one
+// A linked module registers its classes now. Beside the shared engine, the module is loaded
 void RuntimeLayer::LoadModule()
 {
 #if !defined(TR_ENGINE_SHARED)
@@ -213,7 +213,7 @@ void RuntimeLayer::LoadModule()
     std::error_code l_Error;
     if (!std::filesystem::exists(l_Path, l_Error))
     {
-        TR_ERROR("Runtime: {} has the C++ module {}, which is not at {}, so its scripts and components are missing", m_Game->Product, m_Game->Module, ToUtf8(l_Path));
+        TR_ERROR("Runtime: {} has the C++ module {}, which is not at {}, so its scripts are gone", m_Game->Product, m_Game->Module, ToUtf8(l_Path));
 
         return;
     }
@@ -230,7 +230,7 @@ void RuntimeLayer::LoadModule()
     {
         if (const std::uint32_t l_Built = l_Version(); l_Built != Trinity::GameModule::c_ApiVersion)
         {
-            TR_ERROR("Runtime: {} was built for version {} of the module API, and this player has version {}, so it is not loaded. Exporting the game again builds it for this one", m_Game->Module, l_Built, Trinity::GameModule::c_ApiVersion);
+            TR_ERROR("Runtime: {} was built for module API version {}, not this player's {}. Re-export", m_Game->Module, l_Built, Trinity::GameModule::c_ApiVersion);
 
             return;
         }
@@ -248,11 +248,11 @@ void RuntimeLayer::LoadModule()
         TR_WARN("Runtime: {} exports no {}, so nothing in it runs", m_Game->Module, Trinity::GameModule::c_LoadFunction);
     }
 #else
-    TR_ERROR("Runtime: {} has the C++ module {}, which this player cannot load, since its engine is linked statically, so its scripts and components are missing. An export links the module into the player", m_Game->Product, m_Game->Module);
+    TR_ERROR("Runtime: {} has the C++ module {}, which a static player cannot load", m_Game->Product, m_Game->Module);
 #endif
 }
 
-// C# runs from the game's NativeAOT library, so no .NET need be installed. One that cannot start is reported, and the game plays on without its C# scripts. .NET is let go of as the application closes
+// C# runs from the game's NativeAOT library, so needs no .NET. If it cannot start, play goes on
 void RuntimeLayer::LoadScripts()
 {
     if (m_Game->Scripts.empty())
@@ -262,7 +262,7 @@ void RuntimeLayer::LoadScripts()
 
     if (!Trinity::ManagedScripts::StartCompiled(m_GameDirectory / FromUtf8(Trinity::GetScriptsLibraryName()), m_Game->Scripts))
     {
-        TR_ERROR("Runtime: {} has the C# scripts {}, which could not be started, so they are missing", m_Game->Product, m_Game->Scripts);
+        TR_ERROR("Runtime: {} has the C# scripts {}, which could not start, so they are missing", m_Game->Product, m_Game->Scripts);
     }
 }
 
@@ -288,7 +288,7 @@ void RuntimeLayer::UnloadModule()
     m_Module.Unload();
 }
 
-// The scene --scene names, by its path in the project or its UUID, which must be one of the build's, or the build's first, run by a scene manager with the game's physics, input actions and mix, as Play runs it in Forge
+// The scene --scene names, by project path or UUID, or the build's first, as Play runs it in Forge
 bool RuntimeLayer::LoadStartScene(const Trinity::ApplicationCommandLineArgs& args)
 {
     Trinity::Application& l_Application = Trinity::Application::Get();

@@ -71,7 +71,7 @@ namespace
         return l_Value;
     }
 
-    // JSON writes a character beyond the first 65536 as two escapes, a surrogate pair, which yaml-cpp refuses, so each pair becomes the character itself, in UTF-8, and a surrogate alone becomes U+FFFD, before the JSON is read as the YAML it otherwise is
+    // JSON's surrogate pairs, which yaml-cpp refuses, become the character in UTF-8, a lone one U+FFFD
     std::string JoinSurrogates(std::string_view json)
     {
         std::string l_Text;
@@ -181,7 +181,7 @@ std::string HubReleases::GetReleasesPage()
     return std::format("https://github.com/{}/releases", c_Repository);
 }
 
-// Drafts and Hub's own releases are left out, and so is a zip of another platform or a name that is no plain file name. Of two releases of one version, the newer is kept
+// Drafts, Hub's own releases and zips of other platforms are left out. The newer of two is kept
 Trinity::Expected<std::vector<HubRelease>, std::string> HubReleases::Parse(std::string_view json, std::string_view platform, std::string_view architecture, std::size_t* others)
 {
     YAML::Node l_Root;
@@ -298,7 +298,7 @@ void HubReleases::Load()
     }
     catch (const YAML::Exception& exception)
     {
-        TR_WARN("Hub: {} is not valid YAML, so Hub has no list of releases until it asks GitHub again: {}", c_Path, exception.what());
+        TR_WARN("Hub: {} is not valid YAML, so Hub has no releases list until it asks GitHub: {}", c_Path, exception.what());
 
         return;
     }
@@ -422,7 +422,7 @@ std::chrono::seconds HubReleases::GetWait() const
     return l_Since >= c_Interval || l_Since.count() < 0 ? std::chrono::seconds(0) : c_Interval - l_Since;
 }
 
-// Asked with the list's ETag, which GitHub answers with 304 and no list when nothing has changed. A refusal for the hour's requests being used says when they are given again
+// Asked with the list's ETag, which GitHub answers with 304 and no list when nothing has changed
 void HubReleases::Run(Fetch& fetch)
 {
     const std::string_view l_Host = GetHost(fetch.Url);
@@ -538,6 +538,6 @@ void HubReleases::Save() const
     const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(c_Path, std::string(l_Emitter.c_str()) + "\n");
     if (!l_Written)
     {
-        TR_WARN("Hub: {} could not be written, so the list of releases is asked for again as Hub next starts: {}", c_Path, Trinity::ToString(l_Written.GetError()));
+        TR_WARN("Hub: {} could not be written, so releases are asked for again next start: {}", c_Path, Trinity::ToString(l_Written.GetError()));
     }
 }

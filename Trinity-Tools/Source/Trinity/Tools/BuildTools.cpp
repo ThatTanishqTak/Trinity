@@ -26,7 +26,7 @@ namespace Trinity::Tools
             return std::string(reinterpret_cast<const char*>(l_Text.data()), l_Text.size());
         }
 
-        // What a program writes, its output and its errors a line at a time, and its exit code, or why it could not start
+        // A program's output and errors a line at a time, and its exit code, or why it could not start
         Expected<std::pair<int, std::vector<std::string>>, std::string> ReadLines(const std::filesystem::path& program, std::span<const std::string> arguments, const Process::Environment& environment, const std::atomic<bool>* cancel)
         {
             std::vector<std::string> l_Lines;
@@ -66,7 +66,7 @@ namespace Trinity::Tools
             return version.substr(0, l_End);
         }
 
-        // An SDK's version as dotnet groups them: 10.0.114 is major 10, minor 0, feature band 1 and patch 14, and a preview, after a hyphen, comes before its release
+        // As dotnet groups them: 10.0.114 is major 10, minor 0, feature band 1 and patch 14
         struct SdkVersion
         {
             std::string Text;
@@ -174,7 +174,7 @@ namespace Trinity::Tools
         return l_Sdks;
     }
 
-    // As dotnet reads global.json: the policy first keeps the SDKs within the version's feature band, minor or major, then those that roll forward the least pick the lowest band above it that has one, and the highest of those left is taken
+    // As dotnet reads global.json: SDKs in the policy's band, the least roll forward, then the highest
     std::optional<std::string> PickDotNetSdk(std::span<const std::string> installed, std::string_view version, std::string_view rollForward)
     {
         const std::optional<SdkVersion> l_Wanted = ParseSdkVersion(version);
@@ -291,7 +291,7 @@ namespace Trinity::Tools
         return l_Ran ? FindFirst(l_Ran->second, c_Version) : std::nullopt;
     }
 
-    // Kinds by CMake's names for them: cl says Compiler Version, Apple's Clang and every other Clang say clang version, and GCC names the Free Software Foundation, its version ending its first line
+    // By CMake's names: cl says Compiler Version, Clang says clang version, GCC names its Foundation
     Expected<Compiler, std::string> ReadCompiler(const std::filesystem::path& compiler, const Process::Environment& environment, const std::atomic<bool>* cancel)
     {
         std::string l_Stem = ToUtf8(compiler.stem());
@@ -349,7 +349,7 @@ namespace Trinity::Tools
         return leftId == rightId && !GetMajor(leftVersion).empty() && GetMajor(leftVersion) == GetMajor(rightVersion);
     }
 
-    // The line CMake/Package/TrinityToolchain.cmake.in writes for it, set(CMAKE_CXX_COMPILER [==[<path>]==])
+    // The line TrinityToolchain.cmake.in writes for it, set(CMAKE_CXX_COMPILER [==[<path>]==])
     std::filesystem::path ReadToolchainCompiler(const std::filesystem::path& toolchain)
     {
         std::ifstream l_File(toolchain, std::ios::binary);
@@ -361,7 +361,7 @@ namespace Trinity::Tools
     }
 
 #if defined(TR_PLATFORM_WINDOWS)
-    // The preferred compiler is <Visual Studio>/VC/Tools/MSVC/<toolset>/bin/Hostx64/x64/cl.exe, and vswhere, which every Visual Studio installer puts in the same place, names the newest with the C++ tools, whose default toolset Microsoft.VCToolsVersion.default.txt names
+    // vswhere names the newest Visual Studio with C++ tools, at its default toolset
     Expected<Compiler, std::string> FindVisualStudio(const std::filesystem::path& preferredCompiler, const std::atomic<bool>* cancel)
     {
         Compiler l_Studio;
@@ -419,7 +419,7 @@ namespace Trinity::Tools
         return l_Studio;
     }
 
-    // vcvars64.bat runs in a batch file that then lists every variable, at the preferred compiler's toolset when it is that one's Visual Studio
+    // vcvars64.bat runs in a batch file that then lists every variable, at the preferred toolset
     Expected<BuildEnvironment, std::string> FindBuildEnvironment(const std::filesystem::path& preferredCompiler, const std::atomic<bool>* cancel)
     {
         const Expected<Compiler, std::string> l_Studio = FindVisualStudio(preferredCompiler, cancel);
@@ -469,7 +469,7 @@ namespace Trinity::Tools
         return l_Result;
     }
 
-    // vulkan-1.dll is found in System32 as the engine loads it, where every Vulkan driver's installer puts it
+    // vulkan-1.dll is found in System32 as the engine loads it, where every Vulkan driver puts it
     std::filesystem::path FindVulkanLoader()
     {
         const Process::Environment l_Environment = Process::GetEnvironment();
@@ -499,7 +499,7 @@ namespace Trinity::Tools
     }
 #endif
 
-    // As CMake finds one: the toolchain's while it is there, then cl on Windows, and CXX, then c++, elsewhere
+    // As CMake finds one: the toolchain's while it is there, then cl on Windows, and CXX, then c++
     Expected<Compiler, std::string> FindCompiler(const std::filesystem::path& preferredCompiler, const Process::Environment& environment, const std::atomic<bool>* cancel)
     {
         std::error_code l_Error;

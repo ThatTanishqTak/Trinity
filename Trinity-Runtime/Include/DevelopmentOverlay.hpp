@@ -8,7 +8,7 @@
 
 struct ImGuiViewport;
 
-// A Development player's overlay, drawn by ImGui over the game, which never takes its input: a Development Build mark always in the bottom right corner, with how many errors and warnings the game has logged since it started once there are any, and on F3 the frame's statistics and the sound's in the top left and the last log lines along the bottom, errors red and warnings yellow. F4 moves RmlUi's debugger on through the game's documents, which the mark names it as inspecting. F3 and F4 are taken from the game. None of it is in a Distribution player
+// A Development player's overlay, drawn by ImGui over the game. F3 shows stats, F4 the debugger
 class DevelopmentOverlay final : public Trinity::Layer
 {
 public:

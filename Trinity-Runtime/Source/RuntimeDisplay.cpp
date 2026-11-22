@@ -16,7 +16,7 @@ namespace
     }
 }
 
-// No Display.yaml is the first start, and one that cannot be read gives way to the game's window, reported
+// No Display.yaml is the first start. One that cannot be read gives way to the game's window
 Trinity::DisplaySettings RuntimeDisplay::Load(const Trinity::WindowSettings& game)
 {
     Trinity::DisplaySettings l_Game;
@@ -89,7 +89,7 @@ void RuntimeDisplay::OnEvent(Trinity::Event& event)
     });
 }
 
-// Into fullscreen, the window first takes the windowed size asked for, so it comes back at it. Out of it, the window comes back where it was, then takes the size, which a fullscreen window was only given to keep
+// Into fullscreen, the window first takes the windowed size asked for, so it comes back at it
 void RuntimeDisplay::Apply()
 {
     if (!std::exchange(m_Requested, false))
@@ -160,7 +160,7 @@ void RuntimeDisplay::Request(const Trinity::ScreenRequest& request)
     m_Requested = true;
 }
 
-// Nothing is taken from a minimized window, whose place and size Windows keeps off screen, or from a fullscreen one, whose are the monitor's
+// Nothing is taken from a minimized or fullscreen window, whose place and size are not its own
 void RuntimeDisplay::Follow()
 {
     const Trinity::Window& l_Window = Trinity::Application::Get().GetWindow();

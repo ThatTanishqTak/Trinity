@@ -103,7 +103,7 @@ void HubInstalls::Load()
     }
     catch (const YAML::Exception& exception)
     {
-        TR_WARN("Hub: {} is not valid YAML, so Hub lists no versions, and writes it again once one is located or installed: {}", c_Path, exception.what());
+        TR_WARN("Hub: {} is not valid YAML, so Hub lists no versions until one is added: {}", c_Path, exception.what());
 
         return;
     }
@@ -113,14 +113,14 @@ void HubInstalls::Load()
     const std::from_chars_result l_Parsed = std::from_chars(l_FormatText.data(), l_FormatText.data() + l_FormatText.size(), l_Format);
     if (l_Parsed.ec != std::errc() || l_Parsed.ptr != l_FormatText.data() + l_FormatText.size() || l_Format == 0)
     {
-        TR_WARN("Hub: {} has no valid Format version, so Hub lists no versions, and writes it again once one is located or installed", c_Path);
+        TR_WARN("Hub: {} has no valid Format version, so Hub lists no versions until one is added", c_Path);
 
         return;
     }
 
     if (l_Format > c_FormatVersion)
     {
-        TR_WARN("Hub: {} was written in format {} by a newer Hub, and this one reads format {} and older, so it lists no versions and leaves the file as it is", c_Path, l_Format, c_FormatVersion);
+        TR_WARN("Hub: {} is format {} from a newer Hub. This one reads {} and older: left alone", c_Path, l_Format, c_FormatVersion);
         m_Writable = false;
 
         return;
@@ -137,7 +137,7 @@ void HubInstalls::Load()
             const std::string l_Origin = it_Item.IsMap() ? ReadScalar(it_Item, "Origin") : std::string();
             if (l_Directory.empty() || (l_Origin != "Installed" && l_Origin != "Located"))
             {
-                TR_WARN("Hub: version {} in {} names no folder, or neither Installed nor Located, so it is left out", l_Index, c_Path);
+                TR_WARN("Hub: version {} in {} names no folder, or no Installed or Located: left out", l_Index, c_Path);
 
                 continue;
             }
@@ -320,7 +320,7 @@ void HubInstalls::Save() const
 {
     if (!m_Writable)
     {
-        TR_WARN("Hub: {} is of a newer format, which this Hub never writes over, so this change to the list lasts until Hub closes", c_Path);
+        TR_WARN("Hub: {} is of a newer format, so this change to the list lasts until Hub closes", c_Path);
 
         return;
     }
@@ -353,7 +353,7 @@ void HubInstalls::Save() const
     const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(c_Path, std::string(l_Emitter.c_str()) + "\n");
     if (!l_Written)
     {
-        TR_WARN("Hub: {} could not be written, so this list of versions lasts until Hub closes: {}", c_Path, Trinity::ToString(l_Written.GetError()));
+        TR_WARN("Hub: {} could not be written, so this versions list lasts until Hub closes: {}", c_Path, Trinity::ToString(l_Written.GetError()));
     }
 }
 
@@ -428,7 +428,7 @@ void HubInstalls::CountSizes()
     Trinity::JobSystem::Submit([l_Count] { Count(*l_Count); }, &m_Jobs);
 }
 
-// Every file under each folder, not following links, so a link to somewhere else is not counted as the version's
+// Every file under each folder, not following links, so a link elsewhere is not counted
 void HubInstalls::Count(SizeCount& count)
 {
     for (std::size_t it_Index = 0; it_Index < count.Directories.size(); ++it_Index)

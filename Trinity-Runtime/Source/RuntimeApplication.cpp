@@ -11,7 +11,7 @@
 namespace
 {
     constexpr std::string_view c_PackFileName = "Game.trpak";
-    // A Development player reads every file of its pack as it mounts it, so a file changed since the export is named as the game starts, one only ever streamed too
+    // A Development player reads every file of its pack as it mounts, naming any changed since export
 #if defined(TR_DISTRIBUTION)
     constexpr bool c_CheckPackFiles = false;
 #else
@@ -48,7 +48,7 @@ namespace
     }
 }
 
-// The player. Its main, with the Agility SDK's exports, is in this file, so every player that links the runtime's objects has them, the prebuilt one and a game's alike. The display was read as the window was made. A game that opened has, outside Distribution, the Development overlay over it, drawn by an ImGui that keeps no settings in the game's saves, draws nothing outside its window and keeps no input from the game
+// Its main, with the Agility SDK's exports, is in this file, so every player that links it has them
 class RuntimeApplication final : public Trinity::Application
 {
 public:
@@ -70,7 +70,7 @@ public:
 };
 
 
-// The game's pack, Game.trpak beside the executable as an export leaves it, or the one --pack names, is opened before the application starts, so the game's saves and log go under its company and product, its window is named for it and opens as its player last left it, and its graphics APIs are tried in its order. A game that cannot be opened is reported, in a box unless headless, and the player closes at once without a window. C# scripts run in a player once their ahead-of-time library does, so .NET is not started
+// The pack is opened before the application starts, so saves, log and window are the game's own
 Trinity::Application* Trinity::CreateApplication(ApplicationCommandLineArgs args)
 {
     ApplicationSpecification l_Specification;
@@ -100,7 +100,7 @@ Trinity::Application* Trinity::CreateApplication(ApplicationCommandLineArgs args
     l_Specification.Company = l_Game->Company;
     l_Specification.GraphicsOrder = l_Game->GraphicsAPIs;
 
-    // The player's choice is in its saves, which are mounted once the application knows the company and product
+    // The player's choice is in its saves, mounted once the application knows company and product
     const Ref<DisplaySettings> l_Display = CreateRef<DisplaySettings>();
     l_Specification.ConfigureWindow = [l_Display, l_Window = l_Game->Window](WindowSpecification& window)
     {

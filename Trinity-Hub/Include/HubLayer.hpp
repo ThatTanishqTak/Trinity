@@ -16,11 +16,11 @@
 #include <string>
 #include <vector>
 
-// Hub's one window, as Unity Hub's is: a sidebar of its pages, Projects, Installs and Settings, beside the chosen page, filling the window with no docking and no window of its own outside it. New Project, opened from the Projects page, takes that page's place until it is left
+// Hub's one window, as Unity Hub's: a sidebar of its pages beside the chosen page, with no docking
 class HubLayer final : public Trinity::Layer
 {
 public:
-    // directory is the folder Hub keeps its lists in, installsDirectory where it installs versions unless its settings name another, and releasesUrl where it asks for Trinity's releases. New Project makes projects in Trinity Projects in the person's Documents unless the settings name another folder
+    // directory holds Hub's lists, installsDirectory its versions, releasesUrl is where it asks
     HubLayer(std::filesystem::path directory, std::filesystem::path installsDirectory, std::string releasesUrl);
 
     void OnAttach() override;
@@ -41,7 +41,7 @@ private:
     HubPathPrompt m_PathPrompt;
     // Each Forge Hub starts, from the Projects page or New Project, kept hold of until it ends
     HubLauncher m_Launcher;
-    // What this machine has for each version, which the Installs page shows and New Project greys languages by
+    // What this machine has for each version, for the Installs page and New Project's languages
     HubRequirements m_Requirements;
     // After what they are given, so they go first
     std::vector<Trinity::Scope<HubPage>> m_Pages;

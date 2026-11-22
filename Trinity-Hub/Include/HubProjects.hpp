@@ -30,7 +30,7 @@ struct HubProject
     [[nodiscard]] const std::string& GetEngineVersion() const { return Info ? Info->EngineVersion : Entry.EngineVersion; }
 };
 
-// Hub's view of the projects list, Projects.yaml in its folder, read on a job with each project's file and last export, which never mounts a project. While the Projects page is shown, the list's file is looked at once a second and read again once it changes, as when a Forge opens a project
+// Projects.yaml in Hub's folder, read on a job, never mounting a project. Reread as it changes
 class HubProjects
 {
 public:
@@ -49,7 +49,7 @@ public:
 
     [[nodiscard]] bool IsRefreshing() const { return m_Reading != nullptr; }
     [[nodiscard]] const std::vector<HubProject>& GetProjects() const { return m_Projects; }
-    // Counted up each time the list is read again, so what is searched and sorted from it is known to be out of date
+    // Counted up each time the list is read again, so what was sorted from it is known stale
     [[nodiscard]] std::uint64_t GetGeneration() const { return m_Generation; }
     // Why the list could not be read, or empty when it was
     [[nodiscard]] const std::string& GetProblem() const { return m_Problem; }

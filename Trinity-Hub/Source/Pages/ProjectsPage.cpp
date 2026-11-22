@@ -24,7 +24,7 @@ namespace
     constexpr const char* c_UpgradePopup = "Open in a Newer Version###HubUpgrade";
     constexpr const char* c_OpenWithPopup = "##OpenWith";
 
-    // The files Forge saves again as it moves a project, by the format each version's manifest names for them
+    // The files Forge saves again as it moves a project, by the format each manifest names for them
     struct FormatKind
     {
         std::string_view Name;
@@ -33,7 +33,7 @@ namespace
 
     constexpr std::array<FormatKind, 6> c_SavedAgain{ { { "scenes", &Trinity::EngineFormats::Scene },{ "prefabs", &Trinity::EngineFormats::Prefab },{ "input actions", &Trinity::EngineFormats::InputActions },{ "mixers", &Trinity::EngineFormats::AudioMixer },{ "sound events", &Trinity::EngineFormats::SoundEvent },{ ".meta files", &Trinity::EngineFormats::Meta } } };
 
-    // How a version stands to a project: the one it names, newer, which moves it there once asked, or older, which never opens it, as a project never moves to an older version. One naming no version, as before versions were kept, is older than every version, and one of a project format newer than a version reads is newer than that version, whatever it names
+    // How a version stands to a project: its own, newer, which moves it once asked, or older, never
     enum class VersionFit : std::uint8_t
     {
         Its,
@@ -126,7 +126,7 @@ namespace
             {
                 const std::string l_From = project.GetEngineVersion().empty() ? std::string("names no version") : std::format("was made with Trinity {}", project.GetEngineVersion());
 
-                return std::format("{} {}. Opening it here moves it to Trinity {}, which asks first, then backs it up and saves its files in that version's formats", l_Name, l_From, l_Version);
+                return std::format("{} {}. Opening it here moves it to Trinity {}, which asks first, then backs it up and saves it in that version's formats", l_Name, l_From, l_Version);
             }
             default:
             {
@@ -140,7 +140,7 @@ namespace
         }
     }
 
-    // A build of the version the project names, whose manifest says the formats it wrote, or none when none is here
+    // A build of the version the project names, whose manifest says its formats, or none
     const HubInstall* FindFormats(const HubInstalls& installs, std::string_view version)
     {
         const auto a_Install = std::ranges::find_if(installs.GetInstalls(), [version](const HubInstall& install)
@@ -151,7 +151,7 @@ namespace
         return a_Install != installs.GetInstalls().end() ? &*a_Install : nullptr;
     }
 
-    // The project file's format, from what its file says, and each other's from the manifest of the version the project names, where a build of it is here to say
+    // The project file's format from its file, and the others from the named version's manifest
     std::string DescribeFormatChanges(const HubProject& project, const HubInstall* from, const HubInstall& to)
     {
         const Trinity::EngineFormats& l_To = to.Manifest.Formats;
@@ -225,7 +225,7 @@ void ProjectsPage::Draw()
     }
     else if (const std::size_t l_Newer = static_cast<std::size_t>(std::ranges::count_if(m_Projects.GetProjects(), &IsNewerProject)); l_Newer > 0 && m_Message.empty())
     {
-        HubPages::DrawNeedsNewerHub(l_Newer == 1 ? std::string("A project listed here is of a project format a newer Trinity wrote, which this Hub does not read, so what it shows of it may be wrong, though the version it names opens it") : std::format("{} projects listed here are of a project format a newer Trinity wrote, which this Hub does not read, so what it shows of them may be wrong, though the versions they name open them", l_Newer));
+        HubPages::DrawNeedsNewerHub(l_Newer == 1 ? std::string("A project listed here is of a format a newer Trinity wrote, so what Hub shows of it may be wrong") : std::format("{} projects listed here are of a format a newer Trinity wrote, so what Hub shows of them may be wrong", l_Newer));
     }
     else if (!m_Message.empty())
     {
@@ -250,7 +250,7 @@ void ProjectsPage::Draw()
     ImGui::Spacing();
     if (m_Projects.GetProjects().empty())
     {
-        HubPages::DrawEmpty("No projects yet", "Every project opened or created with Trinity is listed here, with the engine version it opens in. New Project makes one from a template, and Add lists one already on the disk, by its folder or its .trproj.");
+        HubPages::DrawEmpty("No projects yet", "Every project opened or created with Trinity is listed here. New Project makes one, and Add lists one already on disk.");
 
         return;
     }
@@ -330,7 +330,7 @@ void ProjectsPage::OpenProject(const std::filesystem::path& file)
     m_OpenOfferPopup = true;
 }
 
-// A version greyed in the list never gets here, though one chosen as the list changed is refused all the same
+// A version greyed in the list never gets here, though one chosen as the list changed is refused
 void ProjectsPage::OpenWith(const std::filesystem::path& file, const std::filesystem::path& install)
 {
     const HubProject* l_Project = FindProject(file);
@@ -753,7 +753,7 @@ void ProjectsPage::DrawVersions(const HubProject& project, std::optional<Choice>
     }
 }
 
-// What Back Up and Open starts is told of on the page, and a Forge that fails to move the project, before the project names its new version, is told of as it ends
+// What Back Up and Open starts is told of on the page, and a failed move as its Forge ends
 void ProjectsPage::DrawUpgradePopup()
 {
     if (std::exchange(m_OpenUpgradePopup, false))
@@ -787,16 +787,16 @@ void ProjectsPage::DrawUpgradePopup()
     ImGui::Spacing();
     // Bullet and text rather than BulletText, which does not wrap
     ImGui::Bullet();
-    ImGui::TextUnformatted("It is backed up first, as a zip beside its folder named for its version and the day, holding everything but Cache, Build and Builds.");
+    ImGui::TextUnformatted("It is backed up first, as a zip beside its folder, holding everything but Cache, Build and Builds.");
     ImGui::Bullet();
-    ImGui::TextUnformatted(std::format("{} Every scene, prefab, input actions asset, mixer and sound event is saved again in Trinity {}'s formats, those already in them left as they are, and its scripts are built again.", DescribeFormatChanges(*l_Project, FindFormats(m_Installs, l_Project->GetEngineVersion()), *l_Install), l_New).c_str());
+    ImGui::TextUnformatted(std::format("{} Every scene, prefab and other asset is saved again in Trinity {}'s formats, and its scripts are built again.", DescribeFormatChanges(*l_Project, FindFormats(m_Installs, l_Project->GetEngineVersion()), *l_Install), l_New).c_str());
     ImGui::Bullet();
     ImGui::TextUnformatted(std::format("{} cannot open it afterwards.", l_Old).c_str());
     if (l_AskLanguage)
     {
         ImGui::Spacing();
         ImGui::TextUnformatted(std::format("It was made before a project had one language, and has {}. Which language does it keep?", l_Info.HasModule ? "both a C++ module and a C# project" : "no scripts yet").c_str());
-        ImGui::TextDisabled(l_Info.HasModule ? "It cannot change later. The other language's files stay on disk, unbuilt, and its scripts in scenes are kept with their values and do not run." : "It cannot change later.");
+        ImGui::TextDisabled(l_Info.HasModule ? "It cannot change later. The other language's files stay on disk, unbuilt, and its scripts in scenes do not run." : "It cannot change later.");
         if (ImGui::RadioButton("C#", m_Upgrade->Language == Trinity::ScriptLanguage::CSharp))
         {
             m_Upgrade->Language = Trinity::ScriptLanguage::CSharp;
@@ -845,7 +845,7 @@ const HubProject* ProjectsPage::FindProject(const std::filesystem::path& file) c
     return a_Project != m_Projects.GetProjects().end() ? &*a_Project : nullptr;
 }
 
-// Each project's name and folder were made lowercase as the list was read, so the search is one look into each, and a thousand projects are searched and sorted well within a frame
+// Names and folders were made lowercase as the list was read, so a search is one look into each
 void ProjectsPage::Order()
 {
     const std::string l_Search = ToLower(m_Search);
@@ -900,7 +900,7 @@ void ProjectsPage::Order()
     m_Reorder = false;
 }
 
-// Missing first, then a file that could not be read or is of a format newer than this Hub reads, then the engine version: installed here, newer than any installed, or not installed
+// Missing first, then an unreadable or newer file, then how its engine version stands here
 std::string ProjectsPage::DescribeState(const HubProject& project, bool& warning) const
 {
     warning = true;

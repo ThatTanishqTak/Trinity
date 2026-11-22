@@ -12,11 +12,11 @@
 
 namespace
 {
-    // How far the panels keep from the window's edges, how much of the game shows through them, and how much of the window's width the log takes at most, so it stays clear of the mark
+    // The panels' margin from the window's edges, their opacity, and the log's share of the width
     constexpr float c_Margin = 8.0f;
     constexpr float c_Opacity = 0.6f;
     constexpr float c_LogWidth = 0.62f;
-    // The menu RmlUi's debugger lays across the top of the view in its dp, which the statistics go under while it is open
+    // The menu RmlUi's debugger lays across the top, in its dp, which the statistics go under
     constexpr float c_DebuggerMenuHeight = 32.0f;
 
     constexpr ImVec4 c_ErrorColor{ 1.0f, 0.4f, 0.4f, 1.0f };
@@ -26,7 +26,7 @@ namespace
     // A panel ImGui never gives the pointer, the keyboard or the focus to, and keeps nothing of
     constexpr ImGuiWindowFlags c_PanelFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize;
 
-    // In the corner of the window the pivot names, 0 for the left or top and 1 for the right or bottom, a top one lowered by what lies across the top. Always to be ended with ImGui::End
+    // In the corner the pivot names, a top one lowered by top. Always to be ended with ImGui::End
     bool BeginPanel(const char* name, const ImGuiViewport& viewport, ImVec2 pivot, float top = 0.0f)
     {
         const ImVec2 l_Position(viewport.WorkPos.x + (pivot.x == 0.0f ? c_Margin : viewport.WorkSize.x - c_Margin), viewport.WorkPos.y + (pivot.y == 0.0f ? top + c_Margin : viewport.WorkSize.y - c_Margin));
@@ -53,7 +53,7 @@ namespace
         return std::format("{} {}{}", count, thing, count == 1 ? "" : "s");
     }
 
-    // As Forge's Game panel shows the sound: the voices mixed and those kept unheard, the sound events playing and the streams read from files, then how long each period of sound took to mix, on average and at most, over about the last half second
+    // As Forge's Game panel shows the sound: voices, sound events, streams, and mix time
     void AudioLines(const Trinity::AudioEngine* engine, Trinity::AudioScene* scene)
     {
         if (engine == nullptr)
@@ -111,7 +111,7 @@ DevelopmentOverlay::DevelopmentOverlay() : Layer("Development")
 
 }
 
-// F3 shows and hides the statistics and the log, and F4 moves the debugger on. Neither reaches the layers below, nor the game's reads of the keyboard, a held key's repeats included
+// F3 shows and hides the statistics and the log, and F4 moves the debugger. The game sees neither
 void DevelopmentOverlay::OnEvent(Trinity::Event& event)
 {
     Trinity::EventDispatcher l_Dispatcher(event);
@@ -172,7 +172,7 @@ void DevelopmentOverlay::OnImGuiRender()
     }
 }
 
-// From the newest line back to the first not yet counted, then forwards, so a frame reads only what was logged since the last. Lines logged before the overlay started count too, as the history keeps them from the player's start
+// From the newest line back to the first not yet counted, so a frame reads only what is new
 void DevelopmentOverlay::CountLog()
 {
     const Trinity::LogHistory::Reader l_Reader = Trinity::LogHistory::Read();
@@ -191,7 +191,7 @@ void DevelopmentOverlay::CountLog()
     }
 }
 
-// In the bottom right corner, as Unity's is, with the counts beside it, the debugger's document under it while it is open, and the keys while nothing is shown
+// In the bottom right corner, as Unity's is, with the counts beside it and the debugger's document
 void DevelopmentOverlay::DrawMark(const ImGuiViewport& viewport) const
 {
     if (BeginPanel("##DevelopmentMark", viewport, ImVec2(1.0f, 1.0f)))
@@ -224,7 +224,7 @@ void DevelopmentOverlay::DrawMark(const ImGuiViewport& viewport) const
     ImGui::End();
 }
 
-// In the top left corner, under the debugger's menu while it is open: the frame rate and time ImGui averages, the device and the view's size, each GPU memory heap's budget and use, what the last frame drew, and the sound
+// In the top left corner: frame rate, device, view size, GPU memory, the last frame, and the sound
 void DevelopmentOverlay::DrawStats(const ImGuiViewport& viewport) const
 {
     Trinity::Application& l_Application = Trinity::Application::Get();
@@ -260,7 +260,7 @@ void DevelopmentOverlay::DrawStats(const ImGuiViewport& viewport) const
     ImGui::End();
 }
 
-// Along the bottom, from the left, the newest last. The lines are copied out of the history first, so nothing logged while ImGui draws waits on its lock
+// Along the bottom, newest last. Lines are copied out first, so nothing waits on the history's lock
 void DevelopmentOverlay::DrawLog(const ImGuiViewport& viewport) const
 {
     std::vector<std::pair<Trinity::LogLevel, std::string>> l_Lines;

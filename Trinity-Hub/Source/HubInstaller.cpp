@@ -29,7 +29,7 @@ namespace
         return directory.parent_path() / HubText::FromUtf8(std::format(".{}{}", HubText::ToUtf8(directory.filename()), suffix));
     }
 
-    // A path in a zip that stays inside the folder it unpacks into, on every platform: no root, drive or backslash, and no folder that is empty, . or ..
+    // A path that stays inside the folder it unpacks into: no root, drive or backslash, no . or ..
     bool IsSafePath(std::string_view path)
     {
         if (path.empty() || path.front() == '/' || path.find_first_of("\\:") != std::string_view::npos)
@@ -70,7 +70,7 @@ namespace
         return !l_Folder.empty() && a_Mismatch.first == l_Folder.end();
     }
 
-    // The first word of a .sha256, as sha256sum and Package.cmake write one, in lowercase, or empty when it is no SHA-256
+    // The first word of a .sha256, as sha256sum and Package.cmake write one, lowercase, or empty
     std::string ParseExpectedHash(std::string_view text)
     {
         const std::size_t l_Start = text.find_first_not_of(" \t\r\n");
@@ -331,7 +331,7 @@ void HubInstaller::Submit(void (*work)(Running&))
     Trinity::JobSystem::Submit([l_Running, work] { work(*l_Running); }, &m_Jobs);
 }
 
-// The release's .sha256 first, when it has one, then its zip, hashed as it arrives, which goes on to be installed only when it matches. GitHub serves a release's files by a redirect, which is followed
+// The .sha256 first, then the zip, hashed as it arrives. GitHub's redirect is followed
 void HubInstaller::Receive(Running& running)
 {
     const HubRelease& l_Release = *running.Release;
@@ -465,7 +465,7 @@ void HubInstaller::Receive(Running& running)
     const std::string l_Actual = Trinity::Hash::Sha256::ToHex(l_Hash.Finish());
     if (l_Actual != l_Expected)
     {
-        l_Finish(std::format("{} was downloaded, but not installed, as it does not match {}, so it was damaged on its way: it hashes to {}, and {} was expected", l_Zip, l_Source, l_Actual, l_Expected));
+        l_Finish(std::format("{} was downloaded but not installed: it does not match {}. It hashes to {}, and {} was expected", l_Zip, l_Source, l_Actual, l_Expected));
 
         return;
     }
@@ -528,7 +528,7 @@ void HubInstaller::Prepare(Running& running)
         const std::string l_Actual = Trinity::Hash::Sha256::ToHex(l_Hash.Finish());
         if (l_Actual != l_Expected)
         {
-            l_Finish(std::format("{} was not installed, as it does not match {}.sha256, so it was damaged on its way or is not the file the hash is for: it hashes to {}, and the .sha256 gives {}", l_Zip, l_Zip, l_Actual, l_Expected));
+            l_Finish(std::format("{} was not installed, as it does not match {}.sha256: it hashes to {}, and the .sha256 gives {}", l_Zip, l_Zip, l_Actual, l_Expected));
 
             return;
         }
@@ -549,7 +549,7 @@ void HubInstaller::Prepare(Running& running)
     running.Archive = std::move(*l_Archive);
     const std::vector<Trinity::ZipEntry>& l_Entries = running.Archive.GetEntries();
 
-    // At the zip's top, or in the one folder that holds everything else, as Package.cmake zips a version
+    // At the zip's top, or in the one folder that holds everything else, as Package.cmake zips it
     const Trinity::ZipEntry* l_ManifestEntry = running.Archive.Find(Trinity::EngineManifest::c_FileName);
     if (l_ManifestEntry == nullptr && !l_Entries.empty())
     {
@@ -677,7 +677,7 @@ void HubInstaller::Prepare(Running& running)
     Unpack(running);
 }
 
-// Into the staging folder, which takes the version's place once every file is in it. Whatever stops it deletes the staging folder, and puts back a version it was replacing
+// Into the staging folder. Whatever stops it deletes that, and puts back a version being replaced
 void HubInstaller::Unpack(Running& running)
 {
     const std::string l_Zip = ToUtf8(running.Zip.filename());
@@ -828,7 +828,7 @@ void HubInstaller::Unpack(Running& running)
     running.Finished.store(true, std::memory_order_release);
 }
 
-// Moved aside first, which fails at once while a program runs from it, so a version is deleted whole or not at all
+// Moved aside first, which fails at once while a program runs from it, so it goes whole or not
 void HubInstaller::Remove(Running& running)
 {
     const std::string l_Version = HubInstalls::Describe(running.Manifest);
