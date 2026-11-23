@@ -257,7 +257,8 @@ namespace Trinity
         Store& l_Store = GetStore();
         static_cast<void>(Save());
         l_Store.Values = {};
-        l_Store.Path = std::string();
+        // Swapped, not assigned: libstdc++ keeps a string's buffer when an empty one is moved into it
+        std::string().swap(l_Store.Path);
         l_Store.Loaded = false;
         l_Store.Dirty = false;
     }
