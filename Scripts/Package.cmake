@@ -1,6 +1,4 @@
-# Packages Trinity's Release and Distribution builds as an engine version: Trinity-<version>-<platform>-<architecture>.zip, which Hub installs, with a .sha256 beside it, and the debug symbols of its Release programs in the same name's -symbols.zip, which Hub never installs. Hub itself, from the Distribution build, goes into TrinityHub-<Hub's version>-<platform>-<architecture>.zip with its own .sha256, released apart from the engine's versions. Run it from anywhere with
-#   cmake [-DPRESET=<configure preset>] [-DBUILD=OFF] [-DALLOW_CHANGES=ON] [-DOUTPUT=<folder>] -P Scripts/Package.cmake
-# PRESET names the configure preset whose builds are packaged, by default the first of this platform's that has been configured. BUILD=OFF packages the builds already in bin rather than building Release and Distribution through the preset first. ALLOW_CHANGES=ON packages the builds of a tree with changes, which is refused otherwise. OUTPUT is where the packages go, out/Packages by default. The same builds give the same bytes each time they are packaged by the same user, its files sorted and their times the commit's
+# Packs a version and Hub: cmake [-DPRESET=p] [-DBUILD=OFF] [-DALLOW_CHANGES=ON] [-DOUTPUT=dir] -P
 cmake_minimum_required(VERSION 3.30...4.2)
 
 get_filename_component(root "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
@@ -18,7 +16,7 @@ if(NOT DEFINED OUTPUT)
 endif()
 get_filename_component(OUTPUT "${OUTPUT}" ABSOLUTE)
 
-# The presets of this platform, the first that has been configured being the one packaged unless PRESET names another
+# This platform's presets. The first one configured is packaged unless PRESET names another
 if(CMAKE_HOST_WIN32)
     set(presets windows-vs2026 windows-ninja)
 elseif(CMAKE_HOST_APPLE)
@@ -48,7 +46,7 @@ function(trinity_run)
     endif()
 endfunction()
 
-# Sets this process's environment, which the builds it starts inherit, from cmd's set: a NAME=VALUE a line, of which only names a variable can have are taken
+# Sets the environment its builds inherit from cmd's set, one NAME=VALUE a line
 function(trinity_take_environment text)
     string(REPLACE "\r\n" "\n" text "${text}")
     while(NOT text STREQUAL "")
@@ -74,7 +72,7 @@ function(trinity_take_environment text)
     endwhile()
 endfunction()
 
-# A Ninja preset on Windows names its compiler as cl, which only Visual Studio's environment puts on the PATH, as its Open Folder and developer consoles do. Outside them the packaging takes that environment from vcvars64.bat, as Forge's module builds do: of the Visual Studio whose cl the build tree was configured with, at that toolset, or else of the latest Visual Studio with the C++ tools
+# Ninja on Windows needs cl on the PATH. Outside a developer console, vcvars64.bat puts it there
 function(trinity_enter_msvc_environment)
     find_program(cl_found cl.exe NO_CACHE)
     if(cl_found)
@@ -110,7 +108,7 @@ function(trinity_enter_msvc_environment)
         endif()
 
         if(installation STREQUAL "")
-            message(FATAL_ERROR "Package: cl is not on the PATH, and no Visual Studio with its C++ tools was found to take it from. Install the Desktop development with C++ workload, or run this from a Visual Studio developer console")
+            message(FATAL_ERROR "Package: cl is not on the PATH and no Visual Studio with C++ tools was found. Run this from a developer console")
         endif()
 
         file(TO_CMAKE_PATH "${installation}" installation)
@@ -135,7 +133,7 @@ function(trinity_enter_msvc_environment)
     execute_process(COMMAND "${shell}" /d /c "${batch_native}" OUTPUT_VARIABLE environment RESULT_VARIABLE result ERROR_QUIET)
     file(REMOVE "${batch}")
     if(NOT result EQUAL 0 OR NOT environment MATCHES "(^|\n)INCLUDE=")
-        message(FATAL_ERROR "Package: ${vcvars} did not set up the compiler, so the builds cannot run. Run this from a Visual Studio developer console instead")
+        message(FATAL_ERROR "Package: ${vcvars} did not set up the compiler. Run this from a Visual Studio developer console instead")
     endif()
 
     trinity_take_environment("${environment}")
@@ -164,7 +162,7 @@ if(BUILD)
     endforeach()
 endif()
 
-# What the builds are: the version, platform and folders Trinity configured with, and for each configuration the commit its last build read from git
+# What the builds are: the version, platform and folders, and each configuration's commit
 set(settings "${build_tree}/Version/TrinityVersionSettings.cmake")
 if(NOT EXISTS "${settings}")
     message(FATAL_ERROR "Package: ${build_tree} has not been configured. Configure it with cmake --preset ${PRESET}, or run this without -DBUILD=OFF")
@@ -176,7 +174,7 @@ foreach(configuration IN LISTS configurations)
     set(build_info "${TRINITY_VERSION_DIRECTORY}/${configuration}/TrinityBuildInfo.cmake")
     set(folder "${TRINITY_VERSION_ROOT}/${configuration}-${TRINITY_VERSION_SYSTEM}-${TRINITY_VERSION_ARCHITECTURE}/${TRINITY_PROGRAM_FOLDER}")
     if(NOT EXISTS "${build_info}" OR NOT EXISTS "${folder}/${TRINITY_PLAYER_FILE}")
-        message(FATAL_ERROR "Package: Trinity's ${configuration} build is missing from ${folder}. Build it with cmake --build --preset ${PRESET}-${configuration}, or run this without -DBUILD=OFF")
+        message(FATAL_ERROR "Package: no ${configuration} build in ${folder}. Build it with cmake --build --preset ${PRESET}-${configuration}, or drop -DBUILD=OFF")
     endif()
 
     include("${build_info}")
@@ -192,18 +190,18 @@ if(commit STREQUAL "")
 endif()
 
 if(NOT commit_Release STREQUAL commit_Distribution)
-    message(FATAL_ERROR "Package: Release was built from ${commit_Release} and Distribution from ${commit_Distribution}, which would be two versions in one. Build both from one commit")
+    message(FATAL_ERROR "Package: Release was built from ${commit_Release} and Distribution from ${commit_Distribution}, two versions in one. Build both from one commit")
 endif()
 
 if((modified_Release OR modified_Distribution) AND NOT ALLOW_CHANGES)
-    message(FATAL_ERROR "Package: the builds are of ${commit} with changes not committed, so the version would not be that commit. Commit them, or pass -DALLOW_CHANGES=ON to package them as they are")
+    message(FATAL_ERROR "Package: the builds are of ${commit} with changes not committed. Commit them, or pass -DALLOW_CHANGES=ON")
 endif()
 
 include("${build_tree}/Package/Release/TrinityPackageFiles.cmake")
 
 set(name "Trinity-${TRINITY_VERSION}-${TRINITY_VERSION_PLATFORM}-${TRINITY_VERSION_ARCHITECTURE}")
 set(stage "${OUTPUT}/${name}")
-# The symbols are staged under a folder of the version's own name too, so their zip unzips over the version's
+# Symbols are staged under the version's own name too, so their zip unzips over the version's
 set(symbols_stage "${OUTPUT}/Symbols/${name}")
 file(REMOVE_RECURSE "${stage}" "${OUTPUT}/Symbols")
 file(MAKE_DIRECTORY "${stage}" "${symbols_stage}")
@@ -220,7 +218,7 @@ else()
     endif()
 endif()
 
-# The kinds the summary lists, each file of the version counted under one, whose bytes and files are kept as global properties so every function adds to the same counts
+# The summary's kinds. Their counts are global properties, so every function adds to the same
 set(kinds Programs Libraries Headers Scripting Shaders Fonts Runtimes Packages Templates Notices)
 function(trinity_clear_counts)
     foreach(kind IN LISTS ARGN)
@@ -252,7 +250,7 @@ function(trinity_take source destination kind)
     trinity_count("${destination}" ${kind})
 endfunction()
 
-# Every file under a folder of a build whose path below it no EXCLUDE expression matches, into the same place in the version
+# Each file under a build's folder that no EXCLUDE matches, to the same place in the version
 function(trinity_take_folder source destination kind)
     cmake_parse_arguments(PARSE_ARGV 3 take "" "" "EXCLUDE")
     file(GLOB_RECURSE files RELATIVE "${source}" "${source}/*")
@@ -270,7 +268,7 @@ function(trinity_take_folder source destination kind)
     endforeach()
 endfunction()
 
-# A Release program into the version, with its debug symbols into the symbols' folder at the same place: on Windows its .pdb, and elsewhere its debug sections split into <name>.debug, which the shipped copy names through a debug link, so a debugger finds them once the symbols are unzipped over the version
+# A Release program into the version, its symbols apart: a .pdb, or <name>.debug by a debug link
 function(trinity_take_program source destination kind)
     cmake_path(GET source FILENAME program)
     cmake_path(GET destination PARENT_PATH folder)
@@ -306,7 +304,7 @@ foreach(shader IN LISTS TRINITY_PACKAGE_TEST_SHADERS)
     list(APPEND test_shader_patterns "^${shader}\\.")
 endforeach()
 
-# Release: Forge with the shared engine it runs on, its C# and the module package a project's C++ builds against, the Release player a Development export takes, the shaders and fonts, and on Windows the Agility SDK, GameInput's redistributable, nethost and Microsoft's C++ runtime
+# Release: Forge, the shared engine, C#, the module package, the Development player and assets
 set(release_from "${folder_Release}")
 file(RELATIVE_PATH release_folder "${TRINITY_VERSION_ROOT}" "${release_from}")
 set(release_to "${stage}/${release_folder}")
@@ -338,7 +336,7 @@ foreach(runtime_folder IN ITEMS D3D12 Redist)
     endif()
 endforeach()
 
-# Distribution: the player for projects without C++, the game package a project's player links against, with only the libraries it names, the player's main and its checks, and the shaders, Agility SDK and GameInput redistributable an export puts beside a game
+# Distribution: the player, the game package and what an export puts beside a game
 set(distribution_from "${folder_Distribution}")
 file(RELATIVE_PATH distribution_folder "${TRINITY_VERSION_ROOT}" "${distribution_from}")
 set(distribution_to "${stage}/${distribution_folder}")
@@ -365,7 +363,7 @@ foreach(runtime_folder IN ITEMS D3D12 Redist)
     endif()
 endforeach()
 
-# The version's own folder: the headers and source every configuration's packages name, and the project templates
+# The version's own folder: headers and source the packages name, and the project templates
 trinity_take_folder("${TRINITY_VERSION_ROOT}/Include" "${stage}/Include" Headers)
 trinity_take_folder("${TRINITY_VERSION_ROOT}/Source" "${stage}/Source" Packages)
 foreach(template IN LISTS TRINITY_VERSION_TEMPLATES)
@@ -376,7 +374,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/PackageNotices.cmake")
 trinity_write_notices("${stage}/ThirdPartyNotices.txt")
 trinity_count("${stage}/ThirdPartyNotices.txt" Notices)
 
-# The manifest, written by the build's own script, which names the configurations whose player the version holds
+# The manifest, written by the build's own script, names each configuration with a player
 execute_process(COMMAND "${CMAKE_COMMAND}" "-DTRINITY_VERSION_SETTINGS=${settings}" -DTRINITY_VERSION_STAGE=Manifest -DTRINITY_VERSION_CONFIGURATION=Release "-DTRINITY_VERSION_ROOT=${stage}" -P "${root}/CMake/TrinityWriteVersion.cmake" RESULT_VARIABLE manifest_result)
 file(READ "${stage}/${TRINITY_MANIFEST_FILE}" manifest)
 if(NOT manifest_result EQUAL 0 OR NOT manifest MATCHES "\nConfigurations: \\[Release, Distribution\\]\n")
@@ -384,7 +382,7 @@ if(NOT manifest_result EQUAL 0 OR NOT manifest MATCHES "\nConfigurations: \\[Rel
 endif()
 trinity_count("${stage}/${TRINITY_MANIFEST_FILE}" Notices)
 
-# The zip goes through a GNU tar first, which holds each file's time as the commit's and no other, then bsdtar, which makes a zip from it as from any archive. A zip made from the files themselves would hold the times they were last read and changed, so no two would be the same
+# GNU tar sets each file's time to the commit's, then bsdtar zips that, so two zips are the same
 if(CMAKE_HOST_WIN32)
     find_program(bsdtar NAMES tar.exe HINTS "$ENV{SystemRoot}/System32" NO_DEFAULT_PATH)
 endif()
@@ -394,12 +392,12 @@ if(bsdtar)
     execute_process(COMMAND "${bsdtar}" --version OUTPUT_VARIABLE bsdtar_version ERROR_QUIET)
 endif()
 if(NOT bsdtar_version MATCHES "bsdtar")
-    message(FATAL_ERROR "Package: bsdtar, which makes the zip, was not found. Windows and macOS have it as tar, and on Linux it comes with libarchive-tools")
+    message(FATAL_ERROR "Package: bsdtar, which makes the zip, was not found. It is tar on Windows and macOS, and in libarchive-tools on Linux")
 endif()
 
 string(REGEX REPLACE "^([0-9-]+)T([0-9:]+)Z$" "\\1 \\2 UTC" mtime "${date_Release}")
 
-# Packs a staged folder as OUTPUT/<zip>.zip with its .sha256, each file's path under the folder's own name, in order
+# Packs a staged folder as OUTPUT/<zip>.zip and .sha256, paths under the folder's name, sorted
 function(trinity_zip folder zip out_size)
     cmake_path(GET folder PARENT_PATH parent)
     file(GLOB_RECURSE zipped LIST_DIRECTORIES false RELATIVE "${parent}" "${folder}/*")
@@ -490,11 +488,11 @@ trinity_summarize(${zip_size} "${OUTPUT}/${name}.zip, Trinity ${TRINITY_VERSION}
 set(uploads "${OUTPUT}/${name}.zip" "${OUTPUT}/${name}.zip.sha256")
 if(symbols_size GREATER 0)
     trinity_format_bytes(${symbols_size} symbols_text)
-    message(STATUS "Package: ${OUTPUT}/${name}-symbols.zip, the Release programs' debug symbols in ${symbols_text}, to unzip over the version when debugging Forge itself")
+    message(STATUS "Package: ${OUTPUT}/${name}-symbols.zip, the Release programs' debug symbols in ${symbols_text}, to unzip over the version")
     list(APPEND uploads "${OUTPUT}/${name}-symbols.zip" "${OUTPUT}/${name}-symbols.zip.sha256")
 endif()
 
-# The release on GitHub, whose tag is the version's, made at the commit it was built from. A version with a hyphen is a pre-release
+# The GitHub release, tagged as the version at its commit. A hyphen makes it a pre-release
 set(repository_option "")
 execute_process(COMMAND "${TRINITY_GIT}" -C "${root}" remote get-url origin OUTPUT_VARIABLE origin OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
 if(origin MATCHES "github\\.com[:/]([^/]+/[^/]+)$")
@@ -515,12 +513,12 @@ message(STATUS "  gh release create v${TRINITY_VERSION}${repository_option} --ta
 message(STATUS "Package: or, once another platform's packages have made the release, add these to it with")
 message(STATUS "  gh release upload v${TRINITY_VERSION}${repository_option} ${upload_arguments}")
 
-# Hub's zip, which is unpacked where no engine version is: the Distribution Hub, the fonts and the shaders it draws with but the RHI's tests, on Windows the Agility SDK runtime it starts D3D12 through, and the third-party notice, as every library of the engine is linked into it, and nothing else
+# Hub's zip: the Distribution Hub, its fonts and shaders, the Agility SDK runtime and the notice
 set(hub_name "TrinityHub-${TRINITY_HUB_VERSION}-${TRINITY_VERSION_PLATFORM}-${TRINITY_VERSION_ARCHITECTURE}")
 set(hub_stage "${OUTPUT}/${hub_name}")
 set(hub_program "Trinity-Hub${executable_suffix}")
 if(NOT EXISTS "${distribution_from}/${hub_program}")
-    message(FATAL_ERROR "Package: Trinity's Distribution build has no ${hub_program} in ${distribution_from}. Build it with cmake --build --preset ${PRESET}-distribution, or run this without -DBUILD=OFF")
+    message(FATAL_ERROR "Package: no ${hub_program} in ${distribution_from}. Build it with cmake --build --preset ${PRESET}-distribution, or drop -DBUILD=OFF")
 endif()
 
 file(REMOVE_RECURSE "${hub_stage}")
@@ -528,7 +526,7 @@ file(MAKE_DIRECTORY "${hub_stage}")
 set(hub_kinds Programs Shaders Fonts Runtimes Notices)
 trinity_clear_counts(${hub_kinds})
 
-# Elsewhere than Windows its debug sections and symbols are stripped, which name the build tree's folders and files, so Hub has no symbols zip. Windows' Distribution links without /DEBUG, so it names no .pdb
+# Off Windows its symbols are stripped, as they name the build tree. On Windows it has no .pdb
 if(TRINITY_VERSION_PLATFORM STREQUAL "Windows")
     trinity_take("${distribution_from}/${hub_program}" "${hub_stage}/${hub_program}" Programs)
 else()
@@ -549,7 +547,7 @@ endif()
 trinity_write_notices("${hub_stage}/ThirdPartyNotices.txt" HUB)
 trinity_count("${hub_stage}/ThirdPartyNotices.txt" Notices)
 
-# Nothing in it may name where it was built: a path into one of the repository's folders, as a source file's or the build tree's would be, in either separator and any case, without its drive letter, in narrow strings and in wide ones
+# Nothing in it may name where it was built, in either separator, any case, narrow or wide
 string(REGEX REPLACE "^[A-Za-z]:" "" root_tail "${root}")
 string(TOLOWER "${root_tail}" root_tail)
 file(GLOB root_entries LIST_DIRECTORIES true RELATIVE "${root}" "${root}/*")
@@ -587,7 +585,7 @@ trinity_zip("${hub_stage}" "${hub_name}" hub_zip_size)
 file(REMOVE_RECURSE "${hub_stage}")
 trinity_summarize(${hub_zip_size} "${OUTPUT}/${hub_name}.zip, Trinity Hub ${TRINITY_HUB_VERSION}, built on Trinity ${TRINITY_VERSION} (${short_commit}${modified_text}), for ${TRINITY_VERSION_PLATFORM} ${TRINITY_VERSION_ARCHITECTURE}" ${hub_kinds})
 
-# Hub's own release, tagged hub-v<Hub's version>, which Hub's list of engine versions leaves out, made at the same commit. A version with a hyphen is a pre-release
+# Hub's own release, tagged hub-v<version> at the same commit. A hyphen makes it a pre-release
 set(hub_prerelease_option "")
 if(TRINITY_HUB_VERSION MATCHES "-")
     set(hub_prerelease_option " --prerelease")

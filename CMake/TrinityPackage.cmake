@@ -1,6 +1,6 @@
-# The packages a version holds, so a game module and a game's player build against it wherever its folder is: TrinityConfig.cmake and TrinityToolchain.cmake in each configuration's folder, and in the version's own folder the headers they compile against and the source a module compiles for its allocations. Everything a package names is in the version and found from the package's own folder, as an install(EXPORT) package's is, and Trinity's build copies it there with CMake/TrinityWritePackage.cmake as each build ends, so a build tree's bin is a version too
+# The packages a version holds, so a module or a player builds against it wherever its folder is
 
-# Each include folder of the engine's interface, in the engine's order, then where a version has it. A module's or a player's build reads the engine's headers and those of the libraries they include from these, and CMake/TrinityWritePackage.cmake refuses an engine whose interface includes any other
+# Each include folder of the engine's interface, in its order, then where a version has it
 set(TRINITY_PACKAGE_INCLUDE_ROOTS
     "${CMAKE_SOURCE_DIR}/Trinity-Engine/Include" "Include"
     "${CMAKE_SOURCE_DIR}/Vendor/imgui" "Include/Vendor/imgui"
@@ -8,7 +8,7 @@ set(TRINITY_PACKAGE_INCLUDE_ROOTS
     "${CMAKE_SOURCE_DIR}/Vendor/entt/src" "Include/Vendor/entt"
 )
 
-# The include folders a package's targets name, from the version's folder, which the package finds as TRINITY_ROOT
+# The include folders a package's targets name, from the version's folder, found as TRINITY_ROOT
 set(TRINITY_PACKAGE_INCLUDE_DIRECTORIES "")
 list(LENGTH TRINITY_PACKAGE_INCLUDE_ROOTS include_root_count)
 math(EXPR last_include_root "${include_root_count} - 1")
@@ -37,7 +37,7 @@ function(trinity_write_engine_package target)
     )
 endfunction()
 
-# Every target the given ones link, through every target those link, privately too, since a static library's private links are its users' to link, and those named inside a generator expression as well. Imported targets go in imported_out instead, as their users find them themselves
+# Every target the given ones link, privately or in a generator expression too. Imported go apart
 function(trinity_collect_link_targets out imported_out)
     set(pending ${ARGN})
     set(found "")
@@ -67,7 +67,7 @@ function(trinity_collect_link_targets out imported_out)
         foreach(property IN ITEMS LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
             get_target_property(libraries "${name}" ${property})
             if(libraries)
-                # Each generator expression's opening and separators split the list, so the names inside are items of their own, and a namespaced name keeps its ::
+                # A generator expression's opening and separators split the list. A namespaced name keeps its ::
                 string(REGEX REPLACE "\\$<[A-Za-z_]+:" ";" names "${libraries}")
                 string(REGEX REPLACE "[$<>,]" ";" names "${names}")
                 list(APPEND pending ${names})
@@ -80,13 +80,13 @@ function(trinity_collect_link_targets out imported_out)
     set(${imported_out} "${imported_found}" PARENT_SCOPE)
 endfunction()
 
-# The package a game's player builds against in Distribution, beside the static engine: TrinityConfig.cmake from TrinityGameConfig.cmake.in, with the static engine and every target it links exported as imported targets, and the runtime's objects as the player's main, so a game's build compiles only the game. export refuses a set that lacks a target one of them links, so nothing a player needs can be left out. It writes the build tree's own paths, so CMake/TrinityWritePackage.cmake makes from it the TrinityGameTargets.cmake beside the static engine, which names only what the version holds
+# A Distribution player's package: the static engine, all it links and the runtime's objects
 function(trinity_write_game_package engine runtime)
     trinity_collect_link_targets(targets imported ${engine})
-    # The one imported target the engine's libraries link is the threads library, which TrinityConfig.cmake finds as they did
+    # The engine links one imported target, the threads library, which TrinityConfig.cmake finds
     list(REMOVE_ITEM imported Threads::Threads)
     if(imported)
-        message(FATAL_ERROR "The static engine links ${imported}, which the game package does not find for a player's build. Find it in CMake/Package/TrinityGameConfig.cmake.in as Threads is")
+        message(FATAL_ERROR "The static engine links ${imported}, which the game package does not find. Add it to TrinityGameConfig.cmake.in as Threads is")
     endif()
 
     export(TARGETS ${targets} NAMESPACE TrinityGame:: FILE "${CMAKE_BINARY_DIR}/Package/TrinityGameExport.cmake")
@@ -103,12 +103,12 @@ function(trinity_write_game_package engine runtime)
     )
 endfunction()
 
-# Copies into the version, once the given targets of a configuration are built, what its packages name: the headers and the allocations source in every configuration, and in Distribution the player's main objects, the checks a player's build makes, the libraries from outside Trinity's build and TrinityGameTargets.cmake. What each build copies is listed for its configuration in TrinityPackageFiles.cmake, from the engine its programs link and the runtime's objects
+# Copies into the version what its packages name, once a configuration's given targets are built
 function(trinity_add_version_package target engine runtime)
-    # The libraries the engine links from outside Trinity's build, which TrinityDotNet.cmake and TrinityGameInput.cmake add to this property as the engine links them
+    # Libraries from outside Trinity's build, added by TrinityDotNet.cmake and TrinityGameInput.cmake
     get_property(libraries GLOBAL PROPERTY TRINITY_PACKAGE_LIBRARIES)
     list(REMOVE_DUPLICATES libraries)
-    # The RHI's test shaders, which only the Sandbox draws, so Scripts/Package.cmake leaves them out of a version as Forge's export leaves them out of a game
+    # The RHI's test shaders, which only the Sandbox draws, so Scripts/Package.cmake leaves them out
     get_property(test_shaders GLOBAL PROPERTY TRINITY_TEST_SHADERS)
 
     # A path outside Trinity's build is one the game package must not name once it is written

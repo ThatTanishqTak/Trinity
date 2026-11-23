@@ -15,12 +15,12 @@ file(GLOB_RECURSE TRINITY_FORGE_HEADERS CONFIGURE_DEPENDS
 
 add_executable(${TARGET_NAME} ${TRINITY_FORGE_SOURCES} ${TRINITY_FORGE_HEADERS})
 
-# The editor's own shaders, such as the Viewport's grid, are compiled beside the engine's under /engine/shaders
+# The editor's own shaders, such as the Viewport's grid, compile beside the engine's
 file(GLOB TRINITY_FORGE_SHADERS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/*.slang")
 trinity_add_shaders(Trinity-Forge-Shaders ${TRINITY_FORGE_SHADERS})
 add_dependencies(${TARGET_NAME} Trinity-Forge-Shaders)
 
-# The export leaves out of a game the shaders no game draws with, knowing them by their names: these, and the RHI's tests, which the engine's CMakeLists names
+# The export leaves out shaders no game draws with, by name: these and the RHI's tests
 get_property(TRINITY_UNSHIPPED_SHADERS GLOBAL PROPERTY TRINITY_TEST_SHADERS)
 foreach(shader IN LISTS TRINITY_FORGE_SHADERS)
     cmake_path(GET shader STEM name)
@@ -33,18 +33,18 @@ trinity_configure_executable(${TARGET_NAME})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_FORGE_HEADERS} ${TRINITY_FORGE_SOURCES})
 
 target_include_directories(${TARGET_NAME} PRIVATE Include)
-# The model importer's glTF, FBX, OBJ and COLLADA reading and mesh ordering stay in the editor, so no game links them, and the tools a module and the scripts build with are found as Hub finds them
+# The model importer stays in the editor, so no game links it. Build tools are found as Hub does
 target_link_libraries(${TARGET_NAME} PRIVATE Trinity::Engine Trinity::Tools ktx zstd::headers stb::stb ImGuizmo::ImGuizmo fastgltf::fastgltf meshoptimizer assimp::assimp)
 trinity_check_editor_libraries(${TARGET_NAME} present ${TRINITY_EDITOR_LIBRARIES} ImGui ImGuizmo BasisEncoder)
 
-# ImGuizmo's own code keeps its own warnings, and reads ImGui before any precompiled header could. MSVC hides them with /external:W0, as ImGuizmo's folder is a system one, so it needs no /W0 of its own, which would only override /W4 with a warning of its own
+# ImGuizmo keeps its warnings. MSVC hides them with /external:W0, and /W0 would itself warn
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/Source/ImGuizmoUnit.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON COMPILE_OPTIONS "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-w>")
 
-# Forge builds a project's C++ module with its own compiler, and on Windows finds that compiler's Visual Studio from its path
+# Forge builds a project's C++ module with its own compiler, and finds its Visual Studio by path
 target_compile_definitions(${TARGET_NAME} PRIVATE TR_FORGE_CXX_COMPILER="${CMAKE_CXX_COMPILER}")
 
-# The texture importer encodes, so Forge takes the whole of libktx, and a static engine links it instead of ktx_read
+# The texture importer encodes, so Forge links all of libktx in place of ktx_read
 set_target_properties(${TARGET_NAME} PROPERTIES TRINITY_TEXTURE_ENCODER ON)
 
-# --import-test copies these into a project, so the importer always meets the same images, the models Scripts/FetchSamples fetches when they are there, and assimp's own test models in FBX, OBJ and COLLADA
+# --import-test copies these into a project: images, the fetched samples, assimp's test models
 target_compile_definitions(${TARGET_NAME} PRIVATE TR_FORGE_TEST_TEXTURES="${CMAKE_CURRENT_SOURCE_DIR}/Tests/Textures" TR_FORGE_TEST_MODELS="${CMAKE_CURRENT_SOURCE_DIR}/Tests/Models" TR_FORGE_TEST_ASSIMP="${CMAKE_SOURCE_DIR}/Vendor/assimp/test")

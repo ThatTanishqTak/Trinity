@@ -1,9 +1,9 @@
-# Run with cmake -P by the build as each configuration's build ends, given TRINITY_PACKAGE_FILES, which CMake/TrinityPackage.cmake writes for the configuration. Copies into the version what its packages name, each file only when it differs, and removes what the version no longer holds: the headers into Include, the allocations source into Source, the project templates into Templates, and in Distribution the player's main objects into RuntimeMain, the checks a player's build makes into CMake and the libraries from outside Trinity's build beside the static engine, then writes TrinityGameTargets.cmake there from CMake's export of the static engine, naming only what the version holds
+# Run by cmake -P as a build ends, with TRINITY_PACKAGE_FILES: copies what the packages name
 cmake_minimum_required(VERSION 3.30...4.2)
 
 include("${TRINITY_PACKAGE_FILES}")
 
-# Copies source to destination when the destination is missing or differs, keeping the destination's time when it is the same, so nothing builds again for it
+# Copies only if the destination is missing or differs, so its time stays and nothing rebuilds
 function(trinity_copy_if_different source destination)
     cmake_path(GET destination PARENT_PATH directory)
     file(MAKE_DIRECTORY "${directory}")
@@ -26,7 +26,7 @@ function(trinity_write_if_different path text)
     file(WRITE "${path}" "${text}")
 endfunction()
 
-# Removes every file under folder that is not named in the list, so a header or object taken out of Trinity's build leaves the version too
+# Removes each file under folder that the list does not name, so the version drops it too
 function(trinity_remove_others folder)
     foreach(kept IN LISTS ARGN)
         set("kept:${kept}" ON)
@@ -40,7 +40,7 @@ function(trinity_remove_others folder)
     endforeach()
 endfunction()
 
-# The engine's interface may include only folders a version holds, which TRINITY_PACKAGE_INCLUDE_ROOTS in CMake/TrinityPackage.cmake lists
+# The engine's interface may include only the folders of TRINITY_PACKAGE_INCLUDE_ROOTS
 set(include_sources "")
 set(include_destinations "")
 list(LENGTH TRINITY_PACKAGE_INCLUDE_ROOTS root_count)
@@ -55,11 +55,11 @@ endforeach()
 
 foreach(include IN LISTS TRINITY_PACKAGE_ENGINE_INCLUDES)
     if(NOT include IN_LIST include_sources)
-        message(FATAL_ERROR "The engine's interface includes ${include}, which a version of Trinity does not hold, so no module or player could build against it once the version is moved. Add it to TRINITY_PACKAGE_INCLUDE_ROOTS and its headers to TRINITY_PACKAGE_HEADERS in CMake/TrinityPackage.cmake")
+        message(FATAL_ERROR "${include} is in the engine's interface but in no version. Add it to TRINITY_PACKAGE_INCLUDE_ROOTS and TRINITY_PACKAGE_HEADERS")
     endif()
 endforeach()
 
-# The headers: each set is a folder, then where it goes in the version, then whether its subfolders go too
+# Headers: each set is a folder, where it goes in the version, and whether subfolders go too
 set(headers "")
 list(LENGTH TRINITY_PACKAGE_HEADERS header_count)
 math(EXPR last_header "${header_count} - 1")
@@ -114,7 +114,7 @@ set(objects "")
 foreach(object IN LISTS TRINITY_PACKAGE_OBJECTS)
     cmake_path(GET object FILENAME object_name)
     if("${TRINITY_PACKAGE_DIRECTORY}/RuntimeMain/${object_name}" IN_LIST objects)
-        message(FATAL_ERROR "Two of the player's main objects are named ${object_name}, which the game package's RuntimeMain folder cannot hold both of. Rename one of Trinity-Runtime's sources")
+        message(FATAL_ERROR "Two of the player's main objects are named ${object_name}, and RuntimeMain holds one. Rename one of Trinity-Runtime's sources")
     endif()
 
     trinity_copy_if_different("${object}" "${TRINITY_PACKAGE_DIRECTORY}/RuntimeMain/${object_name}")
@@ -139,7 +139,7 @@ endforeach()
 
 file(READ "${TRINITY_PACKAGE_EXPORT}" exported)
 
-# Only this configuration's locations: each other configuration's block runs from its comment to the blank line after it
+# This configuration's locations only. Another's block runs from its comment to the blank line
 set(text "")
 set(rest "${exported}")
 while(TRUE)
@@ -165,7 +165,7 @@ while(TRUE)
     endif()
 endwhile()
 
-# Each target's include folders as the version holds them, and none for those only linked, whose headers no player includes. The property stays, empty, since it may be the only one a target sets
+# Include folders as the version has them. An empty property stays, as it may be the only one set
 set(include_key "  INTERFACE_INCLUDE_DIRECTORIES \"")
 string(LENGTH "${include_key}" include_key_length)
 set(rest "${text}")
@@ -199,7 +199,7 @@ while(TRUE)
     string(APPEND text "${include_key}${joined}\"\n")
 endwhile()
 
-# The static engine and its libraries are beside this file, as are the copies of those from outside Trinity's build
+# The static engine, its libraries and those from outside Trinity's build are beside this file
 string(REPLACE "${TRINITY_PACKAGE_DIRECTORY}/" "\${CMAKE_CURRENT_LIST_DIR}/" text "${text}")
 foreach(library IN LISTS TRINITY_PACKAGE_LIBRARIES)
     cmake_path(GET library FILENAME library_name)

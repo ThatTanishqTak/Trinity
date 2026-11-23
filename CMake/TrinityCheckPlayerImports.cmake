@@ -1,11 +1,11 @@
-# Run by cmake -P after a player's or Hub's build on Windows, with BINARY, DUMPBIN and CONFIGURATION. Only Distribution is checked. Every DLL the program imports, delay-loaded ones too, must be Windows' own, in System32 or one of its API sets, and none of the C runtime's, which Distribution links statically, so it starts on a machine with nothing installed but Windows and a graphics driver. The Agility SDK's D3D12Core.dll is loaded by d3d12.dll, never imported
+# Run by cmake -P after a Distribution build on Windows: each imported DLL must be Windows' own
 if(NOT CONFIGURATION STREQUAL "Distribution")
     return()
 endif()
 
 get_filename_component(binary_name "${BINARY}" NAME)
 if(NOT DUMPBIN)
-    message(FATAL_ERROR "dumpbin, which comes with Visual Studio's C++ tools, was not found beside the compiler, so the DLLs ${binary_name} imports cannot be checked")
+    message(FATAL_ERROR "dumpbin, from Visual Studio's C++ tools, was not found beside the compiler, so ${binary_name}'s imports cannot be checked")
 endif()
 
 execute_process(COMMAND "${DUMPBIN}" /nologo /dependents "${BINARY}" OUTPUT_VARIABLE output RESULT_VARIABLE result)

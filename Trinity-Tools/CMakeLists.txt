@@ -13,7 +13,7 @@ file(GLOB_RECURSE TRINITY_TOOLS_HEADERS CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Include/*.hpp"
 )
 
-# How the tools a project's scripts and a game's player are built with are found, which Forge builds with and Hub checks for, so both find the same ones. It is the editor's side alone, so no game links it, and it links nothing but the engine
+# How build tools are found, shared by Forge and Hub so both find the same. No game links it
 add_library(${TARGET_NAME} STATIC ${TRINITY_TOOLS_SOURCES} ${TRINITY_TOOLS_HEADERS})
 add_library(Trinity::Tools ALIAS ${TARGET_NAME})
 

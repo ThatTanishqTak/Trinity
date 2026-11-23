@@ -17,7 +17,7 @@ $ErrorActionPreference = 'Continue'
 
 $failed = @()
 
-# Each entry is a repository of its own under the destination, holding only the listed paths, and only their files are downloaded
+# Each entry is its own repository under the destination. Only the listed paths are downloaded
 foreach ($line in $lockEntries) {
     $line = $line.Trim()
     if ($line -eq '' -or $line.StartsWith('#')) { continue }

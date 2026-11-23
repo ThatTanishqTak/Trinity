@@ -11,7 +11,7 @@ export GCM_INTERACTIVE=never
 destination="Trinity-Forge/Tests/Models"
 failed=()
 
-# Each entry is a repository of its own under the destination, holding only the listed paths, and only their files are downloaded
+# Each entry is its own repository under the destination. Only the listed paths are downloaded
 while read -r name url ref paths || [ -n "${name:-}" ]; do
     case "$name" in ''|\#*) continue ;; esac
     path="$destination/$name"

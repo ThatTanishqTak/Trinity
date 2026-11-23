@@ -67,7 +67,7 @@ foreach ($line in $lockEntries) {
     git add $path .gitmodules
 }
 
-# A NuGet package pinned in a lock file as "<id> <version> <SHA-256>", downloaded with a hash check and unpacked into Vendor/<folder>/<version>, unless the file that shows it is there exists already
+# A NuGet package pinned as "<id> <version> <SHA-256>", unpacked to Vendor/<folder>/<version>
 function Get-PinnedPackage([string]$lockFile, [string]$id, [string]$label, [string]$folder, [string]$marker) {
     $fields = (Get-Content $lockFile | Where-Object { $_ -match "^$([regex]::Escape($id)) " }) -split '\s+'
     $version = $fields[1]

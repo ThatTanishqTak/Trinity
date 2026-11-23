@@ -14,7 +14,7 @@ trinity_declare_configurations()
 
 project(Trinity VERSION 0.1.1 DESCRIPTION "Trinity game engine, Forge editor, Hub launcher, Runtime player and Sandbox" LANGUAGES C CXX)
 
-# Hub is versioned on its own, from 0.1.0, as its zip is released apart from the engine's versions and every Hub opens every version. Raised whenever Hub changes, whatever the engine's version does
+# Hub's own version, raised whenever Hub changes. Its zip is released apart from the engine's
 set(TRINITY_HUB_VERSION 0.1.0)
 
 trinity_setup_configuration_flags()
@@ -64,7 +64,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${OUTPUT_BASE}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${OUTPUT_BASE}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${OUTPUT_BASE}")
 
-# The version, the commit each build reads from git, and the manifest written beside the configurations' folders, then the packages a version holds
+# The version, the commit each build reads from git, the manifest, then the packages a version holds
 include(TrinityVersion)
 include(TrinityPackage)
 
@@ -76,7 +76,7 @@ add_subdirectory(Trinity-Hub)
 add_subdirectory(Trinity-Sandbox)
 add_subdirectory(Trinity-Runtime)
 
-# The applications that start .NET build the managed side they load, whose bindings Trinity-InteropGen writes. Forge also builds the source generator a game's C# project runs. Hub never starts .NET
+# Applications that start .NET build the managed side they load. Forge also builds the generator
 if(TRINITY_DOTNET_FOUND)
     add_subdirectory(Trinity-InteropGen)
     add_subdirectory(Trinity-ScriptCore)
@@ -84,7 +84,7 @@ if(TRINITY_DOTNET_FOUND)
     add_dependencies(Trinity-Forge Trinity-ScriptCore Trinity-ScriptGenerator)
 endif()
 
-# What the packages name, copied into the version once the player is built, which Forge builds modules against, then Trinity.trversion once a configuration's programs are built
+# What the packages name goes into the version, then Trinity.trversion once the programs are built
 trinity_add_version_package(Trinity-Package Trinity-Engine Trinity-RuntimeMain Trinity-Runtime)
 add_dependencies(Trinity-Forge Trinity-Package)
 trinity_add_version_manifest(Trinity-Manifest Trinity-Forge Trinity-Hub Trinity-Sandbox Trinity-Runtime Trinity-Package)

@@ -1,17 +1,17 @@
-# Run by cmake -P after a build, with BINARY, NAMES joined by '+', EXPECT absent, present or required, and CONFIGURATION. Only Distribution is checked
+# Run by cmake -P after a Distribution build, with BINARY, NAMES joined by '+', and EXPECT
 if(NOT CONFIGURATION STREQUAL "Distribution")
     return()
 endif()
 
-# What a library's code leaves in a binary that links it. By default its name, in its RTTI, symbols and messages. A Windows binary keeps no symbols, so for a library whose name its code holds nowhere else, it is a message of code that is always linked with it: the window ImGui::NewFrame begins each frame, the angles ImGuizmo labels as it rotates, and the basis compressor's own messages. Slang's is its RTTI, in MSVC's names and in the Itanium ABI's
+# What a library's code leaves in a binary: its name, or a message where Windows keeps no symbols
 set(pattern_ImGui "Debug##Default")
 set(pattern_ImGuizmo "deg .5.2f rad")
 set(pattern_BasisEncoder "basis_compressor::")
 set(pattern_Slang "@Slang@@|N5Slang")
-# The keys a Development player's overlay names under its mark, and the id RmlUi's debugger gives the hook it leaves in the document it inspects
+# The keys a Development player's overlay names, and the id of the hook RmlUi's debugger leaves
 set(pattern_DevelopmentOverlay "F3 stats and log")
 set(pattern_RmlUiDebugger "rmlui-debug-hook")
-# RmlUi's warning for an element whose font is missing, which its layout always links, and the name FreeType's auto-hinter registers under
+# RmlUi's warning for a missing font, which layout always links, and FreeType's auto-hinter name
 set(pattern_RmlUi "No font face defined")
 set(pattern_FreeType "autofitter")
 

@@ -1,4 +1,4 @@
-# Trinity's engine for a game's player, built as Distribution. Trinity's build writes this beside its static engine. A player's build finds it with find_package(Trinity CONFIG REQUIRED), given Trinity_DIR and CMAKE_TOOLCHAIN_FILE as a module's build is, and makes the player with trinity_add_game, or with trinity_add_game_module, so a project's module, built from its own CMakeLists, is its player
+# The static engine for a player: find_package(Trinity CONFIG REQUIRED), then trinity_add_game
 include_guard(GLOBAL)
 
 set(TRINITY_VERSION "@PROJECT_VERSION@")
@@ -27,7 +27,7 @@ if(NOT CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL TRINITY_CXX_COMPILER_VERSION)
     message(STATUS "Trinity: the engine was built with ${TRINITY_CXX_COMPILER_ID} ${TRINITY_CXX_COMPILER_VERSION}, and this player is built with ${CMAKE_CXX_COMPILER_VERSION}")
 endif()
 
-# The engine was built as Distribution, which decides what its headers define, so a player is built as Distribution too, with the flags the engine was built with
+# The engine was built as Distribution, which decides what its headers define, so a player is too
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Distribution")
     set(Trinity_FOUND FALSE)
     set(Trinity_NOT_FOUND_MESSAGE "This is Trinity's Distribution package, whose static engine a player links only when it is built as Distribution too. Configure it with -DCMAKE_BUILD_TYPE=Distribution")
@@ -38,7 +38,7 @@ set(CMAKE_C_FLAGS_DISTRIBUTION [==[@CMAKE_C_FLAGS_DISTRIBUTION@]==])
 set(CMAKE_CXX_FLAGS_DISTRIBUTION [==[@CMAKE_CXX_FLAGS_DISTRIBUTION@]==])
 set(CMAKE_EXE_LINKER_FLAGS_DISTRIBUTION [==[@CMAKE_EXE_LINKER_FLAGS_DISTRIBUTION@]==])
 
-# The static engine and every library it links, as Trinity's build exported them into this folder, with the threads library some of them link, found as they found it
+# The static engine and each library it links, exported into this folder, and the threads library
 include(CMakeFindDependencyMacro)
 find_dependency(Threads)
 if(NOT TARGET TrinityGame::@TRINITY_ENGINE_STATIC_TARGET@)
@@ -50,7 +50,7 @@ if(NOT TARGET Trinity::Engine)
     add_library(Trinity::Engine INTERFACE IMPORTED)
     set_target_properties(Trinity::Engine PROPERTIES INTERFACE_LINK_LIBRARIES "TrinityGame::@TRINITY_ENGINE_STATIC_TARGET@;TrinityGame::ktx_read")
 
-    # The player's main and its application, compiled with the engine and copied into RuntimeMain by their own names, so a game's build compiles only its own code
+    # The player's main, built with the engine and kept in RuntimeMain, so a game compiles only its own
     add_library(Trinity::RuntimeMain OBJECT IMPORTED)
     set_target_properties(Trinity::RuntimeMain PROPERTIES IMPORTED_OBJECTS "$<LIST:TRANSFORM,$<PATH:GET_FILENAME,$<TARGET_OBJECTS:@TRINITY_RUNTIME_TARGET@>>,PREPEND,${CMAKE_CURRENT_LIST_DIR}/RuntimeMain/>")
 endif()
@@ -58,7 +58,7 @@ endif()
 # The checks Trinity's build makes of its own player after each Distribution build
 include("${CMAKE_CURRENT_LIST_DIR}/CMake/TrinityEditorLibraries.cmake")
 
-# A game's player: its own code, whose TR_SCRIPT and TR_COMPONENT classes link themselves into the module's list as the player starts and register once the engine has, with the runtime's main and the static engine, in one executable with the static C runtime. It goes to Player in the build folder, and is checked after each build as Trinity's own player is. A player's new and delete are the engine's, so what its code allocates counts as Untagged rather than Game
+# A game's player: its code, the runtime's main and the static engine in one executable, in Player
 function(trinity_add_game target)
     add_executable(${target} ${ARGN})
     target_link_libraries(${target} PRIVATE Trinity::RuntimeMain Trinity::Engine)
@@ -84,7 +84,7 @@ function(trinity_add_game target)
     trinity_check_player(${target})
 endfunction()
 
-# A project's module, which Forge builds from the same CMakeLists against the shared engine's package as a library it loads, is the player here
+# A project's module, which Forge builds from the same CMakeLists as a library, is the player here
 function(trinity_add_game_module target)
     trinity_add_game(${target} ${ARGN})
 endfunction()

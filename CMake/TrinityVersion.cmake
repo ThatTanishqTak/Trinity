@@ -1,8 +1,8 @@
-# The engine's identity and Trinity.trversion, the manifest that makes a folder of builds an engine version. The version is project(VERSION). The commit, whether the tree had changes and the commit's date are read from git as each build starts, by CMake/TrinityWriteVersion.cmake, which rewrites the engine's TrinityBuildInfo.hpp only when they change, so a commit made after configuring is never missed and only Version.cpp compiles again. Once a configuration's programs are built, the same script writes Trinity.trversion beside the configurations' folders, so a build tree's bin is a version too
+# The engine's identity and Trinity.trversion, the manifest that makes a folder of builds a version
 set(TRINITY_MANIFEST_FORMAT 1)
 set(TRINITY_MANIFEST_FILE "Trinity.trversion")
 
-# The file formats this version reads and writes, which Hub compares between versions. Version.cpp checks each against the engine's own constant, so raising one there fails to compile until it is raised here too
+# File formats this version reads and writes. Version.cpp will not compile unless its own match
 set(TRINITY_FORMAT_PROJECT 10)
 set(TRINITY_FORMAT_SCENE 2)
 set(TRINITY_FORMAT_PREFAB 2)
@@ -14,7 +14,7 @@ set(TRINITY_FORMAT_PACK 1)
 
 find_package(Git QUIET)
 
-# The .NET SDK a project's C# needs with this version, as global.json pins it, or none when the version was built without C#
+# The .NET SDK a project's C# needs with this version, as global.json pins it, or none without C#
 set(TRINITY_VERSION_DOTNET_SDK "")
 set(TRINITY_VERSION_DOTNET_ROLL_FORWARD "")
 if(TRINITY_DOTNET_FOUND)
@@ -84,7 +84,7 @@ set(TRINITY_FORMAT_META @TRINITY_FORMAT_META@)
 set(TRINITY_FORMAT_PACK @TRINITY_FORMAT_PACK@)
 ]==] @ONLY)
 
-# Runs as every build starts, before the engine compiles. TrinityBuildInfo.hpp is written for each configuration apart, so no two configurations' builds write one file
+# Runs as each build starts. TrinityBuildInfo.hpp is per configuration, so no two builds write one
 add_custom_target(Trinity-Version
     COMMAND "${CMAKE_COMMAND}" "-DTRINITY_VERSION_SETTINGS=${TRINITY_VERSION_SETTINGS}" -DTRINITY_VERSION_STAGE=BuildInfo "-DTRINITY_VERSION_CONFIGURATION=$<CONFIG>" -P "${TRINITY_VERSION_SCRIPT}"
     BYPRODUCTS "${TRINITY_VERSION_DIRECTORY}/$<CONFIG>/TrinityBuildInfo.hpp" "${TRINITY_VERSION_DIRECTORY}/$<CONFIG>/TrinityBuildInfo.cmake"
@@ -98,7 +98,7 @@ function(trinity_use_version_info target)
     target_include_directories(${target} PRIVATE "${TRINITY_VERSION_DIRECTORY}/$<CONFIG>")
 endfunction()
 
-# Writes Trinity.trversion once every given target of the configuration is built, naming each configuration whose player is there
+# Writes Trinity.trversion once the targets are built, naming each configuration with a player
 function(trinity_add_version_manifest target)
     add_custom_target(${target} ALL
         COMMAND "${CMAKE_COMMAND}" "-DTRINITY_VERSION_SETTINGS=${TRINITY_VERSION_SETTINGS}" -DTRINITY_VERSION_STAGE=Manifest "-DTRINITY_VERSION_CONFIGURATION=$<CONFIG>" -P "${TRINITY_VERSION_SCRIPT}"

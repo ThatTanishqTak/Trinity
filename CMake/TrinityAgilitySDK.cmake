@@ -23,11 +23,11 @@ if(TRINITY_RHI_D3D12)
         set(TRINITY_AGILITY_SDK_FOUND ON)
         target_compile_definitions(Trinity-BuildConfig INTERFACE TR_AGILITY_SDK_VERSION=${TRINITY_AGILITY_SDK_NUMBER})
     else()
-        message(WARNING "The D3D12 Agility SDK ${TRINITY_AGILITY_SDK_VERSION} is missing from Vendor/AgilitySDK. Run Scripts/Bootstrap.ps1; until then D3D12 uses the runtime built into Windows.")
+        message(WARNING "The D3D12 Agility SDK ${TRINITY_AGILITY_SDK_VERSION} is missing from Vendor/AgilitySDK, so D3D12 uses Windows' runtime. Run Scripts/Bootstrap.ps1")
     endif()
 endif()
 
-# Copies the runtime beside the executables. The SDK layers are the debug layer that matches the runtime, so Distribution leaves them out
+# Copies the runtime beside the executables. Distribution leaves out the SDK's debug layers
 function(trinity_add_agility_sdk target)
     set(outputs "")
 

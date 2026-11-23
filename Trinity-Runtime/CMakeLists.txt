@@ -11,7 +11,7 @@ file(GLOB_RECURSE TRINITY_RUNTIME_HEADERS CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Include/*.hpp"
 )
 
-# The player's main and its application, as objects, so a player links every one of them, main and the Agility SDK's exports included, whatever it references. The engine is linked privately, so a player takes it to link and nothing else, and on Windows compiles the engine's global new and delete once, in these objects
+# The player's main as objects, so a player links them all, the Agility SDK's exports included
 add_library(Trinity-RuntimeMain OBJECT ${TRINITY_RUNTIME_SOURCES} ${TRINITY_RUNTIME_HEADERS})
 
 trinity_configure_target(Trinity-RuntimeMain)
@@ -20,12 +20,12 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_RUNTIME_HEADERS}
 target_include_directories(Trinity-RuntimeMain PRIVATE Include)
 target_link_libraries(Trinity-RuntimeMain PRIVATE Trinity::Engine)
 
-# The player for a project without C++, built in every configuration: Distribution's links the static engine and the static C runtime, and Debug and Release's the shared engine, loading the project's module as Forge does
+# The player for a project without C++: static in Distribution, on the shared engine otherwise
 add_executable(Trinity-Runtime)
 
 trinity_configure_executable(Trinity-Runtime)
 target_link_libraries(Trinity-Runtime PRIVATE Trinity-RuntimeMain)
 trinity_check_player(Trinity-Runtime)
 
-# The package a game's player builds against in Distribution, beside the static engine, with these objects as its main
+# The package a Distribution player builds against, with these objects as its main
 trinity_write_game_package(Trinity-Engine-Static Trinity-RuntimeMain)

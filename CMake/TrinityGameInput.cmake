@@ -14,22 +14,22 @@ if(TRINITY_PLATFORM STREQUAL "Windows")
     if(EXISTS "${TRINITY_GAMEINPUT_DIRECTORY}/include/GameInput.h" AND EXISTS "${TRINITY_GAMEINPUT_DIRECTORY}/lib/${TRINITY_GAMEINPUT_ARCHITECTURE}/GameInput.lib")
         set(TRINITY_GAMEINPUT_FOUND ON)
     else()
-        message(WARNING "GameInput ${TRINITY_GAMEINPUT_VERSION} is missing from Vendor/GameInput. Run Scripts/Bootstrap.ps1; until then the engine is built without gamepads.")
+        message(WARNING "GameInput ${TRINITY_GAMEINPUT_VERSION} is missing from Vendor/GameInput, so the engine is built without gamepads. Run Scripts/Bootstrap.ps1")
     endif()
 endif()
 
-# The engine compiles its Windows gamepads against GameInput's header, and links the package's loader, which finds the GameInput runtime installed on the machine as the engine starts. Nothing is copied beside the executables
+# The engine compiles against GameInput's header and links its loader, which finds the runtime
 function(trinity_link_gameinput target)
     if(TRINITY_GAMEINPUT_FOUND)
         target_include_directories(${target} SYSTEM PRIVATE "${TRINITY_GAMEINPUT_DIRECTORY}/include")
         target_link_libraries(${target} PRIVATE "${TRINITY_GAMEINPUT_DIRECTORY}/lib/${TRINITY_GAMEINPUT_ARCHITECTURE}/GameInput.lib")
         target_compile_definitions(${target} PRIVATE TR_GAMEINPUT)
-        # The static engine names it in the game package, so a version holds it, which CMake/TrinityPackage.cmake copies
+        # The game package names it for the static engine, so TrinityPackage.cmake copies it
         set_property(GLOBAL APPEND PROPERTY TRINITY_PACKAGE_LIBRARIES "${TRINITY_GAMEINPUT_DIRECTORY}/lib/${TRINITY_GAMEINPUT_ARCHITECTURE}/GameInput.lib")
     endif()
 endfunction()
 
-# The package's redistributable, which installs the runtime, goes to Redist in the folders of Release and Distribution, whose players Development and Distribution exports take, for Forge's export to put beside a game, as Microsoft asks a game that uses GameInput to ship it. Debug's folder is exported from by none. The first command runs in every configuration, since one whose commands all come to nothing leaves Ninja only the cd to the working folder, which on Windows it runs without cmd.exe and so cannot start
+# The installer goes to Redist for exports. Ninja on Windows cannot start a command of only a cd
 function(trinity_add_gameinput_redist target)
     set(redist "${CMAKE_SOURCE_DIR}/Vendor/GameInput/${TRINITY_GAMEINPUT_VERSION}/redist/GameInputRedist.msi")
 

@@ -1,4 +1,4 @@
-# The .NET SDK that builds Trinity-ScriptCore and the host pack the engine starts .NET with, found the way the Vulkan SDK is: where DOTNET_ROOT points, in the default install folders, or on PATH. global.json at the root pins the SDK, so an SDK it does not take counts as none
+# The .NET SDK and host pack, from DOTNET_ROOT, the default folders or PATH. global.json pins it
 option(TRINITY_ENABLE_DOTNET "Build Trinity-ScriptCore and host .NET for C# scripts, when a .NET 10 SDK is found" ON)
 
 set(TRINITY_DOTNET_FOUND OFF)
@@ -16,7 +16,7 @@ if(TRINITY_ENABLE_DOTNET)
         endif()
     endif()
 
-    # The host pack of this architecture with the newest runtime, whose folder ends in the runtime identifier, such as win-x64, linux-x64 or ubuntu.24.04-x64
+    # This architecture's host pack with the newest runtime. Its folder ends in the runtime identifier
     if(TRINITY_DOTNET_REASON STREQUAL "")
         if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64")
             set(dotnet_architecture "arm64")
@@ -40,11 +40,11 @@ if(TRINITY_ENABLE_DOTNET)
         set(TRINITY_DOTNET_FOUND ON)
         message(STATUS "Trinity: .NET SDK ${TRINITY_DOTNET_VERSION}, nethost from ${TRINITY_NETHOST_DIRECTORY}")
     else()
-        message(WARNING "C# scripting is off, since ${TRINITY_DOTNET_REASON}. Install the .NET 10 SDK and point DOTNET_ROOT at it, or set TRINITY_ENABLE_DOTNET to OFF to hide this.")
+        message(WARNING "C# scripting is off, since ${TRINITY_DOTNET_REASON}. Install the .NET 10 SDK and set DOTNET_ROOT, or set TRINITY_ENABLE_DOTNET to OFF")
     endif()
 endif()
 
-# The engine hosts .NET through nethost, which finds the installed runtime's hostfxr. It links statically, except on Windows in Debug and Release, since the static library is built for the static C runtime only Distribution links, so there nethost.dll goes beside the executables instead
+# nethost is linked statically, or as nethost.dll where Windows links the DLL C runtime
 function(trinity_link_dotnet_host target)
     if(NOT TRINITY_DOTNET_FOUND)
         return()
@@ -61,11 +61,11 @@ function(trinity_link_dotnet_host target)
         set(libraries "${TRINITY_NETHOST_DIRECTORY}/libnethost.a")
     endif()
 
-    # The static engine names them in the game package, so a version holds them, which CMake/TrinityPackage.cmake copies
+    # The game package names them for the static engine, so TrinityPackage.cmake copies them
     set_property(GLOBAL APPEND PROPERTY TRINITY_PACKAGE_LIBRARIES ${libraries})
 endfunction()
 
-# nethost.dll to bin/<configuration>/Trinity, beside every executable, on Windows, but for Distribution, which links nethost statically
+# nethost.dll beside every executable on Windows, except in Distribution, which links it statically
 function(trinity_add_dotnet_host_runtime target)
     if(NOT TRINITY_DOTNET_FOUND OR NOT WIN32)
         add_custom_target(${target})

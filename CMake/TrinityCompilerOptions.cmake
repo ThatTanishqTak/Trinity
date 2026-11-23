@@ -4,7 +4,7 @@ else()
     set(TRINITY_CXX_STANDARD 26)
 endif()
 
-# Debug and Release use the shared engine and Distribution the static one, or the static one everywhere with TRINITY_SHARED_ENGINE off
+# The shared engine in Debug and Release, the static in Distribution or if not TRINITY_SHARED_ENGINE
 set(TRINITY_ENGINE_SHARED_CONFIG "$<AND:$<BOOL:${TRINITY_SHARED_ENGINE}>,$<NOT:$<CONFIG:Distribution>>>")
 
 add_library(Trinity-BuildConfig INTERFACE)
@@ -77,7 +77,7 @@ function(trinity_configure_executable target)
     endif()
 endfunction()
 
-# A module is a library loaded at runtime, such as a game module. It is built only where the engine is shared, so it uses that one engine, and is a placeholder written outside bin elsewhere
+# A module is a library loaded at runtime, built only where the engine is shared
 function(trinity_add_module target)
     set(sources "")
     foreach(source IN LISTS ARGN)

@@ -20,9 +20,9 @@ function(trinity_declare_configurations)
     endif()
 endfunction()
 
-# Call after project(): Distribution starts as a copy of Release so third-party code is built the same way.
+# Call after project(): Distribution starts as a copy of Release, so third-party code builds alike
 function(trinity_setup_configuration_flags)
-    # project() caches these as empty for every custom configuration, so a plain set(CACHE) would be ignored.
+    # project() caches these as empty for every custom configuration, so a plain set(CACHE) is ignored
     foreach(lang C CXX)
         if(NOT CMAKE_${lang}_FLAGS_DISTRIBUTION)
             set(CMAKE_${lang}_FLAGS_DISTRIBUTION "${CMAKE_${lang}_FLAGS_RELEASE}"
@@ -39,6 +39,6 @@ function(trinity_setup_configuration_flags)
 
     set(CMAKE_MAP_IMPORTED_CONFIG_DISTRIBUTION "Distribution;Release;RelWithDebInfo;MinSizeRel;" PARENT_SCOPE)
     set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,Release>:ProgramDatabase>" PARENT_SCOPE)
-    # Distribution links the static C runtime, so a game needs nothing installed for it. Debug and Release link the DLL one, which a game module loaded beside the shared engine shares with it
+    # Distribution links the static C runtime. Debug and Release link the DLL one, as game modules do
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<NOT:$<CONFIG:Distribution>>:DLL>" PARENT_SCOPE)
 endfunction()

@@ -1,6 +1,6 @@
-# Libraries that belong to the editor alone. A game's Distribution build must carry none of their code, which their names in its RTTI and messages would show
+# Libraries of the editor alone. A game's Distribution build must carry none of their code
 set(TRINITY_EDITOR_LIBRARIES fastgltf simdjson Assimp)
-# What a player must carry none of besides: the editor's UI and the texture encoder, which Forge links, Slang, which only compiles shaders as Trinity builds, and a Development player's overlay and RmlUi's debugger, which Distribution leaves out. The script knows each by what its code leaves in a binary
+# What else a player must not carry: editor UI, texture encoder, Slang, overlay, RmlUi debugger
 set(TRINITY_PLAYER_EXCLUDED_LIBRARIES ${TRINITY_EDITOR_LIBRARIES} ImGui ImGuizmo BasisEncoder Slang DevelopmentOverlay RmlUiDebugger)
 # What every player must carry: RmlUi, which draws a game's UI, and the FreeType it draws text with
 set(TRINITY_PLAYER_REQUIRED_LIBRARIES RmlUi FreeType)
@@ -13,7 +13,7 @@ if(MSVC)
     find_program(TRINITY_DUMPBIN dumpbin HINTS "${_trinity_compiler_directory}")
 endif()
 
-# After each Distribution build, reads the target's binary for the libraries named after expect, or the editor's own without any. "absent" fails the build when one is found, "present" when one is missing, which Forge uses to show the check finds them where they are, and "required" when a player lacks one it needs. The names go joined by '+', which no shell treats specially, since the Windows command line splits a quoted '|' into a pipe, and what the script looks for is kept in it for the same reason
+# Checks a Distribution binary for the named libraries. Names join with '+': cmd pipes a '|'
 function(trinity_check_editor_libraries target expect)
     set(libraries ${ARGN})
     if(NOT libraries)
@@ -27,7 +27,7 @@ function(trinity_check_editor_libraries target expect)
     )
 endfunction()
 
-# After each Distribution build on Windows: no DLL imported but Windows' own, so the program starts on a machine with nothing installed, as a player and Hub must
+# After each Distribution build on Windows: the program must import no DLL but Windows' own
 function(trinity_check_imports target)
     if(WIN32)
         add_custom_command(TARGET ${target} POST_BUILD
@@ -37,7 +37,7 @@ function(trinity_check_imports target)
     endif()
 endfunction()
 
-# After each Distribution build of a player: none of the code a game never needs, all the code every game does, and on Windows no DLL imported but Windows' own, so it starts on a machine with nothing installed
+# After a player's Distribution build: no editor code, all a game needs, and only Windows' own DLLs
 function(trinity_check_player target)
     trinity_check_editor_libraries(${target} absent ${TRINITY_PLAYER_EXCLUDED_LIBRARIES})
     trinity_check_editor_libraries(${target} required ${TRINITY_PLAYER_REQUIRED_LIBRARIES})

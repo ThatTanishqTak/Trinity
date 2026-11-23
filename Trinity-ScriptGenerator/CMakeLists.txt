@@ -1,6 +1,6 @@
 # Trinity-ScriptGenerator CMakeLists.txt
 
-# Built by dotnet into bin/<configuration>/Trinity/Scripting beside Trinity-ScriptCore, where a game's C# project finds both. dotnet runs from the root, so global.json picks its SDK, and keeps its intermediate files in the build tree. Built again when a source, the project, its release notes or global.json changes
+# Built by dotnet beside Trinity-ScriptCore, run from the root so global.json picks the SDK
 file(GLOB_RECURSE TRINITY_SCRIPTGENERATOR_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cs")
 set(TRINITY_SCRIPTGENERATOR_PROJECT "${CMAKE_CURRENT_SOURCE_DIR}/Trinity-ScriptGenerator.csproj")
 set(TRINITY_SCRIPTGENERATOR_RELEASES "${CMAKE_CURRENT_SOURCE_DIR}/AnalyzerReleases.Shipped.md" "${CMAKE_CURRENT_SOURCE_DIR}/AnalyzerReleases.Unshipped.md")

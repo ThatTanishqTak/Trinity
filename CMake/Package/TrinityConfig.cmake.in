@@ -1,4 +1,4 @@
-# Trinity's engine, for a game module. Trinity's build writes this beside the shared engine of one configuration, in a version's <Configuration>-<System>-<Architecture>/Trinity folder, and everything it names is in that version, found from this file's own folder, so the version works wherever it is. A module's CMakeLists.txt finds it with find_package(Trinity CONFIG REQUIRED), given Trinity_DIR, and makes its library with trinity_add_game_module. Forge's own builds also hand it TrinityToolchain.cmake from this folder, so the module is compiled as the engine was
+# The engine for a game module: find_package(Trinity CONFIG REQUIRED), then trinity_add_game_module
 include_guard(GLOBAL)
 
 set(TRINITY_VERSION "@PROJECT_VERSION@")
@@ -8,7 +8,7 @@ set(TRINITY_CXX_STANDARD @TRINITY_CXX_STANDARD@)
 set(TRINITY_CXX_COMPILER_ID "@CMAKE_CXX_COMPILER_ID@")
 set(TRINITY_CXX_COMPILER_VERSION "@CMAKE_CXX_COMPILER_VERSION@")
 set(TRINITY_TRACK_GLOBAL_ALLOCATIONS @TRINITY_TRACK_GLOBAL_ALLOCATIONS@)
-# The version's folder, which holds the headers and the allocations source every configuration shares
+# The version's folder, which holds the headers and allocations source every configuration shares
 get_filename_component(TRINITY_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 set(TRINITY_GLOBAL_ALLOCATIONS_SOURCE "${TRINITY_ROOT}/Source/GlobalAllocations.cpp")
 if(NOT EXISTS "${TRINITY_ROOT}/Include/Trinity.hpp" OR NOT EXISTS "${TRINITY_GLOBAL_ALLOCATIONS_SOURCE}")
@@ -17,7 +17,7 @@ if(NOT EXISTS "${TRINITY_ROOT}/Include/Trinity.hpp" OR NOT EXISTS "${TRINITY_GLO
     return()
 endif()
 
-# A module shares the engine's C++ runtime and standard library, so its compiler must be the engine's kind, at the same major version
+# A module shares the engine's C++ runtime, so its compiler must be the same kind and major version
 string(REGEX MATCH "^[0-9]+" _trinity_engine_major "${TRINITY_CXX_COMPILER_VERSION}")
 string(REGEX MATCH "^[0-9]+" _trinity_module_major "${CMAKE_CXX_COMPILER_VERSION}")
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL TRINITY_CXX_COMPILER_ID OR NOT _trinity_engine_major STREQUAL _trinity_module_major)
@@ -30,7 +30,7 @@ if(NOT CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL TRINITY_CXX_COMPILER_VERSION)
     message(STATUS "Trinity: the engine was built with ${TRINITY_CXX_COMPILER_ID} ${TRINITY_CXX_COMPILER_VERSION}, and this module is built with ${CMAKE_CXX_COMPILER_VERSION}")
 endif()
 
-# The engine's headers, definitions and options, with those of the libraries its headers use, and its import library on Windows
+# The engine's headers, definitions and options, and on Windows its import library
 if(NOT TARGET Trinity::Engine)
     add_library(Trinity::Engine SHARED IMPORTED)
     set_target_properties(Trinity::Engine PROPERTIES
@@ -42,7 +42,7 @@ if(NOT TARGET Trinity::Engine)
     )
 endif()
 
-# A game module: a library Forge loads, built against this engine at its language level, with its warnings and its C++ runtime, its symbols hidden but those it exports. With global allocations tracked, the module's own new and delete count what its code allocates under Game, so it shows whether the module frees all it took
+# A game module: a library Forge loads, built as the engine is. Its new and delete count under Game
 function(trinity_add_game_module target)
     add_library(${target} MODULE ${ARGN})
     target_link_libraries(${target} PRIVATE Trinity::Engine)
@@ -74,7 +74,7 @@ function(trinity_add_game_module target)
     if(TRINITY_TRACK_GLOBAL_ALLOCATIONS)
         target_sources(${target} PRIVATE "${TRINITY_GLOBAL_ALLOCATIONS_SOURCE}")
         target_compile_definitions(${target} PRIVATE TR_GLOBAL_ALLOCATION_TAG=Game)
-        # On Linux the process's first new and delete would take the module's calls too, so the module binds its calls to its own
+        # On Linux the process's first new and delete would take the module's calls, so it binds to its own
         target_link_options(${target} PRIVATE $<$<PLATFORM_ID:Linux>:LINKER:-Bsymbolic-functions>)
     endif()
 endfunction()

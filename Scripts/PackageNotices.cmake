@@ -1,6 +1,6 @@
-# The third-party notice of a version, ThirdPartyNotices.txt, which Scripts/Package.cmake includes: every library of Scripts/Vendor.lock, the code those libraries bundle that Trinity's build compiles in, and what a version carries from outside the submodules, each with the licence it is used under, by its SPDX identifier, and that licence's text as the project gives it. A library of Vendor.lock without an entry here, or an entry's file that is missing, stops the packaging, so the notice never leaves one out. A text given before in the same file is named rather than given again
+# A version's ThirdPartyNotices.txt. A Vendor.lock library with no entry here stops the packaging
 
-# Adds one project to the notice: its title, its licence's SPDX identifier, where it comes from, its folder, under the repository unless it is a whole path, and its licence's files there. A file written as <file>:<lines> gives only its first lines, for a licence kept in a source file's opening comment. With no files, where says where its terms are
+# Adds a project: title, SPDX id, origin, folder and files. <file>:<lines> gives its first lines
 function(trinity_notice title spdx where folder)
     get_property(text GLOBAL PROPERTY TRINITY_NOTICE_TEXT)
     string(APPEND text "================================================================================\n${title}\nLicence: ${spdx}\nFrom: ${where}\n--------------------------------------------------------------------------------\n")
@@ -78,7 +78,7 @@ function(trinity_bundled_notice title library spdx folder)
     trinity_notice("${title}, in ${library}" "${spdx}" "Bundled with ${library}, in its ${folder}" "Vendor/${library}/${folder}" ${ARGN})
 endfunction()
 
-# The notice as a file, every text in it given there, as each file is read apart from any other. HUB writes Hub's, headed with Hub's own version, and without Microsoft's C++ runtime, whose DLLs Hub does not carry
+# Writes the notice. HUB writes Hub's, under Hub's version and without Microsoft's C++ runtime
 function(trinity_write_notices path)
     cmake_parse_arguments(PARSE_ARGV 1 notices "HUB" "" "")
     get_property(given_hashes GLOBAL PROPERTY TRINITY_NOTICE_HASHES)
@@ -144,11 +144,11 @@ function(trinity_write_notices path)
     get_property(named GLOBAL PROPERTY TRINITY_NOTICE_VENDORS)
     foreach(vendor IN LISTS vendors)
         if(NOT vendor IN_LIST named)
-            message(FATAL_ERROR "Package: ${vendor}, in Scripts/Vendor.lock, has no licence in Scripts/PackageNotices.cmake. Add it there with the licence it is used under")
+            message(FATAL_ERROR "Package: ${vendor}, in Scripts/Vendor.lock, has no licence in Scripts/PackageNotices.cmake. Add it there")
         endif()
     endforeach()
 
-    # From outside the submodules: the fonts the engine draws its UI with, the .NET host the engine starts C# through, and on Windows the D3D12 runtime, GameInput and Microsoft's C++ runtime
+    # Not submodules: fonts, the .NET host, and on Windows D3D12, GameInput and the C++ runtime
     trinity_notice("JetBrains Mono Nerd Font Propo" OFL-1.1 "Trinity-Engine/Assets/Fonts, in Engine/fonts" "Trinity-Engine/Assets/Fonts" OFL.txt)
 
     file(STRINGS "${build_tree}/CMakeCache.txt" dotnet_line REGEX "^TRINITY_DOTNET:FILEPATH=")

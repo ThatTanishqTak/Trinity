@@ -1,4 +1,4 @@
-# Copies files beside the executables, to bin/<configuration>/Trinity/<destination>, and copies them again when a source changes
+# Copies files to bin/<configuration>/Trinity/<destination>, again whenever a source changes
 function(trinity_add_assets target destination)
     set(outputs "")
     set(directory "${OUTPUT_BASE}/${destination}")

@@ -21,10 +21,10 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${TRINITY_HUB_HEADERS} ${T
 target_include_directories(${TARGET_NAME} PRIVATE Include)
 # Hub's own version, which the root CMakeLists.txt names beside the engine's
 target_compile_definitions(${TARGET_NAME} PRIVATE TR_HUB_VERSION="${TRINITY_HUB_VERSION}")
-# yaml-cpp reads and writes Hub's own files, as the engine's are, stb_image, header-only, reads the PNG thumbnails of the templates, and Trinity-Tools finds the tools each version's projects build with, as its Forge does
+# yaml-cpp for Hub's files, stb_image for the thumbnails, Trinity-Tools to find build tools
 target_link_libraries(${TARGET_NAME} PRIVATE Trinity::Engine Trinity::Tools yaml-cpp::yaml-cpp stb::stb)
-# Hub draws its pages with the engine's ImGui, whose text FreeType renders, which the check finds where they are, and carries none of the editor's other libraries, nor Slang
+# Hub draws with the engine's ImGui and FreeType, which the check must find, and nothing else
 trinity_check_editor_libraries(${TARGET_NAME} absent ${TRINITY_EDITOR_LIBRARIES} ImGuizmo BasisEncoder Slang)
 trinity_check_editor_libraries(${TARGET_NAME} present ImGui FreeType)
-# Hub's zip is unpacked where nothing else is installed, so after each Distribution build it must import no DLL but Windows' own, as a player
+# Hub's zip is unpacked where nothing is installed, so it must import no DLL but Windows' own
 trinity_check_imports(${TARGET_NAME})

@@ -1,4 +1,4 @@
-# Run with cmake -P by the build, given TRINITY_VERSION_SETTINGS, which CMake/TrinityVersion.cmake writes, TRINITY_VERSION_CONFIGURATION and TRINITY_VERSION_STAGE. BuildInfo, as a build starts, reads from git the commit Trinity is built from, whether the tree has changes, and the commit's date, and writes them with the version into TrinityBuildInfo.hpp for Version.cpp. Manifest, once the configuration's programs are built, writes Trinity.trversion into TRINITY_VERSION_ROOT, which is bin unless given, naming each configuration whose folder there holds its player. Each file is written only when its text changes, so nothing builds again for a build at the same commit
+# Run by cmake -P: stage BuildInfo writes TrinityBuildInfo.hpp, Manifest Trinity.trversion
 cmake_minimum_required(VERSION 3.30...4.2)
 
 include("${TRINITY_VERSION_SETTINGS}")
@@ -23,7 +23,7 @@ function(trinity_yaml_quote out text)
     set(${out} "\"${text}\"" PARENT_SCOPE)
 endfunction()
 
-# A flow sequence, as yaml-cpp writes one: [Debug, Release], or [] when empty, each name quoted when asked
+# A flow sequence as yaml-cpp writes one: [Debug, Release] or [], with names quoted when asked
 function(trinity_yaml_sequence out quoted)
     set(items "")
     foreach(name IN LISTS ARGN)
@@ -45,7 +45,7 @@ function(trinity_cpp_quote out text)
 endfunction()
 
 if(TRINITY_VERSION_STAGE STREQUAL "BuildInfo")
-    # A tree that is not a git checkout, or a git that cannot read it, gives no commit and no date. Untracked files count as changes, since the build globs its sources, and so do submodules at another commit or with tracked files changed. --no-optional-locks keeps git from taking the index's lock while another git uses it
+    # Untracked files and moved submodules count as changes. --no-optional-locks takes no index lock
     set(commit "")
     set(modified OFF)
     set(date "")
@@ -58,7 +58,7 @@ if(TRINITY_VERSION_STAGE STREQUAL "BuildInfo")
                 set(modified ON)
             endif()
 
-            # The commit's time as seconds, which string(TIMESTAMP) turns into a UTC date through SOURCE_DATE_EPOCH, the same on every machine
+            # The commit's time in seconds, made a UTC date by SOURCE_DATE_EPOCH, the same on every machine
             execute_process(COMMAND "${TRINITY_GIT}" -C "${TRINITY_SOURCE_DIRECTORY}" show --no-patch --format=%ct HEAD OUTPUT_VARIABLE seconds RESULT_VARIABLE result OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
             if(result EQUAL 0 AND seconds MATCHES "^[0-9]+$")
                 set(ENV{SOURCE_DATE_EPOCH} "${seconds}")
@@ -100,7 +100,7 @@ elseif(TRINITY_VERSION_STAGE STREQUAL "Manifest")
         set(modified "false")
     endif()
 
-    # The text EngineManifest's writer makes, key for key, so a manifest the build writes reads back and saves again as the same bytes
+    # The text EngineManifest's writer makes, key for key, so a manifest reads back and saves the same
     trinity_yaml_quote(version "${TRINITY_VERSION}")
     trinity_yaml_quote(commit "${TRINITY_BUILD_COMMIT}")
     trinity_yaml_quote(date "${TRINITY_BUILD_DATE}")

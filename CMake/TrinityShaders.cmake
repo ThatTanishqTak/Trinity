@@ -12,7 +12,7 @@ function(trinity_read_vulkan_header_version header out)
     set(${out} "${version}" PARENT_SCOPE)
 endfunction()
 
-# The SDK's headers must match the pinned Vulkan-Headers submodule, so slangc, the validation layer and the engine agree on one Vulkan version
+# The SDK's headers must match the pinned Vulkan-Headers, so slangc and the engine agree
 if(DEFINED ENV{VULKAN_SDK})
     trinity_read_vulkan_header_version("$ENV{VULKAN_SDK}/include/vulkan/vulkan_core.h" TRINITY_SDK_HEADER_VERSION)
     trinity_read_vulkan_header_version("${CMAKE_SOURCE_DIR}/Vendor/Vulkan-Headers/include/vulkan/vulkan_core.h" TRINITY_PINNED_HEADER_VERSION)
@@ -22,7 +22,7 @@ if(DEFINED ENV{VULKAN_SDK})
 endif()
 
 if(NOT TRINITY_SLANGC)
-    message(WARNING "slangc was not found in $VULKAN_SDK or on PATH, so shaders are not built. Install the Vulkan SDK ${TRINITY_VULKAN_SDK_VERSION} and set VULKAN_SDK, or set TRINITY_SLANGC.")
+    message(WARNING "slangc was not found in $VULKAN_SDK or on PATH, so no shaders are built. Install the Vulkan SDK ${TRINITY_VULKAN_SDK_VERSION} or set TRINITY_SLANGC")
 endif()
 
 function(trinity_add_shaders target)
@@ -51,7 +51,7 @@ function(trinity_add_shaders target)
             set(stage "${CMAKE_MATCH_1}")
             set(remaining "${CMAKE_MATCH_2}")
 
-            # Skips any further attributes, such as [numthreads(8, 8, 1)], then takes the name before the parameter list
+            # Skips further attributes, such as [numthreads(8, 8, 1)], and takes the name before the parameters
             string(REGEX REPLACE "^([ \t\r\n]*\\[[^]]*\\])*" "" declaration "${remaining}")
             string(REGEX MATCH "^[ \t\r\n]*[A-Za-z_][A-Za-z0-9_<>, ]*[ \t\r\n]+([A-Za-z_][A-Za-z0-9_]*)[ \t\r\n]*\\(" declaration "${declaration}")
             if(NOT declaration)
@@ -66,7 +66,7 @@ function(trinity_add_shaders target)
                     set(validate COMMAND "${TRINITY_SPIRV_VAL}" --target-env vulkan1.3 "${output}")
                 endif()
 
-                # Storage images are declared with an unknown format, which Vulkan 1.3 allows, so one shader writes any format the view has. Otherwise Slang guesses rgba32f from a float4 and the view's format must match it
+                # Storage images have an unknown format, or Slang guesses rgba32f and the view's must match it
                 add_custom_command(OUTPUT "${output}"
                     COMMAND "${CMAKE_COMMAND}" -E make_directory "${directory}" "${depfile_directory}"
                     COMMAND "${TRINITY_SLANGC}" "${source}" -target spirv -profile spirv_1_6 -stage ${stage} -entry ${entry} -fvk-use-entrypoint-name -default-image-format-unknown -o "${output}" -depfile "${depfile_directory}/${name}.${entry}.spv.d"
