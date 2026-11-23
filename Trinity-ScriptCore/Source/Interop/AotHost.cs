@@ -3,13 +3,13 @@ using System.Text;
 
 namespace Trinity.Interop
 {
-    // The way into a game's NativeAOT library, which holds ScriptCore and the game's scripts compiled ahead of time, so a player needs no .NET installed. No hostfxr is there to find ScriptCore's entry points by name, so this export finds them by the same type and method names, and the engine calls them as it calls them through hostfxr. Only such a library exports it, as Trinity-ScriptCore.Aot.targets asks
+    // The way into a game's NativeAOT library: it finds ScriptCore's entry points in place of hostfxr
     public static unsafe class AotHost
     {
         private const string c_HostType = "Trinity.Interop.Host, Trinity-ScriptCore";
         private const string c_ScriptHostType = "Trinity.Interop.ScriptHost, Trinity-ScriptCore";
 
-        // The names in UTF-8. 0 for an entry point there is not, which the engine reports as it reports one hostfxr does not find
+        // The names in UTF-8. 0 for an entry point there is not, which the engine reports
         [UnmanagedCallersOnly(EntryPoint = "TrinityScriptCore_GetEntryPoint")]
         public static nint GetEntryPoint(byte* type, int typeLength, byte* method, int methodLength)
         {

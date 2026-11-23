@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Trinity
 {
-    // Laid out as glm::mat4, column after column, so Column3 holds the translation, which the engine checks at start
+    // Laid out as glm::mat4, column after column, so Column3 holds the translation
     [StructLayout(LayoutKind.Sequential)]
     public struct Matrix4x4
     {

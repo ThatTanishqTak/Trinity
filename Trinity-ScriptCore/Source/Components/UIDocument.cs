@@ -4,7 +4,7 @@ using Trinity.Scripting;
 
 namespace Trinity
 {
-    // What a script reaches of the UIDocument as the scene runs: the elements of its document, handlers of their events, its data models and the group its UI sounds play into. Its document is loaded as it is first reached, when no view shows the scene yet, so OnCreate finds its elements. Everything does nothing, or finds nothing, for an entity without a UIDocument or one whose document did not load, and while no scene runs
+    // Its elements, event handlers, data models and sound group. Loaded as first reached, for OnCreate
     public readonly unsafe partial struct UIDocument
     {
         // Whether its document loaded
@@ -33,7 +33,7 @@ namespace Trinity
         // The element with the focus, or none
         public UIElement Focus => new(Native.UIDocument_GetFocus(m_Entity.ID));
 
-        // The group of the project's mixer the sounds its elements' sound-hover and sound-click attributes name play into, None for each sound event's own Output, and Master for a clip. Changed, the next sound they play goes there. Throws for an entity without a UIDocument
+        // The mixer group its elements' sounds play into. None is each event's own Output, or Master
         public AudioMixerGroup SoundOutput
         {
             get
@@ -46,7 +46,7 @@ namespace Trinity
             set => Check(Native.UIDocument_SetSoundOutput(m_Entity.ID, value.ID));
         }
 
-        // The data model of that name, as data-model="name" names it in the document, made the first time it is asked for, and kept while the scene's scripts run, its document loaded or not. Not valid for a name RmlUi cannot reach, or while no scene runs
+        // As data-model names it, made on first ask. Not valid for a name RmlUi cannot reach
         public UIDataModel GetModel(string name)
         {
             using Utf8String l_Name = new(name, stackalloc byte[Utf8String.c_StackBytes]);
@@ -56,7 +56,7 @@ namespace Trinity
             }
         }
 
-        // The handler, for each event of that type on the element with that ID, and for Click, Change and Submit on any element inside it too, as they bubble out, the innermost element's handlers first. It is found by its ID as each event comes, so it holds for an element made again. Events are queued as they happen and given to handlers once a frame, before the fixed steps and OnUpdate, after the input action handlers. The handler is the script's that is running as it is added, and goes with it, and every handler goes with the running scene. One that throws is logged and removed. Throws while no scene runs, or for an empty ID
+        // By element ID. Click, Change and Submit bubble out to it. Raised once a frame
         public UIEventHandle On(string element, UIEventType type, Action<UIEvent> handler)
         {
             ArgumentException.ThrowIfNullOrEmpty(element);

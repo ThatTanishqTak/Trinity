@@ -1,6 +1,4 @@
-// The engine's components and enums C# reaches, one line each. Trinity-InteropGen writes each as a Trinity.<Name> C# type from these lines as ScriptCore builds, and the engine's table of accessors and its checks come from the same lines, so the two cannot drift
-//
-// TR_ENUM(Name, Type) names an enum of the engine's, and TR_ENUM_VALUE(Enum, Name, Number) each of its values, which the engine checks at build time and a write from C# is held to. TR_COMPONENT(Name, Type) names a component, numbered in the order of this list, and the TR_PROPERTY(Component, Name, Kind, Member) lines after it each value of it C# reads and writes, numbered across the whole list. A property's kind is its C# type: Bool, Int32, UInt32, Float, Vector2, Vector3, Vector4, Quaternion, Color, Enum(Name) for an enum of this list, Asset(Type) for the UUID of an asset type of AssetTypes.cs, Entity for an entity's UUID, or Axes for a glm::bvec3, which C# has as Trinity.Axes flags. A Color is a glm::vec4, or a glm::vec3 whose alpha reads as 1. What does not fit a kind, such as a list, is written by hand on both sides
+// The engine's components and enums C# reaches. The engine and Trinity-InteropGen both read these
 
 TR_ENUM(ScriptLanguage, ScriptLanguage)
 TR_ENUM_VALUE(ScriptLanguage, Cpp, 0)

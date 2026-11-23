@@ -2,25 +2,25 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // The project's mixer, the only one its scenes play through, as Unity's AudioMixer: the values it exposes by name, which a script sets, holding through every snapshot transition until it clears them, and its snapshots, which it moves to over a time, each value along its curve. Each is false for a name the mixer lacks, and while no scene runs. A field of AssetRef<AudioMixerAsset> reaches it the same way, as Unity's mixer fields do, and does nothing when it names another mixer, with one warning, or none. Main thread only
+    // The project's mixer, as Unity's AudioMixer. Each call is false for an unknown name. Main thread
     public static unsafe class AudioMixer
     {
-        // The project's mixer asset, or None for a project with none, whose scenes play through Master alone
+        // The project's mixer asset, or None for a project with none, whose scenes play through Master
         public static AssetRef<AudioMixerAsset> Asset => new(Native.AudioMixer_GetAsset());
 
         // An exposed value, within its range
         public static bool SetFloat(string name, float value) => Set(0, name, value);
 
-        // The value set, or else where the snapshots have it now. False, and 0, for a name the mixer does not expose
+        // The value set, or else where the snapshots have it now. False, and 0, for an unexposed name
         public static bool GetFloat(string name, out float value) => Get(0, name, out value);
 
         // Back to where the snapshots take it
         public static bool ClearFloat(string name) => Clear(0, name);
 
-        // Every value from where it is to the snapshot's over the time, each along the snapshot's curve for it, and at once for 0
+        // Every value moves to the snapshot's over the time, along its curve, or at once for 0
         public static bool TransitionToSnapshot(string name, float seconds) => Transition(0, name, seconds);
 
-        // The first group by that name, Master first, for an AudioSource's Output. None for a name the mixer lacks
+        // The first group by that name, Master first, for an AudioSource's Output. None if unknown
         public static AudioMixerGroup FindGroup(string name) => Find(0, name);
 
         public static bool SetFloat(this AssetRef<AudioMixerAsset> mixer, string name, float value) => mixer.IsValid && Set(mixer.ID, name, value);

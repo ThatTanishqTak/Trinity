@@ -1,6 +1,6 @@
 namespace Trinity
 {
-    // What a character stands on as its last step left it, as the engine's CharacterGround3D: whether it is ground it can stand on, and, on any ground, a slope too steep included, the ground's normal, how fast the ground moves where the character is, and the entity whose body it is, None for ground that is no body of the scene's
+    // As the engine's CharacterGround3D: whether it can stand, the normal, the ground's speed, entity
     public readonly struct CharacterGround
     {
         public bool Grounded { get; }
@@ -17,7 +17,7 @@ namespace Trinity
         }
     }
 
-    // What a 2D character stands on, as a 3D one's, in the XY plane, with how fast the ground moves at the middle of the character's lower end cap
+    // What a 2D character stands on, as a 3D one's, in the XY plane
     public readonly struct CharacterGround2D
     {
         public bool Grounded { get; }

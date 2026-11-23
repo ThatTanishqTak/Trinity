@@ -26,7 +26,7 @@ namespace Trinity
         public UIDataType Type { get; }
     }
 
-    // A data model of a UIDocument, by the name its document gives in data-model="name", which the scene's scripts bind values and lists into, kept while the scene's scripts run, and given to every document its entity shows. Each name is bound once: binding it again gives the value or list bound before, with what it holds, and refuses one of another type or kind, logged. A name an expression reads before it is bound reads as nothing, so a document reads before its scripts bind. A name is letters, digits and underscores, not starting with a digit. Main thread only
+    // Named by data-model in the document. Binding a name again gives what was bound. Main thread only
     public readonly unsafe struct UIDataModel : IEquatable<UIDataModel>
     {
         internal UIDataModel(ulong handle)
@@ -97,7 +97,7 @@ namespace Trinity
         }
     }
 
-    // A value a script bound into a data model, which {{ name }} and data-if, data-class and data-value read, safe to keep after its model has gone, when it does nothing and reads as nothing. Setting it to what it holds does nothing, so a value set every frame costs the UI nothing until it changes, and setting it allocates nothing, text included, which crosses from the stack. A control's data-value or data-checked writes into it as the player changes the control. A value of another type is refused, logged once. Main thread only
+    // Safe to keep after its model has gone. A value of another type is refused, logged. Main thread
     public readonly unsafe struct UIDataValue : IEquatable<UIDataValue>
     {
         internal UIDataValue(ulong handle)
@@ -171,7 +171,7 @@ namespace Trinity
         public override int GetHashCode() => Handle.GetHashCode();
     }
 
-    // A list a script bound into a data model, which data-for walks, as data-for="row : scores" with {{ row.name }}, and whose rows count as scores.size. Rows are set field by field, by the field's name, as values are set, and rows added by Resize hold 0, false and empty text until set. A row past the end, or a field the list has not, is refused, logged once. Main thread only
+    // Walked by data-for. Rows added by Resize hold 0, false and empty text. Main thread only
     public readonly unsafe struct UIDataList : IEquatable<UIDataList>
     {
         internal UIDataList(ulong handle)

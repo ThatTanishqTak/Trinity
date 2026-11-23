@@ -3,7 +3,7 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // What happened to an element, as RmlUi raises it: a click, a control's value changing, a form submitted, the pointer coming onto and leaving it, and the focus coming to and leaving it. Numbered as the engine's UIEventType
+    // As RmlUi raises it. Numbered as the engine's UIEventType
     public enum UIEventType
     {
         Click,
@@ -31,7 +31,7 @@ namespace Trinity
         Checked
     }
 
-    // An element of a UI document, safe to keep after the element has gone, such as when InnerRml replaced what held it or its document was read again: everything on it then does nothing, or reads as nothing, logged once. Main thread only
+    // Safe to keep after the element has gone: calls then do nothing, logged once. Main thread only
     public readonly unsafe struct UIElement : IEquatable<UIElement>
     {
         internal UIElement(ulong handle)
@@ -47,7 +47,7 @@ namespace Trinity
 
         public string ID => GetText(UIElementText.ID);
 
-        // Every text inside it, joined, and text put in place of everything it holds, shown as written rather than read as RML
+        // Every text inside it, joined. Setting it replaces everything it holds, shown as written, not RML
         public string Text
         {
             get => GetText(UIElementText.Text);
@@ -60,7 +60,7 @@ namespace Trinity
             set => SetText(UIElementText.InnerRml, value);
         }
 
-        // A form control's value, such as a text field's text or a range's number, and empty for any other element, on which setting it does nothing
+        // A form control's value, such as a text field's text. Empty, and unsettable, for other elements
         public string Value
         {
             get => GetText(UIElementText.Value);
@@ -74,7 +74,7 @@ namespace Trinity
             set => Native.UIElement_SetFlag(Handle, (int)UIElementFlag.Checked, value);
         }
 
-        // Hidden is display: none set on the element, so it takes no space and neither the pointer nor the focus reaches it. Shown again, that goes, and its stylesheets' display holds. Visible reads whether it and every element around it are displayed
+        // Hidden sets display: none on the element. Visible reads whether it and all around it are shown
         public bool Visible
         {
             get => Native.UIElement_GetFlag(Handle, (int)UIElementFlag.Visible);
@@ -140,7 +140,7 @@ namespace Trinity
             }
         }
 
-        // A property set on the element itself, as its style attribute sets one, over its stylesheets'. False for a property or a value RmlUi cannot read
+        // Set on the element itself, over its stylesheets'. False for a property or value RmlUi cannot read
         public bool SetStyle(string property, string value)
         {
             using Utf8String l_Property = new(property, stackalloc byte[Utf8String.c_StackBytes]);
@@ -161,7 +161,7 @@ namespace Trinity
             }
         }
 
-        // The property as the element has it, from its own style or its stylesheets, empty for one RmlUi does not know
+        // As the element has it, from its own style or its stylesheets. Empty for one RmlUi does not know
         public string GetStyle(string property)
         {
             using Utf8String l_Property = new(property, stackalloc byte[Utf8String.c_StackBytes]);
@@ -195,7 +195,7 @@ namespace Trinity
         }
     }
 
-    // What a handler is told: its document, the element it was added for, where the event happened, which is that element or one inside it, and for Change and Submit the value it changed to or the form sent
+    // The element it was added for, the target, on or inside it, and for Change and Submit the value
     public readonly struct UIEvent
     {
         internal UIEvent(UIEventType type, UIDocument document, UIElement element, UIElement target, string value)
@@ -234,7 +234,7 @@ namespace Trinity
 
 namespace Trinity.Scripting
 {
-    // A C# handler as the engine holds it, by a GC handle, and the document and element ID it was added for
+    // A C# handler as the engine holds it, by a GC handle, with its document and element ID
     internal sealed class UIHandler
     {
         public UIHandler(UIDocument document, string element, Action<UIEvent> action)

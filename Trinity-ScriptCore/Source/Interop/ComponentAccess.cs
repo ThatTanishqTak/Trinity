@@ -3,7 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Trinity.Interop
 {
-    // How the generated components read and write each property, by its number in ScriptComponents.def, through a FieldValue on the stack. A failure throws, naming the entity and the property
+    // Reads and writes each property by its number in ScriptComponents.def. A failure throws
     internal static unsafe partial class ComponentAccess
     {
         public static FieldValue Get(Entity entity, int property)

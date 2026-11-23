@@ -2,14 +2,14 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // How the game's window shows it, as Unity's FullScreenMode names them and the engine numbers them: framed at its own size, or without a frame over the whole of its monitor, at the monitor's own size
+    // As Unity's FullScreenMode, numbered as the engine's: framed at its size, or over the monitor
     public enum FullScreenMode
     {
         Windowed,
         FullScreenWindow
     }
 
-    // The game's screen, as Unity's Screen has it: the size the game draws at, its mode and vsync. A change applies once the frame ends, so reads give the screen as it is until then. A player keeps the change as its player's choice, and Forge's Game panel ignores it with one line. In FullScreenWindow the game draws at the monitor's size, and SetResolution's size is the window's when it goes back
+    // As Unity's Screen. A change applies once the frame ends. Forge's Game panel ignores changes
     public static class Screen
     {
         public static int Width => Native.Screen_GetWidth();

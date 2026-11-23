@@ -4,7 +4,7 @@ using System.Text;
 
 namespace Trinity.Interop
 {
-    // Text as UTF-8 for one call into the engine: on the caller's stack, or in a rented buffer when it is long, so passing it allocates nothing it keeps. Disposed once the call has returned
+    // Text as UTF-8 for one call: on the stack, or in a rented buffer when long. Disposed after it
     internal ref struct Utf8String
     {
         public const int c_StackBytes = 256;

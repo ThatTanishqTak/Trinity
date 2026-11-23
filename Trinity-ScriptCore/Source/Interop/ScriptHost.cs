@@ -21,7 +21,7 @@ namespace Trinity.Interop
         Reloaded
     }
 
-    // The entry points the engine runs C# scripts through: a game assembly loads, its classes are described to the engine, and their instances are made, given their fields and called. An instance is a GC handle to it. Every exception is caught here, since none may cross into native code, and logged with its stack trace
+    // The entry points the engine runs C# scripts through. Every exception is caught and logged here
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static unsafe class ScriptHost
     {
@@ -30,13 +30,13 @@ namespace Trinity.Interop
 
         private static GameLoadContext? s_Context;
         private static string s_AssemblyName = string.Empty;
-        // The classes compiled into a NativeAOT library, taken once, so they are there again after an unload
+        // The classes compiled into a NativeAOT library, taken once, so they survive an unload
         private static List<ScriptClass>? s_Compiled;
         private static readonly List<ScriptClass> s_Classes = new();
         private static readonly HashSet<nint> s_Instances = new();
         private static readonly HashSet<nint> s_Tasks = new();
 
-        // The copy to load, and the build it was copied from, beside which what it depends on is found. The number of classes described, numbered from 0 in the order the engine was told of them, or -1 when the assembly could not be loaded
+        // The copy to load, and the build it came from. The number of classes described, or -1 on failure
         [UnmanagedCallersOnly]
         public static int LoadAssembly(byte* path, int length, byte* buildPath, int buildLength)
         {
@@ -52,7 +52,7 @@ namespace Trinity.Interop
             }
         }
 
-        // The game's classes compiled into this NativeAOT library with ScriptCore, which its module initializer added as the library started, under the game assembly's name. The number described, as LoadAssembly gives it, or -1 while an assembly is loaded
+        // The classes compiled into this NativeAOT library. The number described, or -1 while one is loaded
         [UnmanagedCallersOnly]
         public static int LoadCompiled(byte* name, int length)
         {
@@ -259,7 +259,7 @@ namespace Trinity.Interop
             }
         }
 
-        // The wait it gives next is numbered as the engine's ScriptWaitType. 0 once it has run, and 1 when it threw, which stops its script
+        // The wait it gives next is numbered as the engine's ScriptWaitType. 0 once run, 1 if it threw
         [UnmanagedCallersOnly]
         public static int ResumeTask(nint task, int* waitType, float* seconds, int* frames)
         {
@@ -305,7 +305,7 @@ namespace Trinity.Interop
             Free(task);
         }
 
-        // Once a frame, before the fixed steps. Each handler that throws is logged and removed by InputEvents
+        // Once a frame, before the fixed steps. A handler that throws is logged and removed
         [UnmanagedCallersOnly]
         public static void RaiseInputEvents()
         {
@@ -319,7 +319,7 @@ namespace Trinity.Interop
             }
         }
 
-        // An event for a handler a UIDocument added, as plain numbers and text. 0 once it has run, and 1 when it threw, which removes it while play goes on
+        // An event for a UIDocument's handler, as plain numbers and text. 0 once run, 1 if it threw
         [UnmanagedCallersOnly]
         public static int InvokeUIHandler(nint handler, int type, ulong element, ulong target, byte* value, int length)
         {
@@ -338,7 +338,7 @@ namespace Trinity.Interop
             }
         }
 
-        // Held by a GC handle as a task is, which the engine frees through FreeTask, and at once while no scene runs
+        // Held by a GC handle as a task is, which the engine frees through FreeTask
         internal static ulong AddUIHandler(UIHandler handler, UIEventType type)
         {
             nint l_Handle = GCHandle.ToIntPtr(GCHandle.Alloc(handler));
@@ -355,7 +355,7 @@ namespace Trinity.Interop
             return l_ID != 0 ? l_ID : throw new InvalidOperationException($"A {type} handler of '{handler.Element}' was not added, since no scene runs");
         }
 
-        // Held by a GC handle the engine keeps until it frees it, which it does at once when no scene runs the script
+        // Held by a GC handle the engine keeps until it frees it, at once when no scene runs the script
         internal static ulong StartTask(ScriptTask task, TaskKind kind, TaskWait wait, float interval)
         {
             if (task.Owner.Handle == 0)
@@ -446,7 +446,7 @@ namespace Trinity.Interop
             return s_Classes.Count;
         }
 
-        // Each field's default is the value a new instance has. A class whose constructor throws is left out, and is not numbered
+        // Each field's default is a new instance's value. A class whose constructor throws is left out
         private static void Describe(ScriptClass scriptClass)
         {
             Script l_Defaults;
@@ -530,7 +530,7 @@ namespace Trinity.Interop
             }
         }
 
-        // Every instance still held is freed and reported, since the context cannot be collected while one lives, and every input action handler is removed for the same reason. Then collections are asked for until the context goes, and one that stays is reported with what still holds it. Compiled classes have no context to collect
+        // Every instance and handler is freed first, since the context cannot be collected while one lives
         private static bool Unload()
         {
             if (s_AssemblyName.Length == 0)

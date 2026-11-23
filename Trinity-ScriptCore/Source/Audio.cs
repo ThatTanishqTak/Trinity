@@ -2,7 +2,7 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // The running scene's sounds played on their own, as Unity's AudioSource.PlayClipAtPoint plays a clip, each from a memory of its own, and the global parameters every sound event hears, as FMOD's. A clip plays spatialized as a source does by default, and a sound event with its own 3D settings, priority and Output. The handle each gives reaches its sound until it ends. Nothing plays while no scene runs. Main thread only
+    // Sounds played on their own, as Unity's PlayClipAtPoint, and FMOD-style globals. Main thread
     public static unsafe class Audio
     {
         // At a place of its own. None for a resource that is None, or while no scene runs
@@ -11,13 +11,13 @@ namespace Trinity
             return new AudioHandle(Native.Audio_PlayAtPoint(resource.ID, &position, volume));
         }
 
-        // Following the entity as a source would, until it is gone, then staying where it was. None for an entity the running scene does not have
+        // Following the entity as a source would, then staying where it was. None for an unknown entity
         public static AudioHandle PlayAttached<T>(AssetRef<T> resource, Entity entity, float volume = 1.0f) where T : IAudioResource
         {
             return new AudioHandle(Native.Audio_PlayAttached(resource.ID, entity.ID, volume));
         }
 
-        // A value every sound event playing with a global parameter by that name hears, from the same period, each seeking towards it at its own speed, as do those played after it. False while no scene runs
+        // A value every sound event with a global parameter by that name hears. False while no scene runs
         public static bool SetGlobalParameter(string name, float value)
         {
             using Utf8String l_Name = new(name, stackalloc byte[Utf8String.c_StackBytes]);

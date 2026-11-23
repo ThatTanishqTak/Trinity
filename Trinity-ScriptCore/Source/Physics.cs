@@ -3,7 +3,7 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // The running scene's 3D queries, which look at the bodies as the last step left them, so a script asks them between steps on the main thread. Casts find the nearest collider along a ray or swept shape within the distance, and the All forms every one met, nearest first, each once, into the caller's span, as many as it holds, returning how many, so a query allocates nothing. The direction need not be of unit length. A scene with no 3D physics meets nothing
+    // Queries see bodies as the last step left them. All forms fill the caller's span, nearest first
     public static unsafe class Physics
     {
         public static bool Raycast(Vector3 origin, Vector3 direction, float maxDistance, out PhysicsHit hit, QueryFilter? filter = null)
@@ -47,7 +47,7 @@ namespace Trinity
             }
         }
 
-        // Every collider the shape overlaps where it is placed, each once, in UUID order, with only the entities
+        // Every collider the shape overlaps where it is placed, each once, in UUID order, entities only
         public static int Overlap(QueryShape shape, Vector3 position, Quaternion rotation, Span<PhysicsHit> hits, QueryFilter? filter = null)
         {
             QueryFilter l_Filter = filter.GetValueOrDefault();
@@ -63,7 +63,7 @@ namespace Trinity
         }
     }
 
-    // The running scene's 2D queries, as the 3D ones, in the XY plane, with a shape turned counter-clockwise by its angle in radians. A scene with no 2D physics meets nothing
+    // As the 3D queries, in the XY plane, with a shape turned counter-clockwise by its angle in radians
     public static unsafe class Physics2D
     {
         public static bool Raycast(Vector2 origin, Vector2 direction, float maxDistance, out PhysicsHit2D hit, QueryFilter? filter = null)

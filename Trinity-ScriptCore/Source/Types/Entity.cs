@@ -5,7 +5,7 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // An entity, named by its UUID, so it stays the same entity through a reload and in a scene that was saved and loaded again. None has the UUID 0. What it reaches is the running scene's: its tag, its place in the hierarchy and in the world, its components through Get, and its scripts. Each reads and writes the engine's own at once, and one that finds no such entity, or no such component, throws InvalidOperationException, which stops the script that called it. Main thread only
+    // Named by its UUID, so it survives a reload. A missing entity or component throws. Main thread
     public readonly struct Entity : IEquatable<Entity>
     {
         public static Entity None => default;
@@ -50,7 +50,7 @@ namespace Trinity
             return l_Created != 0 ? new Entity(l_Created) : throw new InvalidOperationException($"No entity was made, since the running scene has no parent {parent}");
         }
 
-        // An instance of the prefab, made at once from its template in memory, as Unity's Instantiate makes one: last of the roots, or under the parent with the prefab's transform, or with its root at the position and rotation in the world, under the parent too. Its scripts are made at once with their fields, and have OnCreate before their first call, by the end of the frame at the latest, and its bodies and characters join physics at the next step. None, logged once a prefab, for a prefab the running scene does not hold, as it holds every prefab its fields name, or that cannot be read. Throws for a parent the running scene does not have
+        // As Unity's Instantiate, made at once. None, logged, for a prefab the running scene does not hold
         public static unsafe Entity Instantiate(AssetRef<PrefabAsset> prefab, Entity parent = default)
         {
             CheckParent(prefab, parent);
@@ -65,7 +65,7 @@ namespace Trinity
             return new Entity(Native.Entity_Instantiate(prefab.ID, parent.ID, &position, &rotation));
         }
 
-        // It and its subtree go at the end of the frame, after every script has run, so a script may destroy its own entity and finish the call it is in
+        // It and its subtree go at the end of the frame, so a script may destroy its own entity
         public void Destroy()
         {
             if (!Native.Entity_Destroy(ID))
@@ -74,7 +74,7 @@ namespace Trinity
             }
         }
 
-        // It and its subtree copied at once, placed after it, with entity fields inside the copy pointing at the copy's own entities. The copy's scripts are made at once and have OnCreate before their first call, by the end of the frame at the latest
+        // Copied at once, placed after it. The copy's scripts have OnCreate by the end of the frame
         public Entity Duplicate()
         {
             ulong l_Copy = Native.Entity_Duplicate(ID);
@@ -114,19 +114,19 @@ namespace Trinity
             }
         }
 
-        // None for a root. Setting it keeps the entity where it is in the world, and SetParent can keep its transform instead
+        // None for a root. Setting it keeps the entity's place in the world. SetParent can keep its own
         public Entity Parent
         {
             get => Exists ? new Entity(Native.Entity_GetParent(ID)) : ThrowMissing<Entity>();
             set => SetParent(value);
         }
 
-        // Last under the parent, or last of the roots for None. Refused, with an exception, for a parent the running scene does not have or one inside this entity's own subtree
+        // Last under the parent, or last of the roots for None. Throws for an unknown parent or a child
         public void SetParent(Entity parent, bool keepWorldTransform = true)
         {
             if (!Native.Entity_SetParent(ID, parent.ID, keepWorldTransform))
             {
-                throw new InvalidOperationException(Exists ? $"Entity {this} cannot go under {parent}, which the running scene does not have, or which is inside it" : $"The running scene has no entity {this}");
+                throw new InvalidOperationException(Exists ? $"Entity {this} cannot go under {parent}, which is not in the running scene or is inside it" : $"The running scene has no entity {this}");
             }
         }
 
@@ -154,7 +154,7 @@ namespace Trinity
             set => new Transform(this).Scale = value;
         }
 
-        // In the world, from its transform and its parents' as they are now, with any shear dropped. Setting one sets its transform relative to its parent, and a running body is teleported there
+        // In the world, with any shear dropped. Setting one teleports a running body there
         public unsafe Vector3 WorldPosition
         {
             get
@@ -206,7 +206,7 @@ namespace Trinity
             }
         }
 
-        // In the world as it is drawn this frame: a running body's entity, and what is below it, between the body's last two physics steps, where its transform holds the last step. What a camera that follows a body reads in OnLateUpdate, so it moves as smoothly as the body is drawn whatever the frame rate. The same as WorldPosition and WorldRotation where no body moves
+        // As drawn this frame, between a body's last two steps. For a camera that follows a body
         public Vector3 DrawnPosition
         {
             get
@@ -248,7 +248,7 @@ namespace Trinity
             return l_Has;
         }
 
-        // A new one with the engine's defaults, which a running scene's physics picks up at the next step. Throws when it has one already, and for Transform, which every entity has
+        // A new one with the engine's defaults. Throws when it has one already, and for Transform
         public T Add<T>() where T : struct, IComponent<T>
         {
             ComponentAccess.Check(this, (AccessResult)Native.Component_Add(ID, T.TypeId), $"already has a {T.TypeName}");
@@ -284,7 +284,7 @@ namespace Trinity
         // Whether it has a script of the class, in either language, whether or not its code is loaded
         public bool HasScript(string className, ScriptLanguage language = ScriptLanguage.CSharp) => FindScript(className, language) >= 0;
 
-        // A script of the class last on the entity, with its fields at their defaults, made at once and given OnCreate before its first call, by the end of the frame at the latest. Throws when the class is not loaded
+        // Made at once, with OnCreate by the end of the frame. Throws when the class is not loaded
         public T AddScript<T>() where T : Script
         {
             int l_Index = AddScript(ScriptName<T>.Value, ScriptLanguage.CSharp);
@@ -307,7 +307,7 @@ namespace Trinity
             return l_Index >= 0 ? l_Index : throw new InvalidOperationException(Exists ? $"No loaded code has {language} class {className}, so it was not added to entity {this}" : $"The running scene has no entity {this}");
         }
 
-        // The first script of the class goes at the end of the frame, after its OnDestroy, and stays until then. False when it has none
+        // The first script of the class goes at the end of the frame, after OnDestroy. False if none
         public bool RemoveScript<T>() where T : Script
         {
             int l_Count = Native.Scripting_GetScriptCount(ID);

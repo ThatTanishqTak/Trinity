@@ -1,6 +1,6 @@
 namespace Trinity
 {
-    // A component C# reaches, which Trinity-InteropGen writes from the engine's ScriptComponents.def: a handle to one entity's, numbered as the engine numbers it, made only by Entity.Get and Entity.Add
+    // A component C# reaches, written by Trinity-InteropGen. Made only by Entity.Get and Entity.Add
     public interface IComponent<TSelf> where TSelf : struct, IComponent<TSelf>
     {
         static abstract int TypeId { get; }

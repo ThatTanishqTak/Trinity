@@ -2,7 +2,7 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // Lines in world space for seeing what a script is doing, drawn this frame into every view that shows debug lines, then cleared, as the engine's DebugDraw draws them. Colours are sRGB with alpha, as they show. OnTop shows a line over everything, rather than behind the scene's meshes. Nothing is drawn in Distribution
+    // Lines in world space, drawn this frame then cleared. Colours are sRGB. Nothing in Distribution
     public static unsafe class DebugDraw
     {
         public static void Line(Vector3 from, Vector3 to, Color color, bool onTop = false) => Native.DebugDraw_Line(&from, &to, &color, onTop);

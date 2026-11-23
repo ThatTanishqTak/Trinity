@@ -31,7 +31,7 @@ namespace Trinity.Scripting
         public static TaskWait ForFrames(int frames) => new() { Type = WaitType.Frames, Frames = Math.Max(frames, 1) };
     }
 
-    // A script's timer, which runs its action, or its coroutine, which runs its IEnumerator and those it yields in turn until it next waits. The engine keeps it by a GC handle and says when to run it
+    // A script's timer or coroutine. The engine keeps it by a GC handle and says when to run it
     internal sealed class ScriptTask
     {
         private readonly Action? m_Action;

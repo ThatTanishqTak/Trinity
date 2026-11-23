@@ -2,7 +2,7 @@ using System;
 
 namespace Trinity
 {
-    // Shows a field that is not public in Properties, where it saves with the scene as a public one does
+    // Shows a field that is not public in Properties, where it saves with the scene as a public one
     [AttributeUsage(AttributeTargets.Field, Inherited = false)]
     public sealed class FieldAttribute : Attribute
     {

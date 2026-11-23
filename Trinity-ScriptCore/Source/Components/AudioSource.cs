@@ -2,7 +2,7 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // What a script does with the source as the scene runs, as Unity's AudioSource: Play from the start of its Resource, in place of what it plays, once what it names has loaded, Stop, Pause and UnPause, which take its one-shots with them, and PlayOneShot beside what it plays. The parameters of the sound events it plays are its own, kept for its later plays too. A value written to it is heard as the scene's sounds next update. An entity with no AudioSource throws
+    // As Unity's AudioSource: Play, Stop, Pause, UnPause and PlayOneShot. With no AudioSource it throws
     public readonly unsafe partial struct AudioSource
     {
         private const string c_NoSource = "has no AudioSource";
@@ -15,7 +15,7 @@ namespace Trinity
 
         public void UnPause() => Check(Native.AudioSource_UnPause(m_Entity.ID));
 
-        // From Play until what it plays ends or is stopped, while it waits for its clip too. Not while it is paused
+        // From Play until what it plays ends or is stopped, its wait for its clip too. Not while paused
         public bool IsPlaying
         {
             get
@@ -27,7 +27,7 @@ namespace Trinity
             }
         }
 
-        // Where it is in its clip, or how long its sound event has played, in seconds, 0 while it plays nothing
+        // Where it is in its clip, or how long its sound event has played, in seconds, 0 if nothing plays
         public double Time
         {
             get
@@ -42,13 +42,13 @@ namespace Trinity
         // A clip or a sound event as its Resource, which takes either
         public void SetResource<T>(AssetRef<T> resource) where T : IAudioResource => Resource = new AssetRef<AudioResourceAsset>(resource.ID);
 
-        // Its own Resource beside what it plays rather than in its place, with its values and its volume scaled, following it, and stopped, paused and kept across scenes with it. It shares the source's parameters, and Avoid Repeat spans both. None for a source with no Resource
+        // Its own Resource beside what it plays, sharing its parameters. None for a source with no Resource
         public AudioHandle PlayOneShot(float volumeScale = 1.0f) => PlayOneShot(0, volumeScale);
 
         // A clip or a sound event in the same way. None for a resource that is None
         public AudioHandle PlayOneShot<T>(AssetRef<T> resource, float volumeScale = 1.0f) where T : IAudioResource => resource.IsValid ? PlayOneShot(resource.ID, volumeScale) : AudioHandle.None;
 
-        // A value of a parameter of the sound events it plays, by its name, kept for its later plays too, as Unity 6's AudioSource keeps its Audio Random Container's state, so a footstep's surface is set once and each step picks by it. A Switch reads it as it is triggered, and a continuous one is kept within its range, every instance playing seeking towards it at its speed. A global one is Audio's, which this leaves as it is
+        // A parameter of the sound events it plays, by name, kept for its later plays. Not a global one
         public void SetParameter(string name, float value)
         {
             int l_Result;
@@ -63,7 +63,7 @@ namespace Trinity
             Check(l_Result);
         }
 
-        // By one of the parameter's labels, as the sound event it names has them once it has loaded. False before then, or for a label it lacks
+        // By one of the parameter's labels, once its sound event has loaded. False before, or if unknown
         public bool SetParameterLabel(string name, string label)
         {
             int l_Result;
@@ -83,7 +83,7 @@ namespace Trinity
             return l_Found;
         }
 
-        // The value it was given, or else the default of the sound event it plays. False, and 0, for neither
+        // The value it was given, or else its sound event's default. False, and 0, for neither
         public bool GetParameter(string name, out float value)
         {
             int l_Result;
@@ -103,7 +103,7 @@ namespace Trinity
             return l_Found;
         }
 
-        // The group of the project's mixer it plays into, as Unity's outputAudioMixerGroup, None for Master. Changed while it plays, its sound moves there as the scene's sounds next update
+        // The mixer group it plays into, as Unity's outputAudioMixerGroup. None is Master
         public AudioMixerGroup Output
         {
             get

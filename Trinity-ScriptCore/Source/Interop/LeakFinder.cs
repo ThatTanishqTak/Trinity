@@ -7,7 +7,7 @@ using System.Runtime.Loader;
 
 namespace Trinity.Interop
 {
-    // What keeps an unloaded game context alive, found by reading every static field of every assembly outside it, ScriptCore's and the framework's, and the fields of the object each holds, as AppDomain.CurrentDomain holds its events: a delegate or an event that calls into the game, an object of one of the game's types, or a collection that holds either. Only run once a context has not been collected, since reading a static field runs its type's static constructor
+    // Finds what keeps an unloaded game context alive, by reading static fields. Only run after a leak
     internal static class LeakFinder
     {
         private const int c_MaxFindings = 8;
@@ -138,7 +138,7 @@ namespace Trinity.Interop
             return null;
         }
 
-        // The first field of an object outside the game that holds something of the game's, with what it holds
+        // The first field of an object outside the game that holds something of the game's
         [UnconditionalSuppressMessage("Trimming", "IL2075", Justification = "Run in Forge only, after a reload whose context was not collected, over whatever metadata the loaded assemblies have")]
         private static (string Member, string Held)? FindInFields(object? value, AssemblyLoadContext context)
         {

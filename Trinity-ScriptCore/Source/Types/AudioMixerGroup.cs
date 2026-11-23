@@ -2,7 +2,7 @@ using System;
 
 namespace Trinity
 {
-    // A group of the project's mixer, by its ID, as Unity's AudioMixerGroup, which AudioMixer.FindGroup finds by its name and an AudioSource's Output plays into. None plays into Master, as does a group the mixer no longer has
+    // A group of the project's mixer, by its ID, as Unity's AudioMixerGroup. None plays into Master
     public readonly struct AudioMixerGroup : IEquatable<AudioMixerGroup>
     {
         public static AudioMixerGroup None => default;

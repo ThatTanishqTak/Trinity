@@ -6,7 +6,7 @@ using System.Text;
 
 namespace Trinity.Interop
 {
-    // A script field's value as it crosses to the engine, laid out as the engine's Interop::FieldValue, which it checks at start. A bool, the integers, an enum and the UUID of an entity or an asset are in Integer, a float and a double in Real, the vectors, a quaternion and a colour in X to W, a string and an input action's path in Text, and a list is its element type in ElementType and its length in Integer, its elements crossing after it one call each. The generated code of each script class makes and reads these
+    // Laid out as the engine's Interop::FieldValue, which it checks at start. Used by generated code
     [EditorBrowsable(EditorBrowsableState.Never)]
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct FieldValue
@@ -38,7 +38,7 @@ namespace Trinity.Interop
         public static FieldValue Asset(ulong id) => new() { Type = FieldType.Asset, Integer = unchecked((long)id) };
         public static FieldValue List(FieldType elementType, int length) => new() { Type = FieldType.List, ElementType = elementType, Integer = length };
 
-        // Encoded into a buffer of ScriptCore's, valid until the next string is made, which is long enough for the engine to copy it
+        // Encoded into a buffer of ScriptCore's, valid until the next string is made
         public static FieldValue String(string? value) => Encode(FieldType.String, value);
 
         // By the path it was found by, which an action found while no scene ran keeps too

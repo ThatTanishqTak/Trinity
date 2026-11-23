@@ -3,7 +3,7 @@ using System.Text;
 
 namespace Trinity.Interop
 {
-    // Text as UTF-8 for one call into the engine, which need not end in a zero. Laid out as the engine's Interop::Utf8, which it checks at start
+    // Text as UTF-8 for one call, which need not end in a zero. Laid out as the engine's Interop::Utf8
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct Utf8
     {
@@ -16,7 +16,7 @@ namespace Trinity.Interop
             Length = length;
         }
 
-        // A copy, as text the engine gives back is valid only until its next call that gives text. Empty for none
+        // A copy, as text the engine gives back is valid only until its next such call. Empty for none
         public override string ToString() => Length > 0 ? Encoding.UTF8.GetString(Data, Length) : string.Empty;
     }
 }

@@ -3,7 +3,7 @@ using System.ComponentModel;
 
 namespace Trinity.Scripting
 {
-    // The callbacks a script class overrides, so the engine calls only those, valued as the engine's ScriptCallbacks are
+    // The callbacks a class overrides, so the engine calls only those, valued as the engine's are
     [EditorBrowsable(EditorBrowsableState.Never)]
     [Flags]
     public enum ScriptCallbacks : uint

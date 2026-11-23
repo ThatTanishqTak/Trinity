@@ -4,7 +4,7 @@ using System.Collections.Generic;
 
 namespace Trinity.ScriptGenerator
 {
-    // An array compared by its items, so the generator's models compare equal when nothing changed and the output is not written again
+    // An array compared by its items, so unchanged models compare equal and nothing is written again
     internal readonly struct EquatableArray<T> : IEquatable<EquatableArray<T>>, IEnumerable<T> where T : IEquatable<T>
     {
         private readonly T[]? m_Items;

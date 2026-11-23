@@ -2,7 +2,7 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // What a script does to the 2D body itself as the scene runs, as to a 3D one: in the XY plane, with turns counter-clockwise in radians. Only a dynamic body takes velocities, forces and impulses, a force or torque lasts for the next step, and an impulse changes the velocity at once. A body the physics has not made throws
+    // As a 3D body, in the XY plane, with turns counter-clockwise in radians. Unmade, it throws
     public readonly unsafe partial struct RigidBody2D
     {
         private const string c_NoBody = "has a RigidBody2D the running scene's physics has not made";
@@ -45,7 +45,7 @@ namespace Trinity
 
         public void AddAngularImpulse(float impulse) => Check(Native.Body2D_AddAngularImpulse(m_Entity.ID, impulse), "takes an impulse");
 
-        // The body and its entity there at once, at the entity's depth and turned about Z alone, its velocities kept
+        // The body and its entity there at once, at the entity's depth, its velocities kept
         public void Teleport(Vector2 position, float angle) => Check(Native.Body2D_Teleport(m_Entity.ID, &position, angle), "moves");
 
         // Where a kinematic body goes over the next frame's steps

@@ -2,7 +2,7 @@ using System;
 
 namespace Trinity
 {
-    // What a coroutine yields to wait, on the running scene's clock, so it holds while the scene is paused and moves on with Step: seconds of the scene's fixed steps, resumed after OnUpdate in the frame whose steps reached them, a number of frames, null for the next one, the next fixed step, after the scripts' OnFixedUpdate and ahead of physics, or a condition, asked after each OnUpdate from the next frame on. A coroutine may also yield another IEnumerator, which runs in its place until it finishes, or a Coroutine it started, which it waits for
+    // What a coroutine yields to wait, on the scene's clock. Or it yields an IEnumerator or Coroutine
     public abstract class YieldInstruction
     {
         private protected YieldInstruction() { }
@@ -53,7 +53,7 @@ namespace Trinity
         }
     }
 
-    // A coroutine or a timer a script started, which stays valid to stop or ask about after it has gone. Default for one that was never started, or that finished as it started
+    // Stays valid to stop or ask about after it has gone. Default if never started or finished at once
     public readonly struct Coroutine : IEquatable<Coroutine>
     {
         public ulong ID { get; }

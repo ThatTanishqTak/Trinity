@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Trinity
 {
-    // Laid out as glm::quat, which keeps W last, and which the engine checks at start. The identity rotation is (0, 0, 0, 1)
+    // Laid out as glm::quat, which keeps W last. The identity rotation is (0, 0, 0, 1)
     [StructLayout(LayoutKind.Sequential)]
     public struct Quaternion
     {

@@ -1,6 +1,6 @@
 namespace Trinity
 {
-    // The engine's asset types, by the names the engine gives them, for AssetRef<T>. None is made, since each only names its type
+    // The engine's asset types, by the engine's names, for AssetRef<T>. None is ever made
     public sealed class TextureAsset : IAsset
     {
         private TextureAsset() { }
@@ -50,7 +50,7 @@ namespace Trinity
         public static string AssetType => "Scene";
     }
 
-    // A prefab or a model, which is read as a prefab of its hierarchy, so a field of AssetRef<PrefabAsset> takes either, for Entity.Instantiate
+    // A prefab or a model, which reads as a prefab of its hierarchy, for Entity.Instantiate
     public sealed class PrefabAsset : IAsset
     {
         private PrefabAsset() { }
@@ -72,7 +72,7 @@ namespace Trinity
         public static string AssetType => "InputActions";
     }
 
-    // What an AudioSource plays, PlayOneShot plays beside it and Audio plays on its own, as Unity 6's AudioResource is either an AudioClip or an Audio Random Container
+    // What an AudioSource plays, as Unity 6's AudioResource: an AudioClip or an Audio Random Container
     public interface IAudioResource : IAsset
     {
     }
@@ -91,7 +91,7 @@ namespace Trinity
         public static string AssetType => "SoundEvent";
     }
 
-    // An AudioClip or a Sound Event, as an AudioSource's Resource is, so a field of AssetRef<AudioResourceAsset> takes either
+    // An AudioClip or a Sound Event, so a field of AssetRef<AudioResourceAsset> takes either
     public sealed class AudioResourceAsset : IAudioResource
     {
         private AudioResourceAsset() { }
@@ -99,7 +99,7 @@ namespace Trinity
         public static string AssetType => "Audio Resource";
     }
 
-    // The project's mixer is the only one its scenes play through, so a field of AssetRef<AudioMixerAsset> names it, and AudioMixer's calls through one that names another do nothing
+    // The project's mixer is the only one its scenes play through, so a field of this names it
     public sealed class AudioMixerAsset : IAsset
     {
         private AudioMixerAsset() { }

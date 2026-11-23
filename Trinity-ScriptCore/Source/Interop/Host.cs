@@ -6,10 +6,10 @@ using System.Text;
 
 namespace Trinity.Interop
 {
-    // ScriptCore's entry points, which the engine finds by name once .NET has started and calls through function pointers. None may throw, since an exception cannot cross into native code
+    // ScriptCore's entry points, called through function pointers. None may throw into native code
     public static unsafe class Host
     {
-        // 0 once the engine's functions are bound, and 1 when the table is not the size this ScriptCore was built for, which means the engine and ScriptCore come from different builds
+        // 0 once the engine's functions are bound, and 1 when the table's size is another build's
         [UnmanagedCallersOnly]
         public static int Initialize(NativeFunctions* functions, int size)
         {
@@ -29,7 +29,7 @@ namespace Trinity.Interop
             Native.Bind(default);
         }
 
-        // The runtime's description, such as .NET 10.0.0, or .NET 10.0.0 compiled ahead of time in a NativeAOT library, written as UTF-8 into the buffer when it fits. Its length in bytes either way
+        // The runtime's description, such as .NET 10.0.0, as UTF-8 into the buffer if it fits. Its length
         [UnmanagedCallersOnly]
         public static int GetRuntimeDescription(byte* buffer, int capacity)
         {
@@ -57,7 +57,7 @@ namespace Trinity.Interop
             return Debugger.IsAttached ? 1 : 0;
         }
 
-        // The size and field offsets of each type the engine shares with C#, in the order of the engine's check: Vector2, Vector3, Vector4, Quaternion, Color, Matrix4x4, Utf8, FieldValue, Collision, QueryFilter, QueryShape, QueryShape2D, PhysicsHit and PhysicsHit2D. How many were written, or -1 when the engine's TypeLayout is not this one or the buffer is too small
+        // Each shared type's size and offsets, in the engine's order. The number written, or -1 on mismatch
         [UnmanagedCallersOnly]
         public static int DescribeLayouts(TypeLayout* layouts, int capacity, int layoutSize)
         {
@@ -100,7 +100,7 @@ namespace Trinity.Interop
             return c_Count;
         }
 
-        // Times calls from C# into the engine's echo, after a warm-up so the call sites are compiled, and logs the cost of each and what they allocated, which should be nothing. The sum of the echoes, so the loop cannot be optimized away
+        // Times calls into the engine's echo after a warm-up. Returns the sum, so the loop is not removed
         [UnmanagedCallersOnly]
         public static long MeasureInterop(int calls)
         {

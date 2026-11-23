@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.Diagnostics;
 
 namespace Trinity.ScriptGenerator
 {
-    // A field marked [Field] is written by the engine through the generated code, which the compiler cannot see, so its warnings that the field is never written, never used, or could be readonly are not reported for it
+    // The engine writes a [Field] through generated code, so unused-field warnings are suppressed
     [DiagnosticAnalyzer(LanguageNames.CSharp)]
     public sealed class FieldSuppressor : DiagnosticSuppressor
     {

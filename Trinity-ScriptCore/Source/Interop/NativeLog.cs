@@ -4,7 +4,7 @@ using System.Text;
 
 namespace Trinity.Interop
 {
-    // Text to the engine's log, encoded as UTF-8 on the stack, or in a rented buffer when it is long, so writing it allocates nothing it keeps
+    // Text to the engine's log, encoded on the stack or in a rented buffer, so nothing is kept
     internal static unsafe class NativeLog
     {
         private const int c_StackBytes = 512;

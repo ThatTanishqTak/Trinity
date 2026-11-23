@@ -37,7 +37,7 @@ namespace Trinity
         // Its velocity is left as it was
         public void Move(Vector2 displacement) => Check(Native.Character2D_Move(m_Entity.ID, &displacement));
 
-        // The character and its entity there at once, at the entity's depth, its velocity kept, drawn there with nothing between. Its capsule stays upright, and its entity takes the turn about Z
+        // The character and its entity there at once, at the entity's depth, its velocity kept
         public void Teleport(Vector2 position, float angle) => Check(Native.Body2D_Teleport(m_Entity.ID, &position, angle));
 
         // The message made only for a failure, so a call that works allocates nothing

@@ -2,7 +2,7 @@ using System;
 
 namespace Trinity.Interop
 {
-    // An action's events, numbered as their bytes in InputAction_GetEdges are, in the order a player's are raised in one frame
+    // An action's events, numbered as their bytes in InputAction_GetEdges, in the order raised
     internal enum InputEdge
     {
         Pressed,
@@ -11,7 +11,7 @@ namespace Trinity.Interop
         Canceled
     }
 
-    // The handlers scripts add to input actions' events, raised once a frame as the engine asks through ScriptHost. Each action's handlers are in arrays made again only as one is added or removed, so raising them allocates nothing, and a handler may add or remove handlers while they are raised. An action the running scene did not find has its handlers dropped, so those of a scene that stopped go as the next one runs. Main thread only
+    // Handlers are kept in arrays remade only on change, so raising them allocates nothing. Main thread
     internal static class InputEvents
     {
         private const int c_EdgeCount = 4;

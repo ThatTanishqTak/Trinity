@@ -30,7 +30,7 @@ private:
         Running
     };
 
-    // The meshes load and read back first, then a thousand loads and releases run, and the sprites start once Assets is empty again
+    // The meshes load and read back first, then loads and releases run, then the sprites start
     enum class MeshPhase : std::uint8_t
     {
         Idle,
@@ -41,7 +41,7 @@ private:
         Done
     };
 
-    // The reference document is drawn into a view of its own, copied out of the view's display target the frame after, and read back the frame after that
+    // The reference document is drawn in a view of its own, copied out a frame later, then read back
     enum class UIPhase : std::uint8_t
     {
         Idle,

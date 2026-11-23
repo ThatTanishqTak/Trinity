@@ -1,19 +1,17 @@
 
-// Every engine function C# can call, one line each, in the order the table holds them: TR_NATIVE(Name, Return, (Parameters)). The engine's table comes from these lines through Interop.hpp, and Trinity-InteropGen writes the matching C# from them as ScriptCore builds, so the two cannot drift. Each function is defined in Trinity::Interop, in the source of its area
-//
-// The types are those of Interop.hpp: Void, Bool, Int32, UInt32, Int64, UInt64, Float, Double, EntityId, LogLevel and Utf8 by value, and the vectors, Quaternion, Color, Matrix4x4, FieldValue, Collision and the physics query types only through pointers, since MSVC passes a glm type with constructors differently from a C struct
+// Functions C# calls, in table order. glm types cross by pointer: MSVC passes them unlike C structs
 
 TR_NATIVE(Log_Write, Void, (LogLevel level, Utf8 text))
 TR_NATIVE(Interop_Echo, Int32, (Int32 value))
 
-// A C# assembly's script classes, which ScriptCore describes one at a time as the assembly loads: its name and callbacks, then each field with its default, a list's default elements and an enum field's values after it, then the end, which registers the class and says whether it was taken
+// A C# assembly's script classes, described one at a time as it loads: a class, fields, the end
 TR_NATIVE(Scripting_BeginClass, Void, (Utf8 name, UInt32 callbacks))
 TR_NATIVE(Scripting_AddField, Void, (Utf8 name, const FieldValue* value, Utf8 assetType))
 TR_NATIVE(Scripting_AddListElement, Void, (const FieldValue* value))
 TR_NATIVE(Scripting_AddEnumValue, Void, (Utf8 name, Int64 value))
 TR_NATIVE(Scripting_EndClass, Bool, ())
 
-// The running scene's entities, by UUID, 0 for none. A name crosses as Utf8, which C# copies at once
+// The running scene's entities, by UUID, 0 for none. A name crosses as Utf8, copied at once
 TR_NATIVE(Entity_Exists, Bool, (EntityId entity))
 TR_NATIVE(Entity_FindByName, EntityId, (Utf8 name))
 TR_NATIVE(Entity_Create, EntityId, (Utf8 name, EntityId parent))
@@ -29,10 +27,10 @@ TR_NATIVE(Entity_GetNextSibling, EntityId, (EntityId entity))
 TR_NATIVE(Entity_GetChildCount, UInt32, (EntityId entity))
 TR_NATIVE(Transform_GetWorld, Bool, (EntityId entity, Vector3* position, Quaternion* rotation, Vector3* scale))
 TR_NATIVE(Transform_SetWorld, Bool, (EntityId entity, const Vector3* position, const Quaternion* rotation, const Vector3* scale))
-// Where the entity is drawn, as Scene::ComputeDrawnTransform has it: a running body's entity at its physics pose between its last two steps
+// Where the entity is drawn, as Scene::ComputeDrawnTransform has it, between its last two steps
 TR_NATIVE(Transform_GetDrawn, Bool, (EntityId entity, Vector3* position, Quaternion* rotation))
 
-// The components of ScriptComponents.def, by their number there, and each property by its number across the list. Each Int32 result is an Interop::AccessResult
+// The components of ScriptComponents.def, by number. Each Int32 result is an Interop::AccessResult
 TR_NATIVE(Component_Has, Bool, (EntityId entity, Int32 component))
 TR_NATIVE(Component_Add, Int32, (EntityId entity, Int32 component))
 TR_NATIVE(Component_Remove, Int32, (EntityId entity, Int32 component))
@@ -45,26 +43,26 @@ TR_NATIVE(PolygonCollider2D_GetPointCount, Int32, (EntityId entity))
 TR_NATIVE(PolygonCollider2D_GetPoint, Bool, (EntityId entity, Int32 index, Vector2* point))
 TR_NATIVE(PolygonCollider2D_SetPoints, Int32, (EntityId entity, const Vector2* points, Int32 count))
 
-// The scripts on an entity, by their index in its Script component, and the language as a ScriptLanguage. An instance is a GC handle for C#
+// The scripts on an entity, by index in its Script component. An instance is a GC handle for C#
 TR_NATIVE(Scripting_GetScriptCount, Int32, (EntityId entity))
 TR_NATIVE(Scripting_GetInstance, Int64, (EntityId entity, Int32 index, Int32 language))
 TR_NATIVE(Scripting_FindScript, Int32, (EntityId entity, Int32 language, Utf8 className))
 TR_NATIVE(Scripting_AddScript, Int32, (EntityId entity, Int32 language, Utf8 className))
 TR_NATIVE(Scripting_RemoveScript, Bool, (EntityId entity, Int32 index))
 
-// A C# script's timers and coroutines, kept by the running scene's runtime, as ScriptRuntime::StartTask has them: the owner is the script's instance, the task a GC handle to what ScriptCore runs it through, its kind a ScriptTaskKind, and its first wait a ScriptWaitType with its seconds or frames. A timer's interval is in seconds, 0 for one that runs once. 0 when no scene runs, with the task freed
+// A C# script's timers and coroutines, as ScriptRuntime::StartTask has them. A task is a GC handle
 TR_NATIVE(Scripting_StartTask, UInt64, (Int64 owner, Int64 task, Int32 kind, Int32 waitType, Float seconds, Int32 frames, Float interval))
 TR_NATIVE(Scripting_StopTask, Bool, (UInt64 task))
 TR_NATIVE(Scripting_StopTasks, Int32, (Int64 owner, Int32 kind))
 TR_NATIVE(Scripting_IsTaskRunning, Bool, (UInt64 task))
 
-// Scenes as SceneManager loads and switches them, by a scene asset's UUID or its path in the project. Each Load is false, logged, for a scene there is not or when no SceneManager runs
+// Scenes as SceneManager loads them, by UUID or project path. Load is false, logged, if unknown
 TR_NATIVE(SceneManager_Load, Bool, (UInt64 scene))
 TR_NATIVE(SceneManager_LoadPath, Bool, (Utf8 path))
 TR_NATIVE(SceneManager_IsLoading, Bool, ())
 TR_NATIVE(SceneManager_GetScene, UInt64, ())
 
-// The running scene's clock, as ScriptTime has it, and its time scale, set as Script::SetTimeScale sets it
+// The running scene's clock, as ScriptTime has it, and its time scale, as Script::SetTimeScale
 TR_NATIVE(Time_GetDeltaTime, Float, ())
 TR_NATIVE(Time_GetFixedDeltaTime, Float, ())
 TR_NATIVE(Time_GetElapsed, Double, ())
@@ -86,7 +84,7 @@ TR_NATIVE(Input_GetMousePosition, Void, (Vector2* position))
 TR_NATIVE(Input_GetMouseDelta, Void, (Vector2* delta))
 TR_NATIVE(Input_GetMouseScroll, Void, (Vector2* scroll))
 
-// Gamepads by their slot in Input, and their buttons and axes by their GamepadButton and GamepadAxis numbers. A name crosses as Utf8, which C# copies at once
+// Gamepads by slot, and their buttons and axes by number. A name crosses as Utf8, copied at once
 TR_NATIVE(Input_GetMaxGamepads, Int32, ())
 TR_NATIVE(Input_IsGamepadConnected, Bool, (Int32 gamepad))
 TR_NATIVE(Input_GetGamepadName, Utf8, (Int32 gamepad))
@@ -97,7 +95,7 @@ TR_NATIVE(Input_GetGamepadAxis, Float, (Int32 gamepad, Int32 axis))
 TR_NATIVE(Input_SetGamepadRumble, Void, (Int32 gamepad, Float lowFrequency, Float highFrequency))
 TR_NATIVE(Input_StopGamepadRumble, Void, ())
 
-// The running scene's input actions, as InputAction and InputActions have them. An action crosses as its handle, 0 for one never found, a path or a map's name as Utf8, and a device as its InputDevice number. A player is numbered from 0, and -1 is no player both ways. An action's edges are a byte of players each, bit 0 for player 0, for those it went down for this frame, then went up for, performed for and canceled for, or -1 for a handle the running scene did not find
+// Input actions by handle, 0 for one never found. A player is numbered from 0, and -1 is none
 TR_NATIVE(InputAction_Find, UInt64, (Utf8 path))
 TR_NATIVE(InputAction_IsValid, Bool, (UInt64 action))
 TR_NATIVE(InputAction_IsPressed, Bool, (UInt64 action, Int32 player))
@@ -110,7 +108,7 @@ TR_NATIVE(InputAction_ReadValue, Float, (UInt64 action, Int32 player))
 TR_NATIVE(InputAction_ReadVector2, Void, (UInt64 action, Int32 player, Vector2* value))
 TR_NATIVE(InputAction_GetEdges, Int64, (UInt64 action))
 
-// An action's bindings and a player's rebinds of them, a binding and a part by index, and a source by its name, such as Keyboard/Space, empty for none. A rebind crosses as its handle, 0 for none, and its state as its InputRebindState number. A name crosses as Utf8, valid until the next call that gives one, which C# copies at once
+// Bindings and parts by index, a source by its name, and a rebind by its handle, 0 for none
 TR_NATIVE(InputAction_GetBindingCount, Int32, (UInt64 action))
 TR_NATIVE(InputAction_GetPartCount, Int32, (UInt64 action, Int32 binding))
 TR_NATIVE(InputAction_GetSource, Utf8, (UInt64 action, Int32 binding, Int32 part, Int32 player, Bool asset))
@@ -140,7 +138,7 @@ TR_NATIVE(InputActions_ReadsDevice, Bool, (Int32 player, Int32 device))
 TR_NATIVE(InputActions_GetJoiningDevice, Int32, ())
 TR_NATIVE(InputActions_ResetBindings, Void, (Int32 player))
 
-// What a script does to the body an entity is part of, named by the entity that owns it or by one of its colliders' entities, in world space, as PhysicsScene3D and 2D do it. Each Int32 result is an Interop::AccessResult: NoComponent for an entity that is not part of a body the running scene's physics has made, and BadValue for a body whose motion does not take it. A null point pushes at the body's centre of mass. A 2D body's turns are counter-clockwise radians about Z
+// A body, named by its entity or a collider's. Each Int32 result is an Interop::AccessResult
 TR_NATIVE(Body_GetVelocity, Int32, (EntityId entity, Vector3* linear, Vector3* angular))
 TR_NATIVE(Body_SetLinearVelocity, Int32, (EntityId entity, const Vector3* velocity))
 TR_NATIVE(Body_SetAngularVelocity, Int32, (EntityId entity, const Vector3* velocity))
@@ -166,7 +164,7 @@ TR_NATIVE(Body2D_SetAwake, Int32, (EntityId entity, Bool awake))
 TR_NATIVE(Body2D_IsAwake, Int32, (EntityId entity, Bool* awake))
 TR_NATIVE(Joint2D_IsBroken, Int32, (EntityId entity, Bool* broken))
 
-// What a script does to a character, named by its entity or one of its colliders' entities, as PhysicsScene3D and 2D do it: its own velocity, which lasts until changed, a move its next step covers besides that velocity, and the ground as its last step left it, with 0 for no ground entity. Each Int32 result is an Interop::AccessResult: NoComponent for an entity that is part of nothing the running scene's physics has made, and BadValue for one that is part of a body and not a character. A character teleports through Body_Teleport and Body2D_Teleport
+// A character, named by its entity or a collider's: its velocity, a move, and its ground
 TR_NATIVE(Character_GetVelocity, Int32, (EntityId entity, Vector3* velocity))
 TR_NATIVE(Character_SetVelocity, Int32, (EntityId entity, const Vector3* velocity))
 TR_NATIVE(Character_Move, Int32, (EntityId entity, const Vector3* displacement))
@@ -176,7 +174,7 @@ TR_NATIVE(Character2D_SetVelocity, Int32, (EntityId entity, const Vector2* veloc
 TR_NATIVE(Character2D_Move, Int32, (EntityId entity, const Vector2* displacement))
 TR_NATIVE(Character2D_GetGround, Int32, (EntityId entity, Bool* grounded, Vector2* normal, Vector2* velocity, EntityId* ground))
 
-// The running scene's queries, as PhysicsScene3D and 2D answer them, into the caller's hits: the nearest alone, or with all every one met, nearest first, as many as there is room for. Each returns how many it wrote, 0 when the scene has no physics, or -1 for a shape type the engine does not know
+// Queries into the caller's hits. Each returns how many it wrote, or -1 for an unknown shape
 TR_NATIVE(Physics_Raycast, Int32, (const Vector3* origin, const Vector3* direction, Float maxDistance, const QueryFilter* filter, Bool all, PhysicsHit* hits, Int32 capacity))
 TR_NATIVE(Physics_ShapeCast, Int32, (const QueryShape* shape, const Vector3* position, const Quaternion* rotation, const Vector3* direction, Float maxDistance, const QueryFilter* filter, Bool all, PhysicsHit* hits, Int32 capacity))
 TR_NATIVE(Physics_Overlap, Int32, (const QueryShape* shape, const Vector3* position, const Quaternion* rotation, const QueryFilter* filter, PhysicsHit* hits, Int32 capacity))
@@ -194,7 +192,7 @@ TR_NATIVE(DebugDraw_Capsule, Void, (const Vector3* start, const Vector3* end, Fl
 TR_NATIVE(DebugDraw_Arrow, Void, (const Vector3* from, const Vector3* to, const Color* color, Bool onTop))
 TR_NATIVE(DebugDraw_Cross, Void, (const Vector3* center, Float size, const Color* color, Bool onTop))
 
-// The running scene's sounds, as AudioScene plays them: an AudioSource by its entity, each Int32 result an Interop::AccessResult, NoComponent for an entity with no AudioSource, and a sound played on its own by its handle, 0 for none, which once its sound has ended reaches nothing, so every call on it does nothing. A resource is the UUID of an AudioClip or a Sound Event, 0 for the source's own, and a parameter, a label or a name crosses as Utf8. A found result is false, its value left as it was, for a parameter, a label or a value there is not. Each does nothing, or reads as nothing playing, while no scene runs
+// An AudioSource by its entity, and a sound played on its own by its handle, 0 for none
 TR_NATIVE(AudioSource_Play, Int32, (EntityId entity))
 TR_NATIVE(AudioSource_Stop, Int32, (EntityId entity))
 TR_NATIVE(AudioSource_Pause, Int32, (EntityId entity))
@@ -220,7 +218,7 @@ TR_NATIVE(AudioHandle_GetParameter, Bool, (UInt64 handle, Utf8 name, Float* valu
 TR_NATIVE(AudioHandle_SetPosition, Void, (UInt64 handle, const Vector3* position))
 TR_NATIVE(AudioHandle_Follow, Void, (UInt64 handle, EntityId entity))
 
-// The project's mixer, which the running scene plays through, named by its asset's UUID, 0 for the project's own. One named that is not the project's is refused with one warning. A group crosses as its ID, 0 for none, which plays into Master
+// The project's mixer, by its asset's UUID, 0 for the project's own. A group crosses as its ID
 TR_NATIVE(AudioMixer_GetAsset, UInt64, ())
 TR_NATIVE(AudioMixer_SetFloat, Bool, (UInt64 mixer, Utf8 name, Float value))
 TR_NATIVE(AudioMixer_GetFloat, Bool, (UInt64 mixer, Utf8 name, Float* value))
@@ -228,10 +226,10 @@ TR_NATIVE(AudioMixer_ClearFloat, Bool, (UInt64 mixer, Utf8 name))
 TR_NATIVE(AudioMixer_TransitionToSnapshot, Bool, (UInt64 mixer, Utf8 name, Float seconds))
 TR_NATIVE(AudioMixer_FindGroup, UInt64, (UInt64 mixer, Utf8 name))
 
-// The game's end, as Application::Quit has it: a player closes once the frame ends, and Forge stops playing
+// The game's end, as Application::Quit has it: a player closes once the frame ends
 TR_NATIVE(Application_Quit, Void, ())
 
-// The game's screen, as Screen has it: the size it draws at, its mode as a FullScreenMode, and vsync. A change applies once the frame ends, and Forge's Game panel ignores it with one line. A mode that is not one is refused with a warning
+// The game's screen, as Screen has it. A mode that is not one is refused with a warning
 TR_NATIVE(Screen_GetWidth, Int32, ())
 TR_NATIVE(Screen_GetHeight, Int32, ())
 TR_NATIVE(Screen_GetFullScreenMode, Int32, ())
@@ -246,7 +244,7 @@ TR_NATIVE(Random_GetValue, Float, ())
 TR_NATIVE(Random_RangeFloat, Float, (Float min, Float max))
 TR_NATIVE(Random_RangeInt, Int32, (Int32 min, Int32 max))
 
-// The game's PlayerPrefs, as PlayerPrefs has them, each by its key as Utf8. A string is given back where PlayerPrefs keeps it, or as the default given, valid until the values next change, which C# copies at once
+// PlayerPrefs, each by its key as Utf8. A string given back is valid until the values change
 TR_NATIVE(PlayerPrefs_SetInt, Void, (Utf8 key, Int32 value))
 TR_NATIVE(PlayerPrefs_GetInt, Int32, (Utf8 key, Int32 defaultValue))
 TR_NATIVE(PlayerPrefs_SetFloat, Void, (Utf8 key, Float value))
@@ -258,14 +256,14 @@ TR_NATIVE(PlayerPrefs_DeleteKey, Void, (Utf8 key))
 TR_NATIVE(PlayerPrefs_DeleteAll, Void, ())
 TR_NATIVE(PlayerPrefs_Save, Bool, ())
 
-// The game UI, as GameUI has it: a pointer a script drives in place of the mouse for the world documents, by its ray and whether its button is held, for the next frame
+// The game UI's pointer, driven by a script in place of the mouse, for the next frame
 TR_NATIVE(UI_SetWorldPointer, Void, (const Vector3* origin, const Vector3* direction, Bool pressed))
-// A UIDocument of the running scene by its entity, and the elements of its document by their handles, 0 for none, as UIDocument and UIElement have them. A handle to an element that has gone reaches nothing, logged once. Text crosses as Utf8, and text given back is valid until the next call that gives text, which C# copies at once. An element's text is numbered as its UIElementText and a flag as its UIElementFlag. Each reads as nothing, or does nothing, while no scene runs
+// A UIDocument by its entity, and its elements by handle, 0 for none. Text crosses as Utf8
 TR_NATIVE(UIDocument_IsValid, Bool, (EntityId entity))
 TR_NATIVE(UIDocument_GetElement, UInt64, (EntityId entity, Utf8 id))
 TR_NATIVE(UIDocument_Query, UInt64, (EntityId entity, Utf8 selector))
 TR_NATIVE(UIDocument_GetFocus, UInt64, (EntityId entity))
-// The mixer group a UIDocument's UI sounds play into, as its SoundOutput has it, 0 for none, as an AccessResult
+// The mixer group a UIDocument's UI sounds play into, 0 for none, as an AccessResult
 TR_NATIVE(UIDocument_GetSoundOutput, Int32, (EntityId entity, UInt64* group))
 TR_NATIVE(UIDocument_SetSoundOutput, Int32, (EntityId entity, UInt64 group))
 TR_NATIVE(UIElement_IsValid, Bool, (UInt64 element))
@@ -282,11 +280,11 @@ TR_NATIVE(UIElement_GetStyle, Utf8, (UInt64 element, Utf8 property))
 TR_NATIVE(UIElement_SetStyle, Bool, (UInt64 element, Utf8 property, Utf8 value))
 TR_NATIVE(UIElement_RemoveStyle, Void, (UInt64 element, Utf8 property))
 
-// A C# handler of a UIDocument's events, kept by the running scene's runtime as ScriptRuntime::AddUIHandler has it: the element by its ID, the type as a UIEventType, and the handler a GC handle to what ScriptCore calls it through, which is the script's that is running as it is added. 0, with the handler freed, while no scene runs, for a type that is none or for an empty ID, and its ID otherwise
+// A C# handler of a UIDocument's events, as ScriptRuntime::AddUIHandler has it. 0 if not added
 TR_NATIVE(UIDocument_AddHandler, UInt64, (EntityId entity, Utf8 element, Int32 type, Int64 handler))
 TR_NATIVE(UIDocument_RemoveHandler, Bool, (UInt64 handler))
 
-// The data models scripts bind into a UIDocument of the running scene, as UIDataModel, UIDataValue and UIDataList have them, each by its handle, 0 for none. A value crosses as a UIDataType with the field of its type, an Int or a Bool as the integer, a Float as the real and a String as the text, and a list's fields as their names and UIDataTypes side by side. Text given back is valid until the next call that gives text, which C# copies at once. A get is false, its fields left as they were, for a value or a cell there is not, or of another type
+// Data models, values and lists by handle, 0 for none. A value crosses as a UIDataType
 TR_NATIVE(UIDocument_GetModel, UInt64, (EntityId entity, Utf8 name))
 TR_NATIVE(UIDataModel_IsValid, Bool, (UInt64 model))
 TR_NATIVE(UIDataModel_BindValue, UInt64, (UInt64 model, Utf8 name, Int32 type, Int32 integer, Float real, Utf8 text))

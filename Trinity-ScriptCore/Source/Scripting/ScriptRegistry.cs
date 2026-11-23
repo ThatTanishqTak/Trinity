@@ -3,7 +3,7 @@ using System.ComponentModel;
 
 namespace Trinity.Scripting
 {
-    // Where a game assembly's generated module initializer adds its script classes, which ScriptCore takes as it loads the assembly
+    // Where a game assembly's generated module initializer adds its script classes for ScriptCore
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static class ScriptRegistry
     {

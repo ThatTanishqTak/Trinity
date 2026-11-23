@@ -2,7 +2,7 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // Whether the joint has broken past its break force or torque, which it stays once it has. Changing only its motor or break limits as the scene runs takes them on in place, and any other change makes it again from where its bodies are
+    // Whether the joint has broken past its break force or torque, which it stays once it has
     public readonly unsafe partial struct Joint
     {
         public bool IsBroken

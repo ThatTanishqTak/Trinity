@@ -17,7 +17,7 @@
 
 namespace
 {
-    // 100,000 sprites over 64 textures, each 16x16 RGBA8 KTX2 written in memory and served from /cache, as Forge's importer would have cooked them
+    // 100,000 sprites over 64 textures, each 16x16 RGBA8 KTX2 written in memory and served from /cache
     constexpr std::string_view c_SpriteTestRoot = "/saves/sandbox/sprites";
     constexpr std::uint32_t c_SpriteTextureCount = 64;
     constexpr std::uint32_t c_SpriteTextureSize = 16;
@@ -40,7 +40,7 @@ namespace
     constexpr std::string_view c_GreyTextureName = "Grey.png";
     constexpr std::uint8_t c_GreyValue = 128;
 
-    // The Game UI probe's reference document, drawn into a view of its own, with the quadrant sprite texture and the grey one as images. Every colour is opaque over a black body but for one half-transparent white, and the font is the engine's own
+    // The Game UI probe's reference document. Every colour is opaque but one half-transparent white
     constexpr std::string_view c_UIProbePath = "/saves/sandbox/ui/Probe.rml";
     constexpr std::uint32_t c_UIProbeSize = 128;
     constexpr std::string_view c_UIProbeDocument = R"(<rml>
@@ -74,7 +74,7 @@ div, img { position: absolute; display: block; }
 
     constexpr float c_ClearCycleSeconds = 10.0f;
 
-    // The storage buffer holds c_ComputeWordCount words from one dispatch and as many again from the next, and the storage texture is c_ComputeTextureSize texels square
+    // The buffer holds c_ComputeWordCount words from each of two dispatches, and the texture is square
     constexpr std::uint32_t c_ComputeWordCount = 4096;
     constexpr std::uint32_t c_ComputeBufferGroupSize = 64;
     constexpr std::uint32_t c_ComputeTextureSize = 64;
@@ -129,7 +129,7 @@ div, img { position: absolute; display: block; }
         return std::nullopt;
     }
 
-    // The first texel of a readback, at a row pitch, that differs from the texture FillTexture writes, or nothing when all match
+    // The first texel of a readback that differs from what FillTexture writes, or nothing if all match
     std::optional<std::array<std::uint32_t, 2>> FindWrongTexel(std::span<const std::byte> data, std::uint64_t rowPitch)
     {
         if (data.size() < rowPitch * c_ComputeTextureSize)
@@ -172,7 +172,7 @@ div, img { position: absolute; display: block; }
 
     static_assert(sizeof(LayeredPushData) == 40);
 
-    // Red counts layers, green mips, and blue tells the cube from the array, each a whole 8-bit value that RGBA8 stores exactly
+    // Red counts layers, green mips, and blue tells the cube from the array, each stored exactly
     std::array<std::uint8_t, 4> MakeLayerColor(bool cube, std::uint32_t layer, std::uint32_t mipLevel)
     {
         return { static_cast<std::uint8_t>((layer + 1) * 32), static_cast<std::uint8_t>((mipLevel + 1) * 64), static_cast<std::uint8_t>(cube ? 0x40 : 0xC0), 255 };
@@ -192,7 +192,7 @@ div, img { position: absolute; display: block; }
 
     static_assert(sizeof(RasterPushData) == 64);
 
-    // FNV-1a over every byte a check reads back that is the same on every run, logged as "Readback: <check> <hash>" as the check returns, after its own line and whether it passed or not, so M12's split of the backends can show it changed nothing. A check that adds nothing logs nothing, as on the null device, which reads nothing back
+    // FNV-1a over every byte a check reads back, logged as "Readback: <check> <hash>" as it returns
     class ReadbackHash
     {
     public:
@@ -268,7 +268,7 @@ div, img { position: absolute; display: block; }
         AppendU32(bytes, static_cast<std::uint32_t>(value >> 32));
     }
 
-    // A single-mip RGBA8 UNORM or sRGB KTX2 file: the header, the level index, a basic data format descriptor with four 8-bit samples, the filter key when asked for, then the texels
+    // A single-mip RGBA8 KTX2 file: header, level index, data format descriptor, filter key, texels
     std::vector<std::byte> MakeSpriteKtx2(std::span<const std::uint8_t> texels, std::uint32_t size, bool nearest, bool srgb)
     {
         constexpr std::uint32_t c_HeaderSize = 80;
@@ -322,7 +322,7 @@ div, img { position: absolute; display: block; }
         AppendU64(l_File, texels.size());
         AppendU64(l_File, texels.size());
 
-        // RGBSDA colour model, BT.709 primaries and a linear or sRGB transfer function, then R, G, B and A, with alpha as channel 15, marked linear in an sRGB texture
+        // RGBSDA colour model, BT.709 primaries, a linear or sRGB transfer, then R, G, B and linear alpha
         AppendU32(l_File, c_DfdSize);
         AppendU32(l_File, 0);
         AppendU32(l_File, 2 | ((c_DfdSize - 4) << 16));
@@ -348,7 +348,7 @@ div, img { position: absolute; display: block; }
         return l_File;
     }
 
-    // Texture 0 has a red, green, blue and yellow quadrant clockwise from the top left, so a flip shows. The rest are a hue each with a darker diagonal
+    // Texture 0 has four coloured quadrants, so a flip shows. The rest are a hue with a darker diagonal
     std::vector<std::uint8_t> MakeSpriteTexels(std::uint32_t index)
     {
         std::vector<std::uint8_t> l_Texels(std::size_t{ c_SpriteTextureSize } * c_SpriteTextureSize * 4);
@@ -410,7 +410,7 @@ div, img { position: absolute; display: block; }
     // Added to the Renderer's graph every frame, writing a texture nobody reads, so the graph culls it
     constexpr std::string_view c_UnusedPassName = "Sandbox unused";
 
-    // The window cycles through 25 sizes, so after 100 and after 200 resizes it has been through the same ones
+    // The window cycles through 25 sizes, so after 100 and after 200 resizes it has seen the same ones
     constexpr std::uint32_t c_ResizeCount = 200;
     constexpr std::uint32_t c_ResizeCycle = 25;
     constexpr std::uint32_t c_ResizeStep = 16;
@@ -427,7 +427,7 @@ div, img { position: absolute; display: block; }
     constexpr std::uint64_t c_MeshSettleFrames = 120;
     constexpr float c_MeshDirectionDot = 0.9999f;
 
-    // Six faces of four vertices, so each face has its own normal and tangent. The bottom and back faces have left-handed tangents, and the last two faces draw in material slot 1
+    // Six faces of four vertices. The bottom and back have left-handed tangents. Two use slot 1
     Trinity::MeshData MakeCubeMesh()
     {
         struct Face
@@ -472,7 +472,7 @@ div, img { position: absolute; display: block; }
         return l_Mesh;
     }
 
-    // A rippled square of more vertices than 16-bit indices can name, with two UV sets and colours, and normals without tangents
+    // A rippled square of more vertices than 16-bit indices can name, with two UV sets and colours
     Trinity::MeshData MakeGridMesh()
     {
         Trinity::MeshData l_Mesh;
@@ -528,12 +528,12 @@ div, img { position: absolute; display: block; }
         return l_Value;
     }
 
-    // What the first difference is between a mesh and a GPU buffer laid out by its cooked layout, or nothing. Positions, UVs and indices are exact, directions keep within c_MeshDirectionDot, and colours within one 16-bit step
+    // The first difference between a mesh and a GPU buffer in its cooked layout, or nothing
     std::string CompareMesh(const Trinity::MeshData& mesh, const Trinity::MeshLayout& layout, std::span<const std::byte> data)
     {
         if (data.size() < layout.Size || layout.VertexCount != mesh.Positions.size() || layout.IndexCount != mesh.Indices.size())
         {
-            return std::format("{} bytes for {} vertices and {} indices, where the mesh has {} and {} in {} bytes", data.size(), layout.VertexCount, layout.IndexCount, mesh.Positions.size(), mesh.Indices.size(), layout.Size);
+            return std::format("{} bytes for {} vertices and {} indices, but the mesh has {} and {} in {} bytes", data.size(), layout.VertexCount, layout.IndexCount, mesh.Positions.size(), mesh.Indices.size(), layout.Size);
         }
 
         for (std::size_t it_Vertex = 0; it_Vertex < mesh.Positions.size(); ++it_Vertex)
@@ -607,7 +607,7 @@ SandboxLayer::SandboxLayer() : Layer("Sandbox")
 
 void SandboxLayer::OnAttach()
 {
-    TR_INFO("Sandbox attached. Escape closes the window, M prints memory use, C lists console variables, V toggles vsync.");
+    TR_INFO("Sandbox attached. Escape closes, M: memory, C: console variables, V: vsync");
     TR_INFO("Reporting fps every {} s (sandbox.report_interval)", s_ReportInterval.Get());
 
     if (s_ListConsoleVariables.Get())
@@ -676,7 +676,7 @@ void SandboxLayer::OnEvent(Trinity::Event& event)
     l_Dispatcher.Dispatch<Trinity::KeyPressedEvent>(TR_BIND_EVENT_FN(OnKeyPressed));
 }
 
-// The Game UI probe's view drew its document in the frame before, and its display target is a shader resource, as every frame leaves it, so it is copied out before this frame's graph draws it again
+// The probe's view drew its document the frame before, so it is copied out before it draws again
 void SandboxLayer::OnPrepareRender(Trinity::RHI::CommandList& commands)
 {
     if (m_UIPhase != UIPhase::Copying)
@@ -720,7 +720,7 @@ void SandboxLayer::OnRender(Trinity::RHI::CommandList& commands)
     }
 }
 
-// Every frame adds a pass the graph culls, and on the one frame each is wanted the mesh and sprite readbacks, which so go through the Renderer's own graph
+// Every frame adds a pass the graph culls, and when wanted the mesh and sprite readbacks
 void SandboxLayer::OnBuildFrameGraph(Trinity::FrameGraph& graph, Trinity::FrameGraphTexture sceneColor)
 {
     Trinity::RHI::TextureDescription l_UnusedDescription;
@@ -785,7 +785,7 @@ bool SandboxLayer::OnKeyPressed(Trinity::KeyPressedEvent& event)
     return false;
 }
 
-// Three dispatches and a draw in one frame, outside the renderer's: FillBuffer, then ReverseBuffer behind an UnorderedAccess to UnorderedAccess barrier, then FillTexture, whose texture the scene copy pipeline draws into a render target. The buffer, the texture and the target are read back and compared byte for byte
+// Three dispatches and a draw in one frame, outside the renderer's, read back byte for byte
 void SandboxLayer::TestCompute()
 {
     TR_PROFILE_FUNCTION();
@@ -805,7 +805,7 @@ void SandboxLayer::TestCompute()
     const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_CopyPixelShader = a_ReadShader("SceneCopy.PixelMain");
     if (!l_FillBufferShader || !l_ReverseBufferShader || !l_FillTextureShader || !l_CopyVertexShader || !l_CopyPixelShader)
     {
-        TR_ERROR("Compute: the ComputeTest and SceneCopy {} shaders could not be read from /engine/shaders", l_Extension);
+        TR_ERROR("Compute: could not read the ComputeTest and SceneCopy {} shaders", l_Extension);
 
         return;
     }
@@ -883,7 +883,7 @@ void SandboxLayer::TestCompute()
 
     if (!l_FillBuffer || !l_ReverseBuffer || !l_FillTexture || !l_Copy || !l_Buffer || !l_Texture || !l_Target || !l_BufferReadback || !l_TextureReadback || !l_TargetReadback)
     {
-        TR_ERROR("Compute: could not create the pipelines, the storage buffer and texture, or their readbacks");
+        TR_ERROR("Compute: could not create the pipelines, buffer, texture or readbacks");
         a_Destroy();
 
         return;
@@ -983,10 +983,10 @@ void SandboxLayer::TestCompute()
         return;
     }
 
-    TR_INFO("Compute: {} filled a storage buffer of {} and a {}x{} storage texture, and all {} bytes of the buffer, the texture and a draw reading the texture read back as expected", Trinity::ToString(l_Info.API), Trinity::Memory::FormatBytes(c_BufferSize), c_ComputeTextureSize, c_ComputeTextureSize, c_BufferSize + 2 * std::uint64_t{ c_ComputeTextureSize } * c_ComputeTextureSize * 4);
+    TR_INFO("Compute: {} filled a {} buffer and a {}x{} texture, all {} bytes as expected", Trinity::ToString(l_Info.API), Trinity::Memory::FormatBytes(c_BufferSize), c_ComputeTextureSize, c_ComputeTextureSize, c_BufferSize + 2 * std::uint64_t{ c_ComputeTextureSize } * c_ComputeTextureSize * 4);
 }
 
-// Clears every mip of every face of a cube and every layer of an array to its own colour, each moved in and out of RenderTarget by a barrier on that mip and layer alone, and reads each back by a copy. A dispatch then reads the same colours through the cube's and the array's shader views
+// Clears every mip of every face and layer to its own colour, and reads each back two ways
 void SandboxLayer::TestLayeredTextures()
 {
     TR_PROFILE_FUNCTION();
@@ -1051,7 +1051,7 @@ void SandboxLayer::TestLayeredTextures()
     l_TextureDescription.DebugName = "Sandbox array";
     const Layered l_Array{ false, l_Device.CreateTexture(l_TextureDescription), c_LayeredArrayWidth, c_LayeredArrayHeight, c_LayeredArrayLayers };
 
-    // Every mip of every layer gets a slot of the same size, the largest mip's rounded up to the copy offset alignment
+    // Every mip of every layer gets a slot of the same size, the largest's rounded up to alignment
     const std::uint64_t l_LargestMip = std::max(Trinity::RHI::GetTextureCopySize(c_Format, c_LayeredCubeSize, c_LayeredCubeSize), Trinity::RHI::GetTextureCopySize(c_Format, c_LayeredArrayWidth, c_LayeredArrayHeight));
     const std::uint64_t l_SlotSize = (l_LargestMip + Trinity::RHI::c_TextureCopyOffsetAlignment - 1) / Trinity::RHI::c_TextureCopyOffsetAlignment * Trinity::RHI::c_TextureCopyOffsetAlignment;
 
@@ -1086,7 +1086,7 @@ void SandboxLayer::TestLayeredTextures()
 
     if (!l_ReadLayers || !l_Sampler || !l_Cube.Texture || !l_Array.Texture || !l_Readback || !l_Words || !l_WordsReadback)
     {
-        TR_ERROR("Layers: could not create the pipeline, the sampler, the cube and array, or their readbacks");
+        TR_ERROR("Layers: could not create the pipeline, sampler, cube, array or readbacks");
         a_Destroy();
 
         return;
@@ -1143,7 +1143,7 @@ void SandboxLayer::TestLayeredTextures()
 
     if (l_Info.API == Trinity::GraphicsAPI::None)
     {
-        TR_INFO("Layers: None recorded a clear and a copy for each of {} mips of {} cube faces and {} array layers", c_LayeredMipLevels, Trinity::RHI::c_CubeFaceCount, c_LayeredArrayLayers);
+        TR_INFO("Layers: None recorded a clear and copy for {} mips of {} faces and {} layers", c_LayeredMipLevels, Trinity::RHI::c_CubeFaceCount, c_LayeredArrayLayers);
         a_Destroy();
 
         return;
@@ -1201,10 +1201,10 @@ void SandboxLayer::TestLayeredTextures()
         return;
     }
 
-    TR_INFO("Layers: {} cleared each of {} mips of {} cube faces and {} array layers to its own colour, and every one reads back by a copy and through its texture's shader view", Trinity::ToString(l_Info.API), c_LayeredMipLevels, Trinity::RHI::c_CubeFaceCount, c_LayeredArrayLayers);
+    TR_INFO("Layers: {} cleared and read back {} mips of {} cube faces and {} array layers", Trinity::ToString(l_Info.API), c_LayeredMipLevels, Trinity::RHI::c_CubeFaceCount, c_LayeredArrayLayers);
 }
 
-// Culling with both windings, constant depth bias of 0, +16 and -16 over a plane at the same depth, depth with and without clamping beyond the far end of the range, then R11G11B10Float and RGBA16Float targets cleared to values each format stores exactly. Every cell is probed and both float targets read back bit for bit
+// Culling, depth bias, depth clamp, then R11G11B10Float and RGBA16Float targets read back exactly
 void SandboxLayer::TestRasterState()
 {
     TR_PROFILE_FUNCTION();
@@ -1266,7 +1266,7 @@ void SandboxLayer::TestRasterState()
     constexpr Trinity::RHI::Format c_DepthFormat = Trinity::RHI::Format::D32Float;
     constexpr std::uint32_t c_Width = c_RasterCellSize * c_RasterCellCount;
 
-    // 0.5, 2 and 0.25 as R11G11B10's 6-bit and 5-bit mantissa floats with an exponent bias of 15, red in the low bits
+    // 0.5, 2 and 0.25 as R11G11B10's 6-bit and 5-bit mantissa floats, exponent bias 15, red lowest
     constexpr std::uint32_t c_PackedR11G11B10 = (14u << 6) | ((16u << 6) << 11) | ((13u << 5) << 22);
     constexpr std::array<std::uint16_t, 4> c_HalfRGBA16{ 0x3800, 0x4000, 0x3400, 0x3C00 };
     constexpr std::array<float, 4> c_FloatClear{ 0.5f, 2.0f, 0.25f, 1.0f };
@@ -1446,7 +1446,7 @@ void SandboxLayer::TestRasterState()
 
     if (l_Info.API == Trinity::GraphicsAPI::None)
     {
-        TR_INFO("Raster: None recorded {} draws through {} pipelines and cleared R11G11B10Float and RGBA16Float targets", 16, static_cast<std::uint32_t>(PipelineCount));
+        TR_INFO("Raster: None recorded {} draws through {} pipelines and cleared both targets", 16, static_cast<std::uint32_t>(PipelineCount));
         a_Destroy();
 
         return;
@@ -1507,10 +1507,10 @@ void SandboxLayer::TestRasterState()
         return;
     }
 
-    TR_INFO("Raster: {} passed all {} probes for culling with both windings, depth bias of 0, +16 and -16 and depth clamp, and R11G11B10Float and RGBA16Float targets read back bit for bit", Trinity::ToString(l_Info.API), c_Probes.size());
+    TR_INFO("Raster: {} passed all {} probes for culling, depth bias, clamp and formats", Trinity::ToString(l_Info.API), c_Probes.size());
 }
 
-// A white triangle on black, drawn with 4x multisampled colour and depth and resolved into a single-sampled target as rendering ends. Pixels the edge crosses must resolve to a quarter, half or three quarters of white, and every other pixel to black or white
+// A white triangle drawn with 4x MSAA and resolved. Edge pixels must be a quarter, half or three
 void SandboxLayer::TestMultisampling()
 {
     TR_PROFILE_FUNCTION();
@@ -1617,7 +1617,7 @@ void SandboxLayer::TestMultisampling()
     l_Commands.SetViewport({ 0.0f, 0.0f, static_cast<float>(c_Size), static_cast<float>(c_Size), 0.0f, 1.0f });
     l_Commands.SetScissor({ 0, 0, c_Size, c_Size });
 
-    // The long edge runs from the bottom right to two-thirds of the way up the left side, so it crosses pixels at many different offsets
+    // The long edge runs from the bottom right to two-thirds up the left, crossing at many offsets
     const RasterPushData l_Push{ { glm::vec4(-1.0f, -1.0f, 0.5f, 1.0f), glm::vec4(1.0f, -1.0f, 0.5f, 1.0f), glm::vec4(-1.0f, 0.6f, 0.5f, 1.0f) }, glm::vec4(1.0f) };
     l_Commands.PushConstants(std::as_bytes(std::span(&l_Push, 1)));
     l_Commands.Draw(3, 1, 0, 0);
@@ -1630,7 +1630,7 @@ void SandboxLayer::TestMultisampling()
 
     if (l_Info.API == Trinity::GraphicsAPI::None)
     {
-        TR_INFO("Multisampling: None recorded a draw into {}x {} colour and depth resolved into a single-sampled target", c_SampleCount, c_Size);
+        TR_INFO("Multisampling: None recorded a draw into {}x {} colour and depth, resolved", c_SampleCount, c_Size);
         a_Destroy();
 
         return;
@@ -1671,10 +1671,10 @@ void SandboxLayer::TestMultisampling()
         return;
     }
 
-    TR_INFO("Multisampling: {} resolved a {}x triangle as rendering ended, with {} edge pixel(s) at a quarter, half or three quarters of white and every other pixel black or white", Trinity::ToString(l_Info.API), c_SampleCount, l_Partial);
+    TR_INFO("Multisampling: {} resolved a {}x triangle with {} part-covered edge pixel(s)", Trinity::ToString(l_Info.API), c_SampleCount, l_Partial);
 }
 
-// Two frames each write four timestamps into the same pool, around and inside a pass that clears and fills a large target, and resolve them. Every timestamp must be non-zero, each frame's in order, and the second frame's after the first's, which also shows the pool can be written again once resolved
+// Two frames each write four timestamps into one pool. All must be non-zero and in order
 void SandboxLayer::TestTimestamps()
 {
     TR_PROFILE_FUNCTION();
@@ -1734,7 +1734,7 @@ void SandboxLayer::TestTimestamps()
 
     if (!l_Pipeline || !l_Target || !l_Pool || !l_Readback)
     {
-        TR_ERROR("Timestamps: could not create the pipeline, the target, the query pool or the readback");
+        TR_ERROR("Timestamps: could not create the pipeline, target, query pool or readback");
         a_Destroy();
 
         return;
@@ -1800,10 +1800,10 @@ void SandboxLayer::TestTimestamps()
     }
 
     const auto a_Microseconds = [l_Frequency](std::uint64_t ticks) { return static_cast<double>(ticks) * 1000000.0 / static_cast<double>(l_Frequency); };
-    TR_INFO("Timestamps: {} wrote {} non-zero timestamps in order over {} frames at {} ticks a second, and the second frame's {}x{} pass took {:.1f} us", Trinity::ToString(l_Info.API), l_Ticks.size(), c_FrameCount, l_Frequency, c_Size, c_Size, a_Microseconds(l_Ticks[7] - l_Ticks[4]));
+    TR_INFO("Timestamps: {} wrote {} in order in {} frames, {} ticks/s, {}x{} pass {:.1f} us", Trinity::ToString(l_Info.API), l_Ticks.size(), c_FrameCount, l_Frequency, c_Size, c_Size, a_Microseconds(l_Ticks[7] - l_Ticks[4]));
 }
 
-// Four passes over four frames: a compute pass fills a transient texture with ComputeTest's pattern, a raster pass copies it into a transient 4x target and draws a triangle over it, resolving into an imported texture, and a copy pass reads that back. A fourth pass draws into a texture nobody reads and must be culled. From the second frame the transient textures come from the pool, Renderer memory holds still from the third frame to the fourth, once what earlier tests destroyed has been released, and probes read the pattern and the triangle
+// Four passes over four frames. The unread one must be culled, and transients come from the pool
 void SandboxLayer::TestFrameGraph()
 {
     TR_PROFILE_FUNCTION();
@@ -1821,7 +1821,7 @@ void SandboxLayer::TestFrameGraph()
     constexpr std::uint32_t c_FrameCount = 4;
     constexpr std::array<std::uint8_t, 4> c_Yellow{ 255, 255, 0, 255 };
 
-    // The triangle covers the corner of the lower-left quadrant below its diagonal, and everywhere else shows the pattern
+    // The triangle covers the lower-left quadrant below its diagonal. Elsewhere shows the pattern
     const std::array<Probe, 6> l_Probes
     { {
         { 40, 10, MakeComputeTexel(40, 10) },
@@ -1844,7 +1844,7 @@ void SandboxLayer::TestFrameGraph()
     const Trinity::Expected<Trinity::FileBuffer, Trinity::FileError> l_TrianglePixelShader = a_ReadShader("RasterTest.PixelMain");
     if (!l_FillShader || !l_CopyVertexShader || !l_CopyPixelShader || !l_TriangleVertexShader || !l_TrianglePixelShader)
     {
-        TR_ERROR("Frame graph: the ComputeTest, SceneCopy and RasterTest {} shaders could not be read from /engine/shaders", l_Extension);
+        TR_ERROR("Frame graph: could not read the ComputeTest, SceneCopy and RasterTest {} shaders", l_Extension);
 
         return;
     }
@@ -1983,7 +1983,7 @@ void SandboxLayer::TestFrameGraph()
         const bool l_Pooled = l_First.TransientTextures == 2 && l_First.PooledTextures == 2 && l_Last.TransientTextures == 2 && l_Last.PooledTextures == 2;
         if (!l_Shape || !l_Pooled || l_RendererBytes[2] != l_RendererBytes[3])
         {
-            TR_ERROR("Frame graph: the first frame ran {} pass(es) with {} culled, {} transient and {} pooled texture(s), the last {} transient and {} pooled, and Renderer went from {} to {} between the last two frames", l_First.Passes, l_First.CulledPasses, l_First.TransientTextures, l_First.PooledTextures, l_Last.TransientTextures, l_Last.PooledTextures, Trinity::Memory::FormatBytes(l_RendererBytes[2]), Trinity::Memory::FormatBytes(l_RendererBytes[3]));
+            TR_ERROR("Frame graph: {} passes, {} culled, {}/{} textures, last {}/{}, Renderer {} to {}", l_First.Passes, l_First.CulledPasses, l_First.TransientTextures, l_First.PooledTextures, l_Last.TransientTextures, l_Last.PooledTextures, Trinity::Memory::FormatBytes(l_RendererBytes[2]), Trinity::Memory::FormatBytes(l_RendererBytes[3]));
             l_Device.WaitIdle();
             a_Destroy();
 
@@ -1995,7 +1995,7 @@ void SandboxLayer::TestFrameGraph()
 
     if (l_Info.API == Trinity::GraphicsAPI::None)
     {
-        TR_INFO("Frame graph: None ran 3 of 4 passes with the unused one culled, and reused 2 pooled textures over {} frames", c_FrameCount);
+        TR_INFO("Frame graph: None ran 3 of 4 passes and reused 2 pooled textures over {} frames", c_FrameCount);
         a_Destroy();
 
         return;
@@ -2025,10 +2025,10 @@ void SandboxLayer::TestFrameGraph()
         return;
     }
 
-    TR_INFO("Frame graph: {} ran 3 of 4 passes with the unused one culled and {} barriers a frame, reused 2 pooled textures over {} frames with Renderer holding {} over the last two, and all {} probes for the pattern and the triangle hold", Trinity::ToString(l_Info.API), l_First.Barriers, c_FrameCount, Trinity::Memory::FormatBytes(l_RendererBytes[3]), l_Probes.size());
+    TR_INFO("Frame graph: {} ran 3/4 passes, {} barriers, {} frames, Renderer {}, {} probes", Trinity::ToString(l_Info.API), l_First.Barriers, c_FrameCount, Trinity::Memory::FormatBytes(l_RendererBytes[3]), l_Probes.size());
 }
 
-// Linear colours from black to far past white go through the Renderer's tonemap pass three ways, and each 8-bit result must be within one step of ApplyToneMapping on the CPU
+// Linear colours go through the tonemap pass three ways, each within one 8-bit step of the CPU's
 void SandboxLayer::TestToneMapping()
 {
     TR_PROFILE_FUNCTION();
@@ -2198,7 +2198,7 @@ void SandboxLayer::TestToneMapping()
         return;
     }
 
-    TR_INFO("Tone mapping: {} matched the CPU reference within one 8-bit step for {} linear colours through PBR Neutral, through no curve at EV100 +1 and through PBR Neutral at EV100 -2, from exposure 1, with linear 0.18 under PBR Neutral at {}", Trinity::ToString(l_Info.API), c_Colors.size(), l_MidGrey);
+    TR_INFO("Tone mapping: {} matched the CPU reference for {} colours, 0.18 maps to {}", Trinity::ToString(l_Info.API), c_Colors.size(), l_MidGrey);
 }
 void SandboxLayer::CheckRendererGraph()
 {
@@ -2228,14 +2228,14 @@ void SandboxLayer::CheckRendererGraph()
 
     const Trinity::FrameGraph::Statistics& l_Statistics = l_Graph.GetStatistics();
 
-    // The graph's own shape, the passes in order with those culled and its barriers, which no GPU changes
+    // The graph's own shape, the passes in order with those culled and its barriers, as on any GPU
     const std::string l_Shape = std::format("{}; {} barriers", l_Passes, l_Statistics.Barriers);
     ReadbackHash l_Hash("Renderer graph");
     l_Hash.Add(std::as_bytes(std::span(l_Shape)));
 
     if (!l_Scene || !l_Output || !l_UnusedCulled || l_Statistics.CulledPasses != 1)
     {
-        TR_ERROR("Renderer graph: the first frame's passes were {}, where Scene and Output run and only {} is culled", l_Passes, c_UnusedPassName);
+        TR_ERROR("Renderer graph: the first frame ran {}, where only {} should be culled", l_Passes, c_UnusedPassName);
 
         return;
     }
@@ -2243,7 +2243,7 @@ void SandboxLayer::CheckRendererGraph()
     TR_INFO("Renderer graph: {} ran {} with {} barriers", Trinity::ToString(Trinity::Application::Get().GetDevice().GetInfo().API), l_Passes, l_Statistics.Barriers);
 }
 
-// Once the Renderer's graph has published its first averages: Scene and Output were timed, and no pass took less than nothing or longer than the whole. The null device's timestamps all read 0
+// Scene and Output were timed, and no pass took less than nothing or longer than the whole
 void SandboxLayer::CheckGpuTimes()
 {
     const Trinity::FrameGraph& l_Graph = Trinity::Application::Get().GetRenderer().GetFrameGraph();
@@ -2275,15 +2275,15 @@ void SandboxLayer::CheckGpuTimes()
     const bool l_Timed = l_API == Trinity::GraphicsAPI::None ? l_Total == 0.0f : l_Total > 0.0f;
     if (!l_Scene || !l_Output || !l_InRange || !l_Timed)
     {
-        TR_ERROR("GPU times: {} timed {} with {:.3f} ms in all, where Scene and Output are timed and each pass takes from 0 to the whole", Trinity::ToString(l_API), l_Passes, l_Total);
+        TR_ERROR("GPU times: {} timed {} with {:.3f} ms in all, outside what is expected", Trinity::ToString(l_API), l_Passes, l_Total);
 
         return;
     }
 
-    TR_INFO("GPU times: {} averaged over 30 frames {}, adding up to {:.3f} ms of {:.3f} ms in all", Trinity::ToString(l_API), l_Passes, l_Sum, l_Total);
+    TR_INFO("GPU times: {} averaged over 30 frames {}, {:.3f} ms of {:.3f} ms in all", Trinity::ToString(l_API), l_Passes, l_Sum, l_Total);
 }
 
-// Each resize recreates the scene target and the swap chain or offscreen target between frames, and Renderer memory after 100 resizes must match that after 200. The window gets its size back afterwards
+// Each resize recreates the targets. Renderer memory after 100 resizes must match that after 200
 void SandboxLayer::UpdateResizes()
 {
     if (!s_ResizeTest.Get() || m_SpritePhase != SpritePhase::Running || m_Resizes > c_ResizeCount)
@@ -2315,7 +2315,7 @@ void SandboxLayer::UpdateResizes()
             return;
         }
 
-        TR_INFO("Resizes: {} resized the window {} times with Renderer holding {} after {} and after {}", Trinity::ToString(Trinity::Application::Get().GetDevice().GetInfo().API), c_ResizeCount, Trinity::Memory::FormatBytes(l_Bytes), c_ResizeCount / 2, c_ResizeCount);
+        TR_INFO("Resizes: {} resized the window {} times, Renderer holding {} after {} and {}", Trinity::ToString(Trinity::Application::Get().GetDevice().GetInfo().API), c_ResizeCount, Trinity::Memory::FormatBytes(l_Bytes), c_ResizeCount / 2, c_ResizeCount);
 
         return;
     }
@@ -2325,7 +2325,7 @@ void SandboxLayer::UpdateResizes()
     ++m_Resizes;
 }
 
-// Entities with MeshRenderers holding none to three materials, some invalid, an invalid mesh and shadows on and off, saved, loaded and saved again: the two files match, and every component comes back equal. Every UUID and position comes from c_MeshSeed, so the first file's hash is the same on every run
+// MeshRenderers saved, loaded and saved again: both files match. UUIDs come from c_MeshSeed
 void SandboxLayer::TestMeshRendererScene()
 {
     TR_PROFILE_FUNCTION();
@@ -2337,7 +2337,7 @@ void SandboxLayer::TestMeshRendererScene()
     Trinity::Scene l_Scene;
     std::mt19937 l_Random(c_MeshSeed);
     std::uniform_real_distribution<float> l_Position(-10.0f, 10.0f);
-    // The UUIDs come from the seed as well, so the file holds the same bytes on every run. mt19937_64 gives the same numbers in every standard library, and none of these is 0
+    // The UUIDs come from the seed too. mt19937_64 gives the same numbers in every standard library
     std::mt19937_64 l_IDs(c_MeshSeed);
     std::vector<Trinity::UUID> l_Entities;
     Trinity::Entity l_Parent;
@@ -2395,15 +2395,15 @@ void SandboxLayer::TestMeshRendererScene()
 
     if (!l_Same || l_Equal != l_Entities.size())
     {
-        TR_ERROR("Mesh scene: the second save {} the first, and {} of {} MeshRenderers came back equal", l_Same ? "matched" : "differed from", l_Equal, l_Entities.size());
+        TR_ERROR("Mesh scene: the second save {} the first, {} of {} MeshRenderers came back equal", l_Same ? "matched" : "differed from", l_Equal, l_Entities.size());
 
         return;
     }
 
-    TR_INFO("Mesh scene: {} MeshRenderers with 0 to 3 materials saved, loaded and saved again into two identical files of {} bytes, and every component came back equal", l_Entities.size(), l_First->size());
+    TR_INFO("Mesh scene: {} MeshRenderers saved, loaded and saved again equal, {} bytes each", l_Entities.size(), l_First->size());
 }
 
-// The model stands in for a file an importer reads: the registry lists a mesh sub-asset per key in its .meta, and each mesh is cooked into the cache where an import would write it. Listing the keys again in another order, and scanning the folder with a second registry, must find the same UUIDs
+// The model stands in for an imported file. Listing or scanning again must find the same UUIDs
 bool SandboxLayer::AddTestMeshes(Trinity::MemorySource& cache)
 {
     const std::string l_ModelPath = std::format("{}/{}", c_SpriteTestRoot, c_ModelName);
@@ -2449,7 +2449,7 @@ bool SandboxLayer::AddTestMeshes(Trinity::MemorySource& cache)
 
     if (!l_Kept)
     {
-        TR_ERROR("Meshes: the sub-assets of {} changed UUID when listed again or scanned by a second registry", l_ModelPath);
+        TR_ERROR("Meshes: the sub-assets of {} changed UUID when listed or scanned again", l_ModelPath);
 
         return false;
     }
@@ -2470,12 +2470,12 @@ bool SandboxLayer::AddTestMeshes(Trinity::MemorySource& cache)
         m_TestMeshes.push_back({ it_Name, l_ID, std::move(it_Data), std::move(*l_Cooked) });
     }
 
-    TR_INFO("Meshes: {} recorded {} mesh sub-assets, whose UUIDs held when listed again and when a second registry scanned the folder", c_ModelName, m_TestMeshes.size());
+    TR_INFO("Meshes: {} recorded {} mesh sub-assets, with UUIDs that held on a second scan", c_ModelName, m_TestMeshes.size());
 
     return true;
 }
 
-// Loads the test meshes and reads their GPU buffers back, then runs the loads and releases, and starts the sprites once Assets is back to 0 B
+// Loads the test meshes and reads them back, runs the churn, then starts the sprites
 void SandboxLayer::UpdateMeshes()
 {
     const std::uint64_t l_Frame = Trinity::Application::Get().GetFrameCount();
@@ -2555,18 +2555,18 @@ void SandboxLayer::UpdateMeshes()
         const std::uint64_t l_Bytes = Trinity::Memory::GetStats(Trinity::MemoryTag::Assets).CurrentBytes;
         if (l_Bytes == 0 && Trinity::AssetManager::GetEntryCount() == 0)
         {
-            TR_INFO("Meshes: {} asynchronous loads and releases, {} of them released once loaded and the rest cancelled while reading or decoding, left Assets at 0 B in {} frame(s) after the last release", m_MeshChurnLoads, m_MeshChurnFinished, l_Frame - m_MeshPhaseFrame);
+            TR_INFO("Meshes: {} loads, {} released once loaded, left Assets at 0 B in {} frame(s)", m_MeshChurnLoads, m_MeshChurnFinished, l_Frame - m_MeshPhaseFrame);
             FinishMeshes();
         }
         else if (l_Frame - m_MeshPhaseFrame > c_MeshSettleFrames)
         {
-            TR_ERROR("Meshes: Assets still held {} in {} entries {} frames after the last of {} loads was released", Trinity::Memory::FormatBytes(l_Bytes), Trinity::AssetManager::GetEntryCount(), c_MeshSettleFrames, m_MeshChurnLoads);
+            TR_ERROR("Meshes: Assets still held {} in {} entries {} frames after the last of {} loads", Trinity::Memory::FormatBytes(l_Bytes), Trinity::AssetManager::GetEntryCount(), c_MeshSettleFrames, m_MeshChurnLoads);
             FinishMeshes();
         }
     }
 }
 
-// One pass copies every mesh's buffer into its readback buffer, moving each from Geometry to CopySource and back
+// One pass copies every mesh's buffer into its readback buffer, by way of CopySource
 void SandboxLayer::AddMeshReadbacks(Trinity::FrameGraph& graph)
 {
     m_MeshReadbackAdded = true;
@@ -2601,7 +2601,7 @@ void SandboxLayer::AddMeshReadbacks(Trinity::FrameGraph& graph)
     });
 }
 
-// Each loaded mesh must hold what its file held, its bounds must be those of its positions, and its GPU buffer must read back as the cooked bytes and decode to the mesh it was cooked from. The null device reads back nothing, so there the cooked bytes are decoded instead
+// Each mesh must hold what its file held, and its GPU buffer must read back as the cooked bytes
 void SandboxLayer::CheckMeshReadbacks()
 {
     TR_PROFILE_FUNCTION();
@@ -2669,10 +2669,10 @@ void SandboxLayer::CheckMeshReadbacks()
         return;
     }
 
-    TR_INFO("Meshes: {} loaded {} ({} vertices and {} indices in all), and every vertex, index, bound and submesh {} as cooked", Trinity::ToString(l_API), l_Summary, l_Vertices, l_Indices, l_API == Trinity::GraphicsAPI::None ? "decoded" : "read back from the GPU");
+    TR_INFO("Meshes: {} loaded {} ({} vertices, {} indices), all {} as cooked", Trinity::ToString(l_API), l_Summary, l_Vertices, l_Indices, l_API == Trinity::GraphicsAPI::None ? "decoded" : "read back from the GPU");
 }
 
-// Every frame acquires meshes at random and releases what is due. A quarter are released at once, so their reads are cancelled, and the rest live up to c_MeshChurnMaxLifetime frames. Only an acquisition that starts a load counts
+// Meshes are acquired at random each frame. A quarter are released at once, cancelling their reads
 void SandboxLayer::UpdateMeshChurn(std::uint64_t frame)
 {
     std::erase_if(m_MeshChurn, [this, frame](const ChurnRef& churn)
@@ -2731,7 +2731,7 @@ void SandboxLayer::FinishMeshes()
     }
 }
 
-// 64 placeholder source files give the registry 64 texture assets, a grey one and a model whose sub-assets are the test meshes, and a memory source serves what they cook into at /cache. The meshes run first
+// 64 placeholder files give the registry 64 textures, and a memory source serves /cache
 void SandboxLayer::CreateTestAssets()
 {
     TR_PROFILE_FUNCTION();
@@ -2901,7 +2901,7 @@ void SandboxLayer::CreateTestAssets()
     }
 }
 
-// Waits for every texture to load, reads a frame's readback back, and from then on watches Renderer memory
+// Waits for every texture to load, reads a frame's readback, then watches Renderer memory
 void SandboxLayer::UpdateSprites()
 {
     // The readback passes went into a frame that has been submitted since
@@ -2921,7 +2921,7 @@ void SandboxLayer::UpdateSprites()
         return;
     }
 
-    // A texture that became ready this frame is uploaded before the graph runs, so the readback can draw it in this frame
+    // A texture that became ready this frame is uploaded before the graph runs, so it can be drawn
     const std::uint64_t l_Frame = Trinity::Application::Get().GetFrameCount();
     const auto a_Ready = [](Trinity::UUID id) { return Trinity::AssetManager::GetState(id) == Trinity::AssetState::Ready; };
     const bool l_Loaded = std::ranges::all_of(m_SpriteTextures, a_Ready) && a_Ready(m_GreyTexture);
@@ -2956,7 +2956,7 @@ void SandboxLayer::UpdateSprites()
     m_SpritePhase = SpritePhase::Reading;
 }
 
-// As the Renderer draws a frame: the readback scene into a transient linear target cleared to black, the tonemap pass with the readback camera's exposure 1 and no curve into an 8-bit target, then a copy into the readback buffer
+// As the Renderer draws a frame: the scene, the tonemap pass with no curve, then a copy
 void SandboxLayer::AddSpriteReadback(Trinity::FrameGraph& graph)
 {
     m_SpriteReadbackAdded = true;
@@ -2997,7 +2997,7 @@ void SandboxLayer::AddSpriteReadback(Trinity::FrameGraph& graph)
     });
 }
 
-// Probes inside each sprite of a small scene, chosen so that a wrong sort, transform, flip, filter or blend each changes at least one of them
+// Probes inside each sprite, chosen so a wrong sort, transform, flip, filter or blend changes one
 void SandboxLayer::CheckSpriteReadback()
 {
     TR_PROFILE_FUNCTION();
@@ -3089,10 +3089,10 @@ void SandboxLayer::CheckSpriteReadback()
         return;
     }
 
-    TR_INFO("Sprites: {} drew 9 sprites in one draw call{}", Trinity::ToString(l_Info.API), l_Check ? std::format(", and all {} probes for sort order, transforms, flips, filtering, blending in linear light and the sRGB round trip hold the expected colour, with the readback hashing to 0x{:016x}", c_Probes.size(), l_Hash.Get()) : "");
+    TR_INFO("Sprites: {} drew 9 sprites in one draw call{}", Trinity::ToString(l_Info.API), l_Check ? std::format(", and all {} probes hold, hash 0x{:016x}", c_Probes.size(), l_Hash.Get()) : "");
 }
 
-// Whether Renderer memory moved between sprite frame c_SpriteCheckFrame and c_SpriteReportFrame, or the last frame when the run ends sooner
+// Whether Renderer memory moved between c_SpriteCheckFrame and c_SpriteReportFrame
 void SandboxLayer::ReportSprites()
 {
     if (m_SpriteReported)
@@ -3119,7 +3119,7 @@ void SandboxLayer::ReportSprites()
     }
 }
 
-// Once the Renderer's graph has been checked, so its first frame shows the main view alone, and once the sprite textures are in the registry: the reference document is written and loaded into a view of its own, drawn in one frame, copied out in the next and read back in the one after
+// After the Renderer's graph check: the document is drawn, copied out a frame on, then read back
 void SandboxLayer::UpdateGameUI()
 {
     Trinity::Application& l_Application = Trinity::Application::Get();
@@ -3184,7 +3184,7 @@ void SandboxLayer::UpdateGameUI()
     }
 }
 
-// Probes chosen so that a wrong blend, colour encoding, scissor, image orientation or clip mask each changes at least one of them, each within one 8-bit step of what the stylesheet says. The text is the full block glyph, whose exact edges are the font's, so it is checked by the white pixels it lights
+// Probes chosen so a wrong blend, encoding, scissor, orientation or clip mask changes one of them
 void SandboxLayer::CheckGameUI()
 {
     TR_PROFILE_FUNCTION();
@@ -3276,7 +3276,7 @@ void SandboxLayer::CheckGameUI()
         return;
     }
 
-    TR_INFO("Game UI: {} drew the reference document in {} draw command(s), and all {} probes for a border, images, the sRGB round trip, blending, a scissor and a turned box's clip mask hold the expected colour within one 8-bit step, with {} white text pixels and the readback hashing to 0x{:016x}", Trinity::ToString(l_Info.API), m_UICommands, c_Probes.size(), l_TextPixels, l_Hash.Get());
+    TR_INFO("Game UI: {} drew {} command(s), {} probes hold, {} text pixels, hash 0x{:016x}", Trinity::ToString(l_Info.API), m_UICommands, c_Probes.size(), l_TextPixels, l_Hash.Get());
 }
 
 void SandboxLayer::EndGameUI()

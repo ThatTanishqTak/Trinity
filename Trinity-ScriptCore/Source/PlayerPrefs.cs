@@ -2,7 +2,7 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // As Unity's PlayerPrefs: small values a game keeps on the player's machine from one run to the next, each an int, a float or a string under a key, the engine's own, so C++ and C# share them. They are written to their file on Save and as the game closes. A key holds one kind at a time, setting it as another replaces it, and reading it as another gives the default. A player keeps them in its saves, and Forge's Play in the project's Saved folder. Main thread only
+    // As Unity's PlayerPrefs, shared with C++. Written on Save and as the game closes. Main thread only
     public static unsafe class PlayerPrefs
     {
         public static void SetInt(string key, int value)
@@ -84,7 +84,7 @@ namespace Trinity
 
         public static void DeleteAll() => Native.PlayerPrefs_DeleteAll();
 
-        // Writes the file now when anything changed. False, logged, when it cannot be written, and the values stay to be saved again
+        // Writes the file now if anything changed. False, logged, when it cannot be written
         public static bool Save() => Native.PlayerPrefs_Save();
     }
 }

@@ -2,7 +2,7 @@ using System;
 
 namespace Trinity
 {
-    // A kind of asset, which names its type as the engine does, so a field of AssetRef<T> offers only assets of that type
+    // A kind of asset, named as the engine names it, so a field of AssetRef<T> offers only that type
     public interface IAsset
     {
         static abstract string AssetType { get; }

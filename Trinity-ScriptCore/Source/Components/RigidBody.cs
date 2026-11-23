@@ -2,7 +2,7 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // What a script does to the body itself as the scene runs, in world space, in metres, kilograms, seconds and radians, on the running scene's physics, which takes the scene's changes in first, so a body added this frame answers. Only a dynamic body takes velocities, forces and impulses, and a static one neither sleeps nor wakes. A force or torque lasts for the next step, so a script adds it in OnFixedUpdate, and an impulse changes the velocity at once. A body pushed is woken. A body the physics has not made, such as one whose shapes are still loading, throws
+    // In world space, in metres, kilograms, seconds and radians. Add forces in OnFixedUpdate
     public readonly unsafe partial struct RigidBody
     {
         private const string c_NoBody = "has a RigidBody the running scene's physics has not made";

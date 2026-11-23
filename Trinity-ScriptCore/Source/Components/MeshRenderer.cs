@@ -2,7 +2,7 @@ using Trinity.Interop;
 
 namespace Trinity
 {
-    // The material of each slot, which each submesh names. A slot past the end, or with no material, draws with the default one
+    // The material of each slot. A slot past the end, or with none, draws with the default one
     public readonly partial struct MeshRenderer
     {
         public int MaterialCount => Native.MeshRenderer_GetMaterialCount(m_Entity.ID);
