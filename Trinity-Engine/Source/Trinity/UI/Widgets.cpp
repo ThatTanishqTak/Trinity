@@ -7,7 +7,9 @@
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 
 namespace Trinity
 {
@@ -21,6 +23,91 @@ namespace Trinity
         constexpr float c_SelectionEdgeInFonts = 0.15f;
         // How far inside its square an overlay button's hovered fill is drawn, as a share of the item's height
         constexpr float c_OverlayInset = 0.1f;
+
+        // An axis's letter and its colour, the fourth being no axis and so the dimmed text's
+        constexpr std::array<const char*, 4> c_AxisLetters{ "X", "Y", "Z", "W" };
+        constexpr std::array<ThemeColor, 3> c_AxisColors{ ThemeColor::AxisX, ThemeColor::AxisY, ThemeColor::AxisZ };
+        constexpr float c_AxisLetterInFonts = 1.15f;
+        // How much of its axis's colour a letter's cell takes over the field's, at rest and under the mouse, and how far its letter leans to the text's so it reads on that
+        constexpr float c_AxisFill = 0.3f;
+        constexpr float c_AxisFillHovered = 0.55f;
+        constexpr float c_AxisLetterToText = 0.5f;
+
+        // What ImGui's own DragScalarN does, with a letter's cell before each field
+        bool DragAxes(const char* label, float* values, std::size_t count, float speed, float minimum, float maximum, const char* format, ImGuiSliderFlags flags, std::optional<float> reset)
+        {
+            if (ImGui::GetCurrentWindow()->SkipItems)
+            {
+                return false;
+            }
+
+            const ImGuiStyle& l_Style = ImGui::GetStyle();
+            const float l_Height = ImGui::GetFrameHeight();
+            const float l_Letter = std::round(ImGui::GetFontSize() * c_AxisLetterInFonts);
+            ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+
+            bool l_Changed = false;
+            ImGui::BeginGroup();
+            ImGui::PushID(label);
+            ImGui::PushMultiItemsWidths(static_cast<int>(count), ImGui::CalcItemWidth());
+            for (std::size_t it_Axis = 0; it_Axis < count; ++it_Axis)
+            {
+                ImGui::PushID(static_cast<int>(it_Axis));
+                if (it_Axis > 0)
+                {
+                    ImGui::SameLine(0.0f, l_Style.ItemInnerSpacing.x);
+                }
+
+                const float l_Width = ImGui::CalcItemWidth();
+                const ImVec2 l_Min = ImGui::GetCursorScreenPos();
+                bool l_Hovered = false;
+                if (reset)
+                {
+                    if (ImGui::InvisibleButton("##Reset", ImVec2(l_Letter, l_Height)))
+                    {
+                        // Marked, so the group reads as edited to a caller that waits for the edit to end
+                        values[it_Axis] = *reset;
+                        l_Changed = true;
+                        ImGui::MarkItemEdited(ImGui::GetItemID());
+                    }
+
+                    l_Hovered = ImGui::IsItemHovered();
+                    ImGui::SetItemTooltip("Reset %s to %g", c_AxisLetters[it_Axis], *reset);
+                }
+                else
+                {
+                    ImGui::Dummy(ImVec2(l_Letter, l_Height));
+                }
+
+                // The cell runs on under the field's rounded corners, so the two read as one
+                const ImVec4 l_Axis = it_Axis < c_AxisColors.size() ? Theme::GetColor(c_AxisColors[it_Axis]) : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+                const ImVec4 l_Fill = ImLerp(ImGui::GetStyleColorVec4(ImGuiCol_FrameBg), l_Axis, l_Hovered ? c_AxisFillHovered : c_AxisFill);
+                const ImVec4 l_Text = ImLerp(l_Axis, ImGui::GetStyleColorVec4(ImGuiCol_Text), c_AxisLetterToText);
+                l_DrawList.AddRectFilled(l_Min, ImVec2(l_Min.x + l_Letter + l_Style.FrameRounding, l_Min.y + l_Height), ImGui::GetColorU32(l_Fill), l_Style.FrameRounding, ImDrawFlags_RoundCornersLeft);
+                const ImVec2 l_Size = ImGui::CalcTextSize(c_AxisLetters[it_Axis]);
+                l_DrawList.AddText(ImVec2(std::round(l_Min.x + (l_Letter - l_Size.x) * 0.5f), l_Min.y + l_Style.FramePadding.y), ImGui::GetColorU32(l_Text), c_AxisLetters[it_Axis]);
+
+                ImGui::SameLine(0.0f, 0.0f);
+                ImGui::SetNextItemWidth(std::max(1.0f, l_Width - l_Letter));
+                l_Changed |= ImGui::DragScalar("", ImGuiDataType_Float, &values[it_Axis], speed, &minimum, &maximum, format, flags);
+                ImGui::PopID();
+                ImGui::PopItemWidth();
+            }
+
+            ImGui::PopID();
+
+            // After the fields, as ImGui puts what a label shows before its ##
+            const char* l_LabelEnd = ImGui::FindRenderedTextEnd(label);
+            if (label != l_LabelEnd)
+            {
+                ImGui::SameLine(0.0f, l_Style.ItemInnerSpacing.x);
+                ImGui::TextEx(label, l_LabelEnd);
+            }
+
+            ImGui::EndGroup();
+
+            return l_Changed;
+        }
     }
 
     namespace Widgets
@@ -146,6 +233,21 @@ namespace Trinity
             l_Context.LastItemData = l_Under;
 
             return l_Pressed;
+        }
+
+        bool DragFloat2(const char* label, float* values, float speed, float minimum, float maximum, const char* format, ImGuiSliderFlags flags, std::optional<float> reset)
+        {
+            return DragAxes(label, values, 2, speed, minimum, maximum, format, flags, reset);
+        }
+
+        bool DragFloat3(const char* label, float* values, float speed, float minimum, float maximum, const char* format, ImGuiSliderFlags flags, std::optional<float> reset)
+        {
+            return DragAxes(label, values, 3, speed, minimum, maximum, format, flags, reset);
+        }
+
+        bool DragFloat4(const char* label, float* values, float speed, float minimum, float maximum, const char* format, ImGuiSliderFlags flags, std::optional<float> reset)
+        {
+            return DragAxes(label, values, 4, speed, minimum, maximum, format, flags, reset);
         }
     }
 }

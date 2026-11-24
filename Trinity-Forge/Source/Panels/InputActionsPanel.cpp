@@ -1118,7 +1118,7 @@ void InputActionsPanel::DrawProcessors(const Trinity::InputActionsData& data)
             case Trinity::InputProcessorKind::Scale:
             {
                 Label("Scale");
-                if (ImGui::DragFloat2("##Scale", &l_Edited.Scale.x, 0.01f, -100.0f, 100.0f, "%.2f"))
+                if (Trinity::Widgets::DragFloat2("##Scale", &l_Edited.Scale.x, 0.01f, -100.0f, 100.0f, "%.2f"))
                 {
                     a_Set("Scale");
                 }

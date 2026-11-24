@@ -1123,13 +1123,13 @@ namespace
     void DrawColliderSettings(CommandStack& history, Trinity::Entity entity, const Trinity::CollisionLayers& layers)
     {
         Label("Offset");
-        EditField<T>(history, entity, "Offset", [](T& collider) { return ImGui::DragFloat3("##Offset", &collider.Offset.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+        EditField<T>(history, entity, "Offset", [](T& collider) { return Trinity::Widgets::DragFloat3("##Offset", &collider.Offset.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
 
         Label("Offset Rotation");
         EditField<T>(history, entity, "OffsetRotation", [](T& collider)
         {
             glm::vec3 l_Degrees = glm::degrees(glm::eulerAngles(collider.OffsetRotation));
-            if (!ImGui::DragFloat3("##OffsetRotation", &l_Degrees.x, 0.5f, 0.0f, 0.0f, "%.2f\xC2\xB0"))
+            if (!Trinity::Widgets::DragFloat3("##OffsetRotation", &l_Degrees.x, 0.5f, 0.0f, 0.0f, "%.2f\xC2\xB0"))
             {
                 return false;
             }
@@ -1169,7 +1169,7 @@ namespace
     void DrawCollider2DSettings(CommandStack& history, Trinity::Entity entity, const Trinity::CollisionLayers& layers)
     {
         Label("Offset");
-        EditField<T>(history, entity, "Offset", [](T& collider) { return ImGui::DragFloat2("##Offset", &collider.Offset.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+        EditField<T>(history, entity, "Offset", [](T& collider) { return Trinity::Widgets::DragFloat2("##Offset", &collider.Offset.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
 
         Label("Offset Angle");
         EditField<T>(history, entity, "OffsetAngle", [](T& collider)
@@ -1854,11 +1854,11 @@ void PropertiesPanel::DrawTransform(Trinity::Entity entity)
     }
 
     Label("Position");
-    EditField<Trinity::TransformComponent>(l_History, entity, "Position", [](Trinity::TransformComponent& transform) { return ImGui::DragFloat3("##Position", &transform.Position.x, 0.05f, 0.0f, 0.0f, "%.3f"); });
+    EditField<Trinity::TransformComponent>(l_History, entity, "Position", [](Trinity::TransformComponent& transform) { return Trinity::Widgets::DragFloat3("##Position", &transform.Position.x, 0.05f, 0.0f, 0.0f, "%.3f", ImGuiSliderFlags_None, 0.0f); });
 
     Label("Rotation");
     glm::vec3 l_Degrees = m_EulerDegrees;
-    if (ImGui::DragFloat3("##Rotation", &l_Degrees.x, 0.5f, 0.0f, 0.0f, "%.2f\xC2\xB0"))
+    if (Trinity::Widgets::DragFloat3("##Rotation", &l_Degrees.x, 0.5f, 0.0f, 0.0f, "%.2f\xC2\xB0", ImGuiSliderFlags_None, 0.0f))
     {
         Trinity::TransformComponent l_Value = l_Transform;
         l_Value.Rotation = glm::quat(glm::radians(l_Degrees));
@@ -1868,7 +1868,7 @@ void PropertiesPanel::DrawTransform(Trinity::Entity entity)
     }
 
     Label("Scale");
-    EditField<Trinity::TransformComponent>(l_History, entity, "Scale", [](Trinity::TransformComponent& transform) { return ImGui::DragFloat3("##Scale", &transform.Scale.x, 0.01f, 0.0f, 0.0f, "%.3f"); });
+    EditField<Trinity::TransformComponent>(l_History, entity, "Scale", [](Trinity::TransformComponent& transform) { return Trinity::Widgets::DragFloat3("##Scale", &transform.Scale.x, 0.01f, 0.0f, 0.0f, "%.3f", ImGuiSliderFlags_None, 1.0f); });
 }
 
 void PropertiesPanel::DrawCamera(Trinity::Entity entity)
@@ -2414,13 +2414,13 @@ void PropertiesPanel::DrawRigidBody(Trinity::Entity entity)
     EditField<Trinity::RigidBodyComponent>(l_History, entity, "LockRotation", [](Trinity::RigidBodyComponent& body) { return AxisCheckboxes("##LockRotation", body.LockRotation); });
 
     Label("Velocity");
-    EditField<Trinity::RigidBodyComponent>(l_History, entity, "InitialLinearVelocity", [](Trinity::RigidBodyComponent& body) { return ImGui::DragFloat3("##InitialLinearVelocity", &body.InitialLinearVelocity.x, 0.05f, 0.0f, 0.0f, "%.3f m/s"); });
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "InitialLinearVelocity", [](Trinity::RigidBodyComponent& body) { return Trinity::Widgets::DragFloat3("##InitialLinearVelocity", &body.InitialLinearVelocity.x, 0.05f, 0.0f, 0.0f, "%.3f m/s"); });
 
     Label("Spin");
     EditField<Trinity::RigidBodyComponent>(l_History, entity, "InitialAngularVelocity", [](Trinity::RigidBodyComponent& body)
     {
         glm::vec3 l_Degrees = glm::degrees(body.InitialAngularVelocity);
-        if (!ImGui::DragFloat3("##InitialAngularVelocity", &l_Degrees.x, 1.0f, 0.0f, 0.0f, "%.1f\xC2\xB0/s"))
+        if (!Trinity::Widgets::DragFloat3("##InitialAngularVelocity", &l_Degrees.x, 1.0f, 0.0f, 0.0f, "%.1f\xC2\xB0/s"))
         {
             return false;
         }
@@ -2451,7 +2451,7 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
     {
         DrawColliderSettings<Trinity::BoxColliderComponent>(l_History, entity, l_Layers);
         Label("Half Extents");
-        EditField<Trinity::BoxColliderComponent>(l_History, entity, "HalfExtents", [](Trinity::BoxColliderComponent& box) { return ImGui::DragFloat3("##HalfExtents", &box.HalfExtents.x, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Trinity::BoxColliderComponent>(l_History, entity, "HalfExtents", [](Trinity::BoxColliderComponent& box) { return Trinity::Widgets::DragFloat3("##HalfExtents", &box.HalfExtents.x, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
     if (entity.Has<Trinity::SphereColliderComponent>() && BeginComponent(entity, Trinity::SphereColliderComponent::c_TypeName, Trinity::Icons::c_Globe))
@@ -2542,7 +2542,7 @@ void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
     }
 
     Label("Offset");
-    EditField<Character>(l_History, entity, "Offset", [](Character& character) { return ImGui::DragFloat3("##Offset", &character.Offset.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+    EditField<Character>(l_History, entity, "Offset", [](Character& character) { return Trinity::Widgets::DragFloat3("##Offset", &character.Offset.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Where the capsule's middle is, from the entity, in its own space");
@@ -2646,7 +2646,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
     }
 
     Label("Anchor");
-    EditField<Joint>(l_History, entity, "Anchor", [](Joint& joint) { return ImGui::DragFloat3("##Anchor", &joint.Anchor.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+    EditField<Joint>(l_History, entity, "Anchor", [](Joint& joint) { return Trinity::Widgets::DragFloat3("##Anchor", &joint.Anchor.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Where the joint is, from the entity, in its own space");
@@ -2655,7 +2655,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
     if (l_Hinge || l_Slider)
     {
         Label("Axis");
-        EditField<Joint>(l_History, entity, "Axis", [](Joint& joint) { return ImGui::DragFloat3("##Axis", &joint.Axis.x, 0.01f, -1.0f, 1.0f, "%.3f"); });
+        EditField<Joint>(l_History, entity, "Axis", [](Joint& joint) { return Trinity::Widgets::DragFloat3("##Axis", &joint.Axis.x, 0.01f, -1.0f, 1.0f, "%.3f"); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("%s", l_Hinge ? "What it turns about, in the entity's own space" : "What it slides along, in the entity's own space");
@@ -2665,7 +2665,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
     if (l_Distance)
     {
         Label("Connected Anchor");
-        EditField<Joint>(l_History, entity, "ConnectedAnchor", [](Joint& joint) { return ImGui::DragFloat3("##ConnectedAnchor", &joint.ConnectedAnchor.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+        EditField<Joint>(l_History, entity, "ConnectedAnchor", [](Joint& joint) { return Trinity::Widgets::DragFloat3("##ConnectedAnchor", &joint.ConnectedAnchor.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("The other end, on the connected entity in its own space, or in the world for a joint to the world");
@@ -2845,7 +2845,7 @@ void PropertiesPanel::DrawRigidBody2D(Trinity::Entity entity)
     }
 
     Label("Velocity");
-    EditField<Body>(l_History, entity, "InitialLinearVelocity", [](Body& body) { return ImGui::DragFloat2("##InitialLinearVelocity", &body.InitialLinearVelocity.x, 0.05f, 0.0f, 0.0f, "%.3f m/s"); });
+    EditField<Body>(l_History, entity, "InitialLinearVelocity", [](Body& body) { return Trinity::Widgets::DragFloat2("##InitialLinearVelocity", &body.InitialLinearVelocity.x, 0.05f, 0.0f, 0.0f, "%.3f m/s"); });
 
     Label("Spin");
     EditField<Body>(l_History, entity, "InitialAngularVelocity", [](Body& body)
@@ -2886,7 +2886,7 @@ void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
     {
         DrawCollider2DSettings<Trinity::BoxCollider2DComponent>(l_History, entity, l_Layers);
         Label("Half Extents");
-        EditField<Trinity::BoxCollider2DComponent>(l_History, entity, "HalfExtents", [](Trinity::BoxCollider2DComponent& box) { return ImGui::DragFloat2("##HalfExtents", &box.HalfExtents.x, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Trinity::BoxCollider2DComponent>(l_History, entity, "HalfExtents", [](Trinity::BoxCollider2DComponent& box) { return Trinity::Widgets::DragFloat2("##HalfExtents", &box.HalfExtents.x, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
     if (entity.Has<Trinity::CircleCollider2DComponent>() && BeginComponent(entity, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::Icons::c_Globe))
@@ -2925,7 +2925,7 @@ void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
         ImGui::PushID(static_cast<int>(it_Point));
         Label(l_Name.c_str());
         ImGui::SetNextItemWidth(l_Count > 3 ? -(l_Button + ImGui::GetStyle().ItemSpacing.x) : -FLT_MIN);
-        EditField<Polygon>(l_History, entity, l_Name, [it_Point](Polygon& polygon) { return ImGui::DragFloat2("##Point", &polygon.Points[it_Point].x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+        EditField<Polygon>(l_History, entity, l_Name, [it_Point](Polygon& polygon) { return Trinity::Widgets::DragFloat2("##Point", &polygon.Points[it_Point].x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
 
         if (l_Count > 3)
         {
@@ -3029,7 +3029,7 @@ void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
     }
 
     Label("Offset");
-    EditField<Character>(l_History, entity, "Offset", [](Character& character) { return ImGui::DragFloat2("##Offset", &character.Offset.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+    EditField<Character>(l_History, entity, "Offset", [](Character& character) { return Trinity::Widgets::DragFloat2("##Offset", &character.Offset.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Where the capsule's middle is, from the entity, in its own space");
@@ -3136,7 +3136,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
     }
 
     Label("Anchor");
-    EditField<Joint>(l_History, entity, "Anchor", [](Joint& joint) { return ImGui::DragFloat2("##Anchor", &joint.Anchor.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+    EditField<Joint>(l_History, entity, "Anchor", [](Joint& joint) { return Trinity::Widgets::DragFloat2("##Anchor", &joint.Anchor.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Where the joint is, from the entity, in its own space");
@@ -3145,7 +3145,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
     if (l_Prismatic || l_Wheel)
     {
         Label("Axis");
-        EditField<Joint>(l_History, entity, "Axis", [](Joint& joint) { return ImGui::DragFloat2("##Axis", &joint.Axis.x, 0.01f, -1.0f, 1.0f, "%.3f"); });
+        EditField<Joint>(l_History, entity, "Axis", [](Joint& joint) { return Trinity::Widgets::DragFloat2("##Axis", &joint.Axis.x, 0.01f, -1.0f, 1.0f, "%.3f"); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("%s", l_Prismatic ? "What it slides along, in the entity's own space" : "What the wheel's suspension travels along, in the entity's own space");
@@ -3155,7 +3155,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
     if (l_Distance)
     {
         Label("Connected Anchor");
-        EditField<Joint>(l_History, entity, "ConnectedAnchor", [](Joint& joint) { return ImGui::DragFloat2("##ConnectedAnchor", &joint.ConnectedAnchor.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
+        EditField<Joint>(l_History, entity, "ConnectedAnchor", [](Joint& joint) { return Trinity::Widgets::DragFloat2("##ConnectedAnchor", &joint.ConnectedAnchor.x, 0.01f, 0.0f, 0.0f, "%.3f m"); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("The other end, on the connected entity in its own space, or in the world for a joint to the world");
@@ -3983,7 +3983,7 @@ void PropertiesPanel::DrawUIWorldSettings(Trinity::Entity entity)
     }
 
     Label("Pivot");
-    EditField<Trinity::UIDocumentComponent>(l_History, entity, "Pivot", [](Trinity::UIDocumentComponent& document) { return ImGui::DragFloat2("##Pivot", &document.World.Pivot.x, 0.01f, 0.0f, 0.0f, "%.2f"); });
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "Pivot", [](Trinity::UIDocumentComponent& document) { return Trinity::Widgets::DragFloat2("##Pivot", &document.World.Pivot.x, 0.01f, 0.0f, 0.0f, "%.2f"); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("The point of it on its entity, from (0, 0) at its bottom left to (1, 1) at its top right");
@@ -4344,21 +4344,21 @@ bool PropertiesPanel::DrawFieldValue(const Trinity::ScriptFieldDescription& fiel
         }
         case Trinity::ScriptFieldType::Vector2:
         {
-            return ImGui::DragFloat2("##Value", &value.Get<glm::vec2>().x, 0.01f, 0.0f, 0.0f, "%.3f");
+            return Trinity::Widgets::DragFloat2("##Value", &value.Get<glm::vec2>().x, 0.01f, 0.0f, 0.0f, "%.3f");
         }
         case Trinity::ScriptFieldType::Vector3:
         {
-            return ImGui::DragFloat3("##Value", &value.Get<glm::vec3>().x, 0.01f, 0.0f, 0.0f, "%.3f");
+            return Trinity::Widgets::DragFloat3("##Value", &value.Get<glm::vec3>().x, 0.01f, 0.0f, 0.0f, "%.3f");
         }
         case Trinity::ScriptFieldType::Vector4:
         {
-            return ImGui::DragFloat4("##Value", &value.Get<glm::vec4>().x, 0.01f, 0.0f, 0.0f, "%.3f");
+            return Trinity::Widgets::DragFloat4("##Value", &value.Get<glm::vec4>().x, 0.01f, 0.0f, 0.0f, "%.3f");
         }
         case Trinity::ScriptFieldType::Quaternion:
         {
             glm::quat& l_Rotation = value.Get<glm::quat>();
             glm::vec3 l_Degrees = glm::degrees(glm::eulerAngles(l_Rotation));
-            if (!ImGui::DragFloat3("##Value", &l_Degrees.x, 0.5f, 0.0f, 0.0f, "%.2f\xC2\xB0"))
+            if (!Trinity::Widgets::DragFloat3("##Value", &l_Degrees.x, 0.5f, 0.0f, 0.0f, "%.2f\xC2\xB0"))
             {
                 return false;
             }

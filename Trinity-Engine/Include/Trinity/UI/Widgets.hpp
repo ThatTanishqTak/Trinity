@@ -4,6 +4,7 @@
 
 #include <imgui.h>
 
+#include <optional>
 #include <string>
 
 namespace Trinity
@@ -22,5 +23,10 @@ namespace Trinity
 
         // An icon over the right end of the last item, which has to allow overlap and stays the last item for what follows. True as it is pressed
         TRINITY_API bool OverlayButton(const char* id, const char* icon, const char* tooltip = nullptr);
+
+        // ImGui's DragFloat2, 3 and 4 with each field behind its axis's letter in that axis's colour. Given a reset value, a click on a letter sets its field to it
+        TRINITY_API bool DragFloat2(const char* label, float* values, float speed = 1.0f, float minimum = 0.0f, float maximum = 0.0f, const char* format = "%.3f", ImGuiSliderFlags flags = ImGuiSliderFlags_None, std::optional<float> reset = std::nullopt);
+        TRINITY_API bool DragFloat3(const char* label, float* values, float speed = 1.0f, float minimum = 0.0f, float maximum = 0.0f, const char* format = "%.3f", ImGuiSliderFlags flags = ImGuiSliderFlags_None, std::optional<float> reset = std::nullopt);
+        TRINITY_API bool DragFloat4(const char* label, float* values, float speed = 1.0f, float minimum = 0.0f, float maximum = 0.0f, const char* format = "%.3f", ImGuiSliderFlags flags = ImGuiSliderFlags_None, std::optional<float> reset = std::nullopt);
     }
 }

@@ -1,5 +1,7 @@
 #include "Panels/ProjectSettingsPanel.hpp"
 
+#include <Trinity/UI/Widgets.hpp>
+
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -247,13 +249,13 @@ void ProjectSettingsPanel::DrawMixer(Trinity::AudioSettings settings)
 void ProjectSettingsPanel::DrawWorlds(Trinity::PhysicsSettings settings)
 {
     Label("Gravity 3D");
-    if (ImGui::DragFloat3("##Gravity3D", &settings.Gravity3D.x, 0.05f, -1000.0f, 1000.0f, "%.2f m/s\xC2\xB2", ImGuiSliderFlags_AlwaysClamp))
+    if (Trinity::Widgets::DragFloat3("##Gravity3D", &settings.Gravity3D.x, 0.05f, -1000.0f, 1000.0f, "%.2f m/s\xC2\xB2", ImGuiSliderFlags_AlwaysClamp))
     {
         m_Session.EditPhysicsSettings(settings, "3D gravity");
     }
 
     Label("Gravity 2D");
-    if (ImGui::DragFloat2("##Gravity2D", &settings.Gravity2D.x, 0.05f, -1000.0f, 1000.0f, "%.2f m/s\xC2\xB2", ImGuiSliderFlags_AlwaysClamp))
+    if (Trinity::Widgets::DragFloat2("##Gravity2D", &settings.Gravity2D.x, 0.05f, -1000.0f, 1000.0f, "%.2f m/s\xC2\xB2", ImGuiSliderFlags_AlwaysClamp))
     {
         m_Session.EditPhysicsSettings(settings, "2D gravity");
     }
