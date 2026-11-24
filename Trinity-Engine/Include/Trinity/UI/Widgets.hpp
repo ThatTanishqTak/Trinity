@@ -19,5 +19,8 @@ namespace Trinity
 
         // The accent's bar down the left of the last item, which marks a selected row while it is hovered too
         TRINITY_API void DrawSelectionEdge();
+
+        // An icon over the right end of the last item, which has to allow overlap and stays the last item for what follows. True as it is pressed
+        TRINITY_API bool OverlayButton(const char* id, const char* icon, const char* tooltip = nullptr);
     }
 }

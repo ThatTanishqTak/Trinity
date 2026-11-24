@@ -303,11 +303,13 @@ namespace
         }
     }
 
-    // A section with the name of the component it shows, or its own, open by default
-    bool BeginSection(std::string_view name, const char* icon)
+    // A section with the name of the component it shows, or its own, in bold and open by default
+    bool BeginSection(std::string_view name, const char* icon, ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_None)
     {
         Trinity::Theme::PushHeaderColors();
-        const bool l_Open = ImGui::CollapsingHeader(std::format("{} {}###{}", icon, GetComponentLabel(name), name).c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+        ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), 0.0f);
+        const bool l_Open = ImGui::CollapsingHeader(std::format("{} {}###{}", icon, GetComponentLabel(name), name).c_str(), ImGuiTreeNodeFlags_DefaultOpen | flags);
+        ImGui::PopFont();
         Trinity::Theme::PopHeaderColors();
 
         return l_Open;
@@ -5363,7 +5365,7 @@ void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, c
     }
 }
 
-// The component's section, with Unity's component menu on a right-click. A Transform stays
+// The component's section, with Unity's component menu on a right-click and on the button at its right end. A Transform stays
 bool PropertiesPanel::BeginComponent(Trinity::Entity entity, std::string_view name, const char* icon)
 {
     std::vector<PrefabOverride> l_Overrides;
@@ -5376,7 +5378,7 @@ bool PropertiesPanel::BeginComponent(Trinity::Entity entity, std::string_view na
 
     const bool l_Added = std::ranges::any_of(l_Overrides, [](const PrefabOverride& change) { return change.Type == PrefabOverride::Kind::AddedComponent; });
     const float l_Top = ImGui::GetCursorScreenPos().y;
-    const bool l_Open = BeginSection(name, l_Added ? std::format("{}{}", Trinity::Icons::c_Plus, icon).c_str() : icon);
+    const bool l_Open = BeginSection(name, l_Added ? std::format("{}{}", Trinity::Icons::c_Plus, icon).c_str() : icon, ImGuiTreeNodeFlags_AllowOverlap);
     const bool l_Editable = (ImGui::GetItemFlags() & ImGuiItemFlags_Disabled) == 0;
     if (l_Added)
     {
@@ -5394,6 +5396,12 @@ bool PropertiesPanel::BeginComponent(Trinity::Entity entity, std::string_view na
     if (!l_Editable)
     {
         ImGui::BeginDisabledOverrideReenable();
+    }
+
+    // For those who would not think to right-click a header
+    if (Trinity::Widgets::OverlayButton(std::format("##{}MenuButton", name).c_str(), Trinity::Icons::c_EllipsisVertical, "Component menu"))
+    {
+        ImGui::OpenPopup(l_Menu.c_str());
     }
 
     if (ImGui::BeginPopupContextItem(l_Menu.c_str()))

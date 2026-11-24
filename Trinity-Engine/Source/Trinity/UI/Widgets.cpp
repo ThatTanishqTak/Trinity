@@ -19,6 +19,8 @@ namespace Trinity
         constexpr float c_ToggleHoveredAccent = 0.25f;
         constexpr float c_ToggleOutline = 0.7f;
         constexpr float c_SelectionEdgeInFonts = 0.15f;
+        // How far inside its square an overlay button's hovered fill is drawn, as a share of the item's height
+        constexpr float c_OverlayInset = 0.1f;
     }
 
     namespace Widgets
@@ -107,6 +109,43 @@ namespace Trinity
             const ImVec2 l_Max = ImGui::GetItemRectMax();
             const float l_Width = std::max(1.0f, std::round(ImGui::GetFontSize() * c_SelectionEdgeInFonts));
             ImGui::GetWindowDrawList()->AddRectFilled(l_Min, ImVec2(l_Min.x + l_Width, l_Max.y), Theme::GetColorU32(ThemeColor::Accent), ImGui::GetStyle().SelectableRounding, ImDrawFlags_RoundCornersLeft);
+        }
+
+        bool OverlayButton(const char* id, const char* icon, const char* tooltip)
+        {
+            // Added without ItemSize, as the search field's cross is, so it takes no room in the layout
+            ImGuiContext& l_Context = *ImGui::GetCurrentContext();
+            const ImGuiLastItemData l_Under = l_Context.LastItemData;
+            const ImRect l_Frame = l_Under.Rect;
+            const ImRect l_Box(ImVec2(l_Frame.Max.x - l_Frame.GetHeight(), l_Frame.Min.y), l_Frame.Max);
+            const ImGuiID l_ID = ImGui::GetID(id);
+
+            bool l_Pressed = false;
+            if (ImGui::ItemAdd(l_Box, l_ID))
+            {
+                bool l_Hovered = false;
+                bool l_Held = false;
+                l_Pressed = ImGui::ButtonBehavior(l_Box, l_ID, &l_Hovered, &l_Held);
+
+                ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+                if (l_Hovered || l_Held)
+                {
+                    const float l_Inset = std::round(l_Frame.GetHeight() * c_OverlayInset);
+                    l_DrawList.AddRectFilled(ImVec2(l_Box.Min.x + l_Inset, l_Box.Min.y + l_Inset), ImVec2(l_Box.Max.x - l_Inset, l_Box.Max.y - l_Inset), ImGui::GetColorU32(l_Held ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered), ImGui::GetStyle().FrameRounding);
+                }
+
+                const ImVec2 l_Size = ImGui::CalcTextSize(icon);
+                const ImVec2 l_Centre = l_Box.GetCenter();
+                l_DrawList.AddText(ImVec2(std::round(l_Centre.x - l_Size.x * 0.5f), std::round(l_Centre.y - l_Size.y * 0.5f)), ImGui::GetColorU32(l_Hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled), icon);
+                if (tooltip != nullptr)
+                {
+                    ImGui::SetItemTooltip("%s", tooltip);
+                }
+            }
+
+            l_Context.LastItemData = l_Under;
+
+            return l_Pressed;
         }
     }
 }
