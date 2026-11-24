@@ -3,6 +3,8 @@
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
 
+#include <Trinity/UI/Widgets.hpp>
+
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -2212,7 +2214,7 @@ void PropertiesPanel::DrawAssetPicker(const char* popup, std::string_view assetT
     }
 
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20.0f);
-    ImGui::InputTextWithHint("##Filter", assetType.empty() ? "Search assets" : std::format("Search {} assets", assetType).c_str(), &m_AssetFilter);
+    Trinity::Widgets::SearchField("##Filter", assetType.empty() ? "Search assets" : std::format("Search {} assets", assetType).c_str(), m_AssetFilter);
 
     if (ImGui::Selectable("None"))
     {
@@ -3342,7 +3344,7 @@ void PropertiesPanel::DrawAddComponent(Trinity::Entity entity)
     const float l_PopupWidth = ImGui::GetFontSize() * 20.0f;
     const ImGuiInputTextFlags l_Flags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory | ImGuiInputTextFlags_CallbackEdit;
     ImGui::SetNextItemWidth(l_PopupWidth);
-    const bool l_Enter = ImGui::InputTextWithHint("##Filter", std::format("{} Search components and scripts", Trinity::Icons::c_Search).c_str(), &m_ComponentFilter, l_Flags, &PropertiesPanel::OnComponentFilterEdit, this);
+    const bool l_Enter = Trinity::Widgets::SearchField("##Filter", "Search components and scripts", m_ComponentFilter, l_Flags, &PropertiesPanel::OnComponentFilterEdit, this);
 
     const std::vector<ComponentChoice> l_Choices = GetComponentChoices(entity, m_ComponentFilter, m_Session.GetProject());
     const bool l_Searching = !m_ComponentFilter.empty();
@@ -4643,7 +4645,7 @@ bool PropertiesPanel::DrawInputActionSlot(Trinity::ScriptString& path)
         }
 
         ImGui::SetNextItemWidth(-FLT_MIN);
-        ImGui::InputTextWithHint("##Filter", std::format("{} Search actions", Trinity::Icons::c_Search).c_str(), &m_ActionFilter);
+        Trinity::Widgets::SearchField("##Filter", "Search actions", m_ActionFilter);
         if (ImGui::Selectable("None", path.empty()) && !path.empty())
         {
             l_Picked = std::string();

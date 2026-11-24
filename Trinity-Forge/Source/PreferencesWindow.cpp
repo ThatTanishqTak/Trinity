@@ -1,5 +1,7 @@
 #include "PreferencesWindow.hpp"
 
+#include <Trinity/UI/Widgets.hpp>
+
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
@@ -160,7 +162,7 @@ void PreferencesWindow::Draw()
 
     ImGui::BeginChild("##Sections", ImVec2(l_Font * 12.0f, 0.0f), ImGuiChildFlags_Borders);
     ImGui::SetNextItemWidth(-FLT_MIN);
-    ImGui::InputTextWithHint("##Search", std::format("{} Search", Trinity::Icons::c_Search).c_str(), &m_Search);
+    Trinity::Widgets::SearchField("##Search", "Search", m_Search);
     ImGui::Spacing();
     for (std::size_t it_Index = 0; it_Index < c_Sections.size(); ++it_Index)
     {

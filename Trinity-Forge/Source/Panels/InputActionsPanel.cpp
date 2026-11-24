@@ -2,6 +2,8 @@
 
 #include "EditorPayloads.hpp"
 
+#include <Trinity/UI/Widgets.hpp>
+
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
@@ -450,7 +452,7 @@ void InputActionsPanel::DrawHeader(Trinity::UUID asset, const Trinity::AssetReco
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - l_SearchWidth));
     ImGui::SetNextItemWidth(l_SearchWidth);
-    ImGui::InputTextWithHint("##Search", std::format("{} Search", Trinity::Icons::c_Search).c_str(), &m_Search, ImGuiInputTextFlags_EscapeClearsAll);
+    Trinity::Widgets::SearchField("##Search", "Search", m_Search, ImGuiInputTextFlags_EscapeClearsAll);
     ImGui::SetItemTooltip("Actions whose name or bindings have this");
 
     if (m_Listening)
@@ -957,12 +959,7 @@ void InputActionsPanel::DrawSource(const Trinity::InputActionsData& data, std::s
     // Kept off keyboard navigation, so the key Listen takes never presses it again
     ImGui::SameLine();
     ImGui::PushItemFlag(ImGuiItemFlags_NoNav, true);
-    if (l_Listening)
-    {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-    }
-
-    if (ImGui::Button(l_Listening ? "Cancel###Listen" : "Listen###Listen", ImVec2(l_ListenWidth, 0.0f)))
+    if (Trinity::Widgets::ToggleButton(l_Listening ? "Cancel###Listen" : "Listen###Listen", l_Listening, ImVec2(l_ListenWidth, 0.0f)))
     {
         if (l_Listening)
         {
@@ -972,11 +969,6 @@ void InputActionsPanel::DrawSource(const Trinity::InputActionsData& data, std::s
         {
             BeginListen(m_Selected, part);
         }
-    }
-
-    if (l_Listening)
-    {
-        ImGui::PopStyleColor();
     }
 
     ImGui::PopItemFlag();
@@ -991,7 +983,7 @@ void InputActionsPanel::DrawSource(const Trinity::InputActionsData& data, std::s
             ImGui::SetKeyboardFocusHere();
         }
 
-        ImGui::InputTextWithHint("##Filter", std::format("{} Search", Trinity::Icons::c_Search).c_str(), &m_PickerFilter);
+        Trinity::Widgets::SearchField("##Filter", "Search", m_PickerFilter);
         if (ImGui::Selectable("None", l_Source.Kind == Trinity::InputSourceKind::None))
         {
             Bind(data, m_Selected, part, {});

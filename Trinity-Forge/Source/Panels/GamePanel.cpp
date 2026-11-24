@@ -1,5 +1,7 @@
 #include "Panels/GamePanel.hpp"
 
+#include <Trinity/UI/Widgets.hpp>
+
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -66,21 +68,10 @@ namespace
     // A button lit while it is on, as Unity's Stats is, which imgui.ini keeps
     void DrawToggle(const char* label, bool& on)
     {
-        const bool l_On = on;
-        if (l_On)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        }
-
-        if (ImGui::Button(label))
+        if (Trinity::Widgets::ToggleButton(label, on))
         {
             on = !on;
             ImGui::MarkIniSettingsDirty();
-        }
-
-        if (l_On)
-        {
-            ImGui::PopStyleColor();
         }
     }
 
@@ -650,7 +641,7 @@ void GamePanel::DrawActions(ImVec2 start, ImVec2 available) const
 
     ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
     l_DrawList.PushClipRect(start, ImVec2(start.x + available.x, start.y + available.y), true);
-    l_DrawList.AddRectFilled(l_Min, ImVec2(l_Min.x + l_Box.x, l_Min.y + l_Box.y), ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.55f)), l_Style.ChildRounding);
+    l_DrawList.AddRectFilled(l_Min, ImVec2(l_Min.x + l_Box.x, l_Min.y + l_Box.y), Trinity::Theme::GetColorU32(Trinity::ThemeColor::Overlay), l_Style.ChildRounding);
     const float l_Left = l_Min.x + l_Style.WindowPadding.x;
     float l_Top = l_Min.y + l_Style.WindowPadding.y;
     for (const Line& it_Line : l_Lines)

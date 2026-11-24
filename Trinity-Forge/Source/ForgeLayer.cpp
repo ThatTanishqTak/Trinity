@@ -5,6 +5,8 @@
 #include "Panels/HierarchyPanel.hpp"
 #include "Panels/PropertiesPanel.hpp"
 
+#include <Trinity/UI/Widgets.hpp>
+
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -982,18 +984,9 @@ void ForgeLayer::DrawPlayControls()
 
     const auto a_Button = [l_Button](const char* icon, const char* id, bool enabled, bool held, const char* tooltip)
     {
-        if (held)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        }
-
         ImGui::BeginDisabled(!enabled);
-        const bool l_Pressed = ImGui::Button(std::format("{}###{}", icon, id).c_str(), ImVec2(l_Button, 0.0f));
+        const bool l_Pressed = Trinity::Widgets::ToggleButton(std::format("{}###{}", icon, id).c_str(), held, ImVec2(l_Button, 0.0f));
         ImGui::EndDisabled();
-        if (held)
-        {
-            ImGui::PopStyleColor();
-        }
 
         ImGui::SetItemTooltip("%s", tooltip);
         ImGui::SameLine();

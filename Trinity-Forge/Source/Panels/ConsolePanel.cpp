@@ -1,5 +1,7 @@
 #include "Panels/ConsolePanel.hpp"
 
+#include <Trinity/UI/Widgets.hpp>
+
 #include <imgui_internal.h>
 
 #include <algorithm>
@@ -85,22 +87,11 @@ namespace
     // Held down while its setting is on, as Unity's Console toggles. True as it is clicked
     bool ToggleButton(const char* label, bool& value, const char* tooltip)
     {
-        const bool l_On = value;
-        if (l_On)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        }
-
-        const bool l_Clicked = ImGui::Button(label);
+        const bool l_Clicked = Trinity::Widgets::ToggleButton(label, value);
         if (l_Clicked)
         {
             value = !value;
             ImGui::MarkIniSettingsDirty();
-        }
-
-        if (l_On)
-        {
-            ImGui::PopStyleColor();
         }
 
         ImGui::SetItemTooltip("%s", tooltip);

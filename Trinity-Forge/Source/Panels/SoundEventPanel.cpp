@@ -2,6 +2,8 @@
 
 #include "EditorPayloads.hpp"
 
+#include <Trinity/UI/Widgets.hpp>
+
 #include <ImCurveEdit.h>
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -1421,7 +1423,7 @@ void SoundEventPanel::DrawClipSlot(const Trinity::SoundEventData& data, const Tr
     }
 
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
-    ImGui::InputTextWithHint("##Filter", "Search", &m_ClipFilter);
+    Trinity::Widgets::SearchField("##Filter", "Search", m_ClipFilter);
     if (ImGui::Selectable("None", !container.Clip) && container.Clip)
     {
         SetClip(data, container.ID, {});

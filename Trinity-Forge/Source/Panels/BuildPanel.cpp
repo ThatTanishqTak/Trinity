@@ -2,6 +2,8 @@
 
 #include "EditorPayloads.hpp"
 
+#include <Trinity/UI/Widgets.hpp>
+
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
@@ -500,7 +502,7 @@ void BuildPanel::DrawIcon(const Trinity::ExportSettings& settings)
     }
 
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20.0f);
-    ImGui::InputTextWithHint("##Filter", "Search", &m_IconFilter);
+    Trinity::Widgets::SearchField("##Filter", "Search", m_IconFilter);
     if (ImGui::Selectable("None", !settings.Icon) && settings.Icon)
     {
         Edit("icon", [](Trinity::ExportSettings& changed) { changed.Icon = {}; });

@@ -8,6 +8,8 @@
 #include "Pages/ProjectsPage.hpp"
 #include "Pages/SettingsPage.hpp"
 
+#include <Trinity/UI/Widgets.hpp>
+
 #include <imgui.h>
 
 #include <format>
@@ -148,7 +150,13 @@ void HubLayer::DrawSidebar()
         {
             const HubPage& l_Page = *m_Pages[it_Index];
             const std::string l_Label = std::format("{}  {}###HubPage{}", l_Page.GetIcon(), l_Page.GetName(), it_Index);
-            if (ImGui::Selectable(l_Label.c_str(), it_Index == m_Page, ImGuiSelectableFlags_None, ImVec2(0.0f, l_Row)) && (it_Index != m_Page || m_NewProjectShown))
+            const bool l_Picked = ImGui::Selectable(l_Label.c_str(), it_Index == m_Page, ImGuiSelectableFlags_None, ImVec2(0.0f, l_Row));
+            if (it_Index == m_Page)
+            {
+                Trinity::Widgets::DrawSelectionEdge();
+            }
+
+            if (l_Picked && (it_Index != m_Page || m_NewProjectShown))
             {
                 ShowPage(it_Index);
             }
@@ -172,7 +180,13 @@ void HubLayer::DrawSidebar()
 
             const std::string l_Label = std::format("{}  {}###HubPage{}", l_Page.GetIcon(), l_Page.GetName(), l_Index);
 
-            if (ImGui::Selectable(l_Label.c_str(), l_Index == m_Page, ImGuiSelectableFlags_None, ImVec2(0.0f, l_Row)))
+            const bool l_Picked = ImGui::Selectable(l_Label.c_str(), l_Index == m_Page, ImGuiSelectableFlags_None, ImVec2(0.0f, l_Row));
+            if (l_Index == m_Page)
+            {
+                Trinity::Widgets::DrawSelectionEdge();
+            }
+
+            if (l_Picked)
             {
                 ShowPage(l_Index);
             }

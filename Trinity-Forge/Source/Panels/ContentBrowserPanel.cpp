@@ -3,6 +3,8 @@
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
 
+#include <Trinity/UI/Widgets.hpp>
+
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -479,6 +481,11 @@ void ContentBrowserPanel::DrawFolderTree(const std::string& path, const std::str
     const bool l_Renaming = path == m_Renaming && path == m_Folder;
     const std::string l_Label = l_Renaming ? std::string(Trinity::Icons::c_Folder) : std::format("{} {}", Trinity::Icons::c_Folder, label);
     const bool l_Open = ImGui::TreeNodeEx(path.c_str(), l_Flags, "%s", l_Label.c_str());
+    if (path == m_Folder)
+    {
+        Trinity::Widgets::DrawSelectionEdge();
+    }
+
     const ImVec2 l_NodeMin = ImGui::GetItemRectMin();
     const ImVec2 l_NodeMax = ImGui::GetItemRectMax();
     if ((ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) || ImGui::IsItemClicked(ImGuiMouseButton_Right))
@@ -574,7 +581,7 @@ void ContentBrowserPanel::DrawToolbar()
         ImGui::SetKeyboardFocusHere();
     }
 
-    ImGui::InputTextWithHint("##Search", std::format("{} Search", Trinity::Icons::c_Search).c_str(), &m_Search, ImGuiInputTextFlags_EscapeClearsAll);
+    Trinity::Widgets::SearchField("##Search", "Search", m_Search, ImGuiInputTextFlags_EscapeClearsAll);
 }
 
 // Folders first, then files, by name. A search shows what it finds instead

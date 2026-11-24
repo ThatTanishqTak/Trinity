@@ -3,6 +3,7 @@
 #include "HubText.hpp"
 
 #include <Trinity.hpp>
+#include <Trinity/UI/Widgets.hpp>
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -401,7 +402,7 @@ void ProjectsPage::DrawToolbar()
 
     ImGui::SameLine();
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 18.0f);
-    ImGui::InputTextWithHint("##Search", std::format("{} Search by name or folder", Trinity::Icons::c_Search).c_str(), &m_Search);
+    Trinity::Widgets::SearchField("##Search", "Search by name or folder", m_Search);
 
     const std::size_t l_Total = m_Projects.GetProjects().size();
     ImGui::SameLine();

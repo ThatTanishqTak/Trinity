@@ -4,6 +4,8 @@
 #include "EditorPayloads.hpp"
 #include "ImGuizmoInclude.hpp"
 
+#include <Trinity/UI/Widgets.hpp>
+
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -2264,7 +2266,7 @@ void ViewportPanel::DrawToolbar()
 {
     const ImVec2 l_Start = ImGui::GetCursorStartPos();
     ImGui::SetCursorPos(ImVec2(std::max(l_Start.x + c_StatsMargin, ImGui::GetWindowWidth() - m_ToolbarWidth - c_StatsMargin), l_Start.y + m_BreadcrumbHeight + c_StatsMargin));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.55f));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, Trinity::Theme::GetColor(Trinity::ThemeColor::Overlay));
 
     const ImGuiChildFlags l_ChildFlags = ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding;
     if (ImGui::BeginChild("##Toolbar", ImVec2(0.0f, 0.0f), l_ChildFlags, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
@@ -2281,61 +2283,28 @@ void ViewportPanel::DrawToolbar()
         ImGui::SetItemTooltip("The editor's camera: 2D looks down -Z. In 3D the right button looks, W, A, S, D, Q and E fly, and Alt+left orbits");
         ImGui::SameLine();
 
-        const bool l_Heatmap = m_LightHeatmap;
-        if (l_Heatmap)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        }
-
-        if (ImGui::Button(std::format("{}###LightHeatmap", Trinity::Icons::c_PaintBrush).c_str()))
+        if (Trinity::Widgets::ToggleButton(std::format("{}###LightHeatmap", Trinity::Icons::c_PaintBrush).c_str(), m_LightHeatmap))
         {
             m_LightHeatmap = !m_LightHeatmap;
             ImGui::MarkIniSettingsDirty();
         }
 
-        if (l_Heatmap)
-        {
-            ImGui::PopStyleColor();
-        }
-
         ImGui::SetItemTooltip("Light heatmap: point and spot lights in each cluster, from blue for none to red at the cap of %u, magenta past it", Trinity::ClusterGrid::c_MaxLights);
         ImGui::SameLine();
 
-        const bool l_PhysicsDebug = m_PhysicsDebug;
-        if (l_PhysicsDebug)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        }
-
-        if (ImGui::Button(std::format("{}###PhysicsDebug", Trinity::Icons::c_CubeOutline).c_str()))
+        if (Trinity::Widgets::ToggleButton(std::format("{}###PhysicsDebug", Trinity::Icons::c_CubeOutline).c_str(), m_PhysicsDebug))
         {
             m_PhysicsDebug = !m_PhysicsDebug;
             ImGui::MarkIniSettingsDirty();
         }
 
-        if (l_PhysicsDebug)
-        {
-            ImGui::PopStyleColor();
-        }
-
         ImGui::SetItemTooltip("Physics: every collider and joint, not only the selection's, and while playing, where bodies touch");
         ImGui::SameLine();
 
-        const bool l_AudioGizmos = m_AudioGizmos;
-        if (l_AudioGizmos)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        }
-
-        if (ImGui::Button(std::format("{}###AudioGizmos", Trinity::Icons::c_VolumeUp).c_str()))
+        if (Trinity::Widgets::ToggleButton(std::format("{}###AudioGizmos", Trinity::Icons::c_VolumeUp).c_str(), m_AudioGizmos))
         {
             m_AudioGizmos = !m_AudioGizmos;
             ImGui::MarkIniSettingsDirty();
-        }
-
-        if (l_AudioGizmos)
-        {
-            ImGui::PopStyleColor();
         }
 
         ImGui::SetItemTooltip("Audio: every source's distances and cone, not only the selection's, and while playing, its occlusion ray");
@@ -2347,20 +2316,10 @@ void ViewportPanel::DrawToolbar()
         for (std::size_t it_Operation = 0; it_Operation < c_Icons.size(); ++it_Operation)
         {
             const bool l_Current = static_cast<std::size_t>(m_GizmoOperation) == it_Operation;
-            if (l_Current)
-            {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-            }
-
-            if (ImGui::Button(std::format("{}##Operation{}", c_Icons[it_Operation], it_Operation).c_str()))
+            if (Trinity::Widgets::ToggleButton(std::format("{}##Operation{}", c_Icons[it_Operation], it_Operation).c_str(), l_Current))
             {
                 m_GizmoOperation = static_cast<GizmoOperation>(it_Operation);
                 ImGui::MarkIniSettingsDirty();
-            }
-
-            if (l_Current)
-            {
-                ImGui::PopStyleColor();
             }
 
             ImGui::SetItemTooltip("%s", m_Mode3D && it_Operation == 1 ? "Rotate (E)" : c_Tips[it_Operation]);
@@ -2390,21 +2349,10 @@ void ViewportPanel::DrawToolbar()
         };
 
         ImGui::SameLine();
-        const bool l_Snap = m_Snap;
-        if (l_Snap)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        }
-
-        if (ImGui::Button(std::format("{}###Snap", Trinity::Icons::c_Magnet).c_str()))
+        if (Trinity::Widgets::ToggleButton(std::format("{}###Snap", Trinity::Icons::c_Magnet).c_str(), m_Snap))
         {
             m_Snap = !m_Snap;
             ImGui::MarkIniSettingsDirty();
-        }
-
-        if (l_Snap)
-        {
-            ImGui::PopStyleColor();
         }
 
         ImGui::SetItemTooltip("Snap (Ctrl+\\): while on, every drag goes by these steps. Holding Ctrl while dragging does the opposite");

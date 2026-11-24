@@ -3,6 +3,8 @@
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
 
+#include <Trinity/UI/Widgets.hpp>
+
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -207,7 +209,7 @@ void HierarchyPanel::DrawSearch()
     }
 
     ImGui::SetNextItemWidth(-FLT_MIN);
-    if (ImGui::InputTextWithHint("##Search", std::format("{} Search, or t:Light for a type", Trinity::Icons::c_Search).c_str(), &m_Search, ImGuiInputTextFlags_EscapeClearsAll))
+    if (Trinity::Widgets::SearchField("##Search", "Search, or t:Light for a type", m_Search, ImGuiInputTextFlags_EscapeClearsAll))
     {
         m_SearchChanged = true;
         if (m_Search.empty())
@@ -583,6 +585,12 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
 
     const bool l_Open = ImGui::TreeNodeEx(ToImGuiID(l_ID), l_Flags, "%s", l_Label.c_str());
     m_Rows.push_back({ .Entity = l_ID, .HasChildren = l_HasChildren, .Open = l_HasChildren && l_Open });
+    // Before the override bar, which is drawn over it where a row has both
+    if (l_Selected)
+    {
+        Trinity::Widgets::DrawSelectionEdge();
+    }
+
     if (l_Overridden)
     {
         ImGui::PopFont();
