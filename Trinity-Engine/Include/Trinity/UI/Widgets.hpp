@@ -23,6 +23,8 @@ namespace Trinity
 
         // An icon over the right end of the last item, which has to allow overlap and stays the last item for what follows. True as it is pressed
         TRINITY_API bool OverlayButton(const char* id, const char* icon, const char* tooltip = nullptr);
+        // The same in a square of a frame's height, its top left corner where given, over room the layout leaves free
+        TRINITY_API bool OverlayButton(const char* id, const char* icon, const char* tooltip, const ImVec2& position);
 
         // A child that sizes itself to what it holds, drawn over a scene's image on the theme's overlay with rounded corners and a hairline around it. EndOverlay follows whatever this returns
         TRINITY_API bool BeginOverlay(const char* id, ImGuiWindowFlags flags = ImGuiWindowFlags_None);

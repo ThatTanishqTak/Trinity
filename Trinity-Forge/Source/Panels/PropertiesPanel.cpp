@@ -21,6 +21,7 @@
 #include <span>
 #include <string>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -117,6 +118,28 @@ namespace
     // Set while Properties draws an entity, so an edit of it reaches the others selected with it
     EditorSession* s_Session = nullptr;
 
+    // What a row's arrow asked to be put back to a new component's, the row named as the command names it
+    struct ResetRequest
+    {
+        std::string Component;
+        std::vector<std::string> Keys;
+        std::string What;
+    };
+
+    // What Label reads to give a changed row its reset arrow, of the component whose section is being drawn
+    struct ResetMarks
+    {
+        // The window whose rows leave the arrows' column free at their right end
+        ImGuiID Window = 0;
+        std::string_view Component;
+        // The keys at which the entity's component holds other than a new one does. None in an instance, whose rows go back to its prefab's
+        std::vector<std::string> Changed;
+        std::optional<ResetRequest> Request;
+    };
+
+    // Set while Properties draws an entity's sections
+    ResetMarks* s_Reset = nullptr;
+
     bool EqualsIgnoringCase(std::string_view left, std::string_view right)
     {
         return std::ranges::equal(left, right, [](char leftCharacter, char rightCharacter) { return std::tolower(static_cast<unsigned char>(leftCharacter)) == std::tolower(static_cast<unsigned char>(rightCharacter)); });
@@ -130,11 +153,11 @@ namespace
         return path.empty() || EqualsIgnoringCase(path, key) || a_IsWithin(key, path) || a_IsWithin(path, key);
     }
 
-    // The shown component's values the row shows, by the keys its label names, or what c_RowKeys gives
-    std::vector<PrefabOverride> FindRowOverrides(const OverrideMarks& marks, std::string_view label)
+    // The keys of a component's values a row shows: its label without the spaces, or what c_RowKeys gives
+    std::vector<std::string> GetRowKeys(std::string_view component, std::string_view prefix, std::string_view label)
     {
         std::vector<std::string> l_Keys;
-        const bool l_BuiltIn = marks.Prefix.empty() && std::ranges::find(c_EditedComponents, marks.Component) != c_EditedComponents.end();
+        const bool l_BuiltIn = prefix.empty() && std::ranges::find(c_EditedComponents, component) != c_EditedComponents.end();
         const auto a_Row = std::ranges::find_if(c_RowKeys, [label](const RowKeys& row) { return row.Label.ends_with(' ') ? label.starts_with(row.Label) : label == row.Label; });
         if (l_BuiltIn && a_Row != c_RowKeys.end())
         {
@@ -148,11 +171,18 @@ namespace
         }
         else
         {
-            std::string l_Key = marks.Prefix;
+            std::string l_Key(prefix);
             std::ranges::copy_if(label, std::back_inserter(l_Key), [](char character) { return character != ' '; });
             l_Keys.push_back(std::move(l_Key));
         }
 
+        return l_Keys;
+    }
+
+    // The shown component's values the row shows, by the row's keys
+    std::vector<PrefabOverride> FindRowOverrides(const OverrideMarks& marks, std::string_view label)
+    {
+        const std::vector<std::string> l_Keys = GetRowKeys(marks.Component, marks.Prefix, label);
         std::vector<PrefabOverride> l_Overrides;
         std::ranges::copy_if(marks.Overrides, std::back_inserter(l_Overrides), [&marks, &l_Keys](const PrefabOverride& change) { return change.Type == PrefabOverride::Kind::Value && change.Entity == marks.Entity.GetUUID() && change.Component == marks.Component && std::ranges::any_of(l_Keys, [&change](const std::string& key) { return IsShownAt(change.Path, key); }); });
 
@@ -266,10 +296,46 @@ namespace
         }
     }
 
+    // Unreal's arrow at the right end of a row that holds other than its default, which is its prefab's value in an instance and a new component's otherwise. In the column the sections leave free, and the label stays the last item
+    void DrawResetArrow(const char* label, float top, const std::vector<PrefabOverride>& overrides, bool marked)
+    {
+        const ImGuiWindow* l_Window = ImGui::GetCurrentWindow();
+        if (s_Reset == nullptr || l_Window->ID != s_Reset->Window || label[0] == '\0')
+        {
+            return;
+        }
+
+        const ImVec2 l_Position(l_Window->ContentRegionRect.Max.x, top);
+        if (s_Marks != nullptr)
+        {
+            if (marked && Trinity::Widgets::OverlayButton(std::format("##Reset{}{}", s_Marks->Component, label).c_str(), Trinity::Icons::c_Undo, "Revert to the prefab's value", l_Position))
+            {
+                s_Marks->Request = OverrideRequest{ .Overrides = overrides, .What = std::format("{} of {}", label, GetEntityLabel(s_Marks->Entity)), .Apply = false };
+            }
+
+            return;
+        }
+
+        // A row of a list shows one element of its key, which holds the whole list
+        const std::string_view l_Label(label);
+        if (s_Reset->Changed.empty() || std::ranges::any_of(c_RowKeys, [l_Label](const RowKeys& row) { return row.Label.ends_with(' ') && l_Label.starts_with(row.Label); }))
+        {
+            return;
+        }
+
+        std::vector<std::string> l_Keys = GetRowKeys(s_Reset->Component, {}, l_Label);
+        std::erase_if(l_Keys, [](const std::string& key) { return std::ranges::find(s_Reset->Changed, key) == s_Reset->Changed.end(); });
+        if (!l_Keys.empty() && Trinity::Widgets::OverlayButton(std::format("##Reset{}{}", s_Reset->Component, label).c_str(), Trinity::Icons::c_Undo, "Reset to default", l_Position))
+        {
+            s_Reset->Request = ResetRequest{ .Component = std::string(s_Reset->Component), .Keys = std::move(l_Keys), .What = std::string(l_Label) };
+        }
+    }
+
     // A label on the left and the widget filling the row. In an instance an overridden row is bold
     void Label(const char* label, float reserve = 0.0f)
     {
         ImGui::AlignTextToFramePadding();
+        const float l_Top = ImGui::GetCursorScreenPos().y;
         const std::vector<PrefabOverride> l_Overrides = s_Marks != nullptr && !s_Marks->Component.empty() && label[0] != '\0' ? FindRowOverrides(*s_Marks, label) : std::vector<PrefabOverride>();
         const bool l_Marked = std::ranges::any_of(l_Overrides, [](const PrefabOverride& change) { return !IsDefaultOverride(s_Marks->Root, change); });
         if (l_Marked)
@@ -291,7 +357,8 @@ namespace
             OverrideMenu(std::format("##Override{}{}", s_Marks->Component, label).c_str(), l_Overrides, std::format("{} of {}", label, GetEntityLabel(s_Marks->Entity)));
         }
 
-        ImGui::SameLine(ImGui::GetFontSize() * c_LabelWidthInFonts);
+        DrawResetArrow(label, l_Top, l_Overrides, l_Marked);
+        ImGui::SameLine(ImGui::GetFontSize()* c_LabelWidthInFonts);
         ImGui::SetNextItemWidth(reserve > 0.0f ? -reserve : -FLT_MIN);
     }
 
@@ -958,6 +1025,78 @@ namespace
         return Trinity::SceneSerializer::SaveComponentToText(l_Entity, name);
     }
 
+    // A component's text as last compared with a new one's, and the keys at which the two differed
+    struct ChangedKeys
+    {
+        std::string New;
+        std::string Text;
+        std::vector<std::string> Keys;
+    };
+
+    // By component, each of which Properties shows one of at a time
+    std::unordered_map<std::string, ChangedKeys> s_ChangedKeys;
+
+    // The keys at which the entity's component holds other than a new one does, worked out again only as its text changes
+    const std::vector<std::string>& GetChangedKeys(Trinity::Entity entity, std::string_view name)
+    {
+        ChangedKeys& l_Changed = s_ChangedKeys[std::string(name)];
+        if (l_Changed.New.empty())
+        {
+            l_Changed.New = GetNewComponentText(name);
+        }
+
+        std::string l_Text = Trinity::SceneSerializer::SaveComponentToText(entity, name);
+        if (l_Text != l_Changed.Text)
+        {
+            l_Changed.Keys = Trinity::SceneSerializer::GetChangedComponentKeys(l_Changed.New, l_Text);
+            l_Changed.Text = std::move(l_Text);
+        }
+
+        return l_Changed.Keys;
+    }
+
+    // The row's keys put back to a new component's on the entity and on each of the others selected with it that has the component, all of it as one command, the entity's own last
+    void ExecuteReset(EditorSession& session, Trinity::Entity entity, const ResetRequest& request)
+    {
+        std::vector<Trinity::UUID> l_Entities;
+        if (session.GetSelected().GetCount() > 1)
+        {
+            std::ranges::copy_if(session.GetSelected().GetEntities(), std::back_inserter(l_Entities), [entity](Trinity::UUID other) { return other != entity.GetUUID(); });
+        }
+
+        l_Entities.push_back(entity.GetUUID());
+
+        const std::string l_New = GetNewComponentText(request.Component);
+        const std::string_view l_Component = GetComponentLabel(request.Component);
+        Trinity::Scene& l_Scene = session.GetEditedScene();
+        std::vector<Trinity::Scope<EditorCommand>> l_Commands;
+        for (const Trinity::UUID it_Entity : l_Entities)
+        {
+            const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(it_Entity);
+            if (!l_Entity || !Trinity::SceneSerializer::HasComponent(l_Entity, request.Component))
+            {
+                continue;
+            }
+
+            const std::string l_Text = Trinity::SceneSerializer::SaveComponentToText(l_Entity, request.Component);
+            std::string l_Reset = Trinity::SceneSerializer::CopyComponentKeys(l_New, l_Text, request.Keys);
+            if (l_Reset != l_Text)
+            {
+                l_Commands.push_back(Trinity::CreateScope<SetComponentTextCommand>(it_Entity, request.Component, std::move(l_Reset), std::format("Reset {} {} of {}", l_Component, request.What, GetEntityLabel(l_Entity))));
+            }
+        }
+
+        if (l_Commands.size() == 1)
+        {
+            session.GetHistory().Execute(std::move(l_Commands.front()));
+        }
+        else if (!l_Commands.empty())
+        {
+            std::string l_Label = std::format("Reset {} {} of {} Entities", l_Component, request.What, l_Commands.size());
+            session.GetHistory().Execute(Trinity::CreateScope<GroupCommand>(std::move(l_Label), std::move(l_Commands)));
+        }
+    }
+
     // The listener a running scene would be heard through, the first in order, with how many it has
     Trinity::Entity FindAudioListener(Trinity::Scene& scene, std::size_t& count)
     {
@@ -1498,6 +1637,13 @@ void PropertiesPanel::OnImGuiRender()
     ImGui::BeginDisabled(l_Playing || l_Missing);
     ImGui::PushID(l_Entity.GetUUID().ToString().c_str());
     DrawName(l_Entity);
+
+    // The sections' rows end a frame's height short of where the window's do, which leaves a column for the reset arrows, so no field moves as its arrow comes and goes
+    ImGuiWindow* l_Window = ImGui::GetCurrentWindow();
+    const float l_Right = l_Window->ContentRegionRect.Max.x;
+    l_Window->ContentRegionRect.Max.x -= ImGui::GetFrameHeight();
+    ResetMarks l_Reset{ .Window = l_Window->ID };
+    s_Reset = &l_Reset;
     DrawTransform(l_Entity);
     DrawCamera(l_Entity);
     DrawSpriteRenderer(l_Entity);
@@ -1518,6 +1664,8 @@ void PropertiesPanel::OnImGuiRender()
     DrawScripts(l_Entity);
     DrawOtherComponents(l_Entity);
     DrawRemovedComponents(l_Entity);
+    s_Reset = nullptr;
+    l_Window->ContentRegionRect.Max.x = l_Right;
     DrawAddComponent(l_Entity);
     ImGui::PopID();
     ImGui::EndDisabled();
@@ -1538,6 +1686,11 @@ void PropertiesPanel::OnImGuiRender()
     if (m_PendingCommand)
     {
         m_Session.GetHistory().Execute(std::move(m_PendingCommand));
+    }
+
+    if (l_Reset.Request)
+    {
+        ExecuteReset(m_Session, l_Entity, *l_Reset.Request);
     }
 
     // Last, since the instance's entities are made again by it, so nothing after reads them
@@ -5438,6 +5591,14 @@ bool PropertiesPanel::BeginComponent(Trinity::Entity entity, std::string_view na
     if (l_Added)
     {
         DrawOverrideBar(l_Top);
+    }
+
+    if (s_Reset != nullptr)
+    {
+        // Only a component with an editor of its own here has rows whose keys are known, and a script's fields are the script's own to default
+        const bool l_Compared = l_Open && s_Marks == nullptr && name != Trinity::ScriptComponent::c_TypeName && std::ranges::find(c_EditedComponents, name) != c_EditedComponents.end();
+        s_Reset->Component = name;
+        s_Reset->Changed = l_Compared ? GetChangedKeys(entity, name) : std::vector<std::string>();
     }
 
     const std::string l_Menu = std::format("##{}Menu", name);

@@ -4918,6 +4918,84 @@ namespace Trinity
             }
         }
 
+        // Any YAML that will not parse gives none, as texts that hold the same do
+        std::vector<std::string> GetChangedComponentKeys(std::string_view base, std::string_view text)
+        {
+            std::vector<std::string> l_Keys;
+            try
+            {
+                const YAML::Node l_BaseRoot = YAML::Load(std::string(base));
+                const YAML::Node l_TextRoot = YAML::Load(std::string(text));
+                if (!l_BaseRoot.IsMap() || !l_TextRoot.IsMap())
+                {
+                    return l_Keys;
+                }
+
+                const YAML::Node l_Base = l_BaseRoot["Value"];
+                const YAML::Node l_Text = l_TextRoot["Value"];
+                if (!l_Base.IsMap() || !l_Text.IsMap())
+                {
+                    return l_Keys;
+                }
+
+                for (const auto& it_Field : l_Base)
+                {
+                    const YAML::Node l_Held = l_Text[it_Field.first.Scalar()];
+                    if (!l_Held.IsDefined() || !IsSameYaml(l_Held, it_Field.second))
+                    {
+                        l_Keys.push_back(it_Field.first.Scalar());
+                    }
+                }
+            }
+            catch (const YAML::Exception&)
+            {
+                l_Keys.clear();
+            }
+
+            return l_Keys;
+        }
+
+        // Any YAML that will not parse leaves the text as it is, as keys that hold the same already do, so it stays what SaveComponentToText gave
+        std::string CopyComponentKeys(std::string_view base, std::string_view text, std::span<const std::string> keys)
+        {
+            try
+            {
+                const YAML::Node l_BaseRoot = YAML::Load(std::string(base));
+                YAML::Node l_TextRoot = YAML::Load(std::string(text));
+                if (!l_BaseRoot.IsMap() || !l_TextRoot.IsMap())
+                {
+                    return std::string(text);
+                }
+
+                const YAML::Node l_Base = l_BaseRoot["Value"];
+                YAML::Node l_Text = l_TextRoot["Value"];
+                if (!l_Base.IsMap() || !l_Text.IsMap())
+                {
+                    return std::string(text);
+                }
+
+                // Read through a const view, as looking a missing key up in the text itself would leave it there
+                const YAML::Node& l_Read = l_Text;
+                bool l_Changed = false;
+                for (const std::string& it_Key : keys)
+                {
+                    const YAML::Node l_Kept = l_Base[it_Key];
+                    const YAML::Node l_Held = l_Read[it_Key];
+                    if (l_Kept.IsDefined() && (!l_Held.IsDefined() || !IsSameYaml(l_Held, l_Kept)))
+                    {
+                        l_Text[it_Key] = YAML::Clone(l_Kept);
+                        l_Changed = true;
+                    }
+                }
+
+                return l_Changed ? YAML::Dump(l_TextRoot) + "\n" : std::string(text);
+            }
+            catch (const YAML::Exception&)
+            {
+                return std::string(text);
+            }
+        }
+
         // Any thread: it reads no scene, and uses only the engine's own serializers
         std::string WriteModelPrefab(const ModelData& model)
         {

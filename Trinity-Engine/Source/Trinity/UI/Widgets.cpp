@@ -36,6 +36,42 @@ namespace Trinity
         constexpr float c_AxisFillHovered = 0.55f;
         constexpr float c_AxisLetterToText = 0.5f;
 
+        // An icon button in the box, which leaves the last item the one it was
+        bool DrawOverlayButton(const ImRect& box, const char* id, const char* icon, const char* tooltip)
+        {
+            // Added without ItemSize, as the search field's cross is, so it takes no room in the layout
+            ImGuiContext& l_Context = *ImGui::GetCurrentContext();
+            const ImGuiLastItemData l_Under = l_Context.LastItemData;
+            const ImGuiID l_ID = ImGui::GetID(id);
+
+            bool l_Pressed = false;
+            if (ImGui::ItemAdd(box, l_ID))
+            {
+                bool l_Hovered = false;
+                bool l_Held = false;
+                l_Pressed = ImGui::ButtonBehavior(box, l_ID, &l_Hovered, &l_Held);
+
+                ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+                if (l_Hovered || l_Held)
+                {
+                    const float l_Inset = std::round(box.GetHeight() * c_OverlayInset);
+                    l_DrawList.AddRectFilled(ImVec2(box.Min.x + l_Inset, box.Min.y + l_Inset), ImVec2(box.Max.x - l_Inset, box.Max.y - l_Inset), ImGui::GetColorU32(l_Held ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered), ImGui::GetStyle().FrameRounding);
+                }
+
+                const ImVec2 l_Size = ImGui::CalcTextSize(icon);
+                const ImVec2 l_Centre = box.GetCenter();
+                l_DrawList.AddText(ImVec2(std::round(l_Centre.x - l_Size.x * 0.5f), std::round(l_Centre.y - l_Size.y * 0.5f)), ImGui::GetColorU32(l_Hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled), icon);
+                if (tooltip != nullptr)
+                {
+                    ImGui::SetItemTooltip("%s", tooltip);
+                }
+            }
+
+            l_Context.LastItemData = l_Under;
+
+            return l_Pressed;
+        }
+
         // A row's label, until the row's drag field takes it
         struct ScrubLabel
         {
@@ -293,39 +329,16 @@ namespace Trinity
 
         bool OverlayButton(const char* id, const char* icon, const char* tooltip)
         {
-            // Added without ItemSize, as the search field's cross is, so it takes no room in the layout
-            ImGuiContext& l_Context = *ImGui::GetCurrentContext();
-            const ImGuiLastItemData l_Under = l_Context.LastItemData;
-            const ImRect l_Frame = l_Under.Rect;
-            const ImRect l_Box(ImVec2(l_Frame.Max.x - l_Frame.GetHeight(), l_Frame.Min.y), l_Frame.Max);
-            const ImGuiID l_ID = ImGui::GetID(id);
+            const ImRect l_Frame = ImGui::GetCurrentContext()->LastItemData.Rect;
 
-            bool l_Pressed = false;
-            if (ImGui::ItemAdd(l_Box, l_ID))
-            {
-                bool l_Hovered = false;
-                bool l_Held = false;
-                l_Pressed = ImGui::ButtonBehavior(l_Box, l_ID, &l_Hovered, &l_Held);
+            return DrawOverlayButton(ImRect(ImVec2(l_Frame.Max.x - l_Frame.GetHeight(), l_Frame.Min.y), l_Frame.Max), id, icon, tooltip);
+        }
 
-                ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
-                if (l_Hovered || l_Held)
-                {
-                    const float l_Inset = std::round(l_Frame.GetHeight() * c_OverlayInset);
-                    l_DrawList.AddRectFilled(ImVec2(l_Box.Min.x + l_Inset, l_Box.Min.y + l_Inset), ImVec2(l_Box.Max.x - l_Inset, l_Box.Max.y - l_Inset), ImGui::GetColorU32(l_Held ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered), ImGui::GetStyle().FrameRounding);
-                }
+        bool OverlayButton(const char* id, const char* icon, const char* tooltip, const ImVec2& position)
+        {
+            const float l_Size = ImGui::GetFrameHeight();
 
-                const ImVec2 l_Size = ImGui::CalcTextSize(icon);
-                const ImVec2 l_Centre = l_Box.GetCenter();
-                l_DrawList.AddText(ImVec2(std::round(l_Centre.x - l_Size.x * 0.5f), std::round(l_Centre.y - l_Size.y * 0.5f)), ImGui::GetColorU32(l_Hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled), icon);
-                if (tooltip != nullptr)
-                {
-                    ImGui::SetItemTooltip("%s", tooltip);
-                }
-            }
-
-            l_Context.LastItemData = l_Under;
-
-            return l_Pressed;
+            return DrawOverlayButton(ImRect(position, ImVec2(position.x + l_Size, position.y + l_Size)), id, icon, tooltip);
         }
 
         bool BeginOverlay(const char* id, ImGuiWindowFlags flags)
