@@ -46,6 +46,10 @@ namespace
     constexpr std::string_view c_DescendingSetting = "ContentBrowserDescending";
     // Back goes no further than this many folders
     constexpr std::size_t c_HistoryLimit = 64;
+    // Each person's starred folders and files, a path a line, in the project's cache
+    constexpr std::string_view c_FavoritesFile = "Editor/Favorites.txt";
+    // A starred item's star against the font's size
+    constexpr float c_StarScale = 0.8f;
 
 #if defined(TR_PLATFORM_WINDOWS)
     constexpr const char* c_ShowInFileManager = "Show in Explorer";
@@ -233,6 +237,11 @@ namespace
     bool ContainsIgnoringCase(std::string_view text, std::string_view part)
     {
         return !std::ranges::search(text, part, EqualIgnoringCase).empty();
+    }
+
+    std::string GetFavoritesPath()
+    {
+        return std::format("{}/{}", Trinity::Project::c_CacheMount, c_FavoritesFile);
     }
 
     // A file is renamed without its extension, so a texture stays a texture
@@ -510,6 +519,11 @@ void ContentBrowserPanel::OnImGuiRender()
         m_Listings.clear();
     }
 
+    if (!m_FavoritesRead)
+    {
+        ReadFavorites();
+    }
+
     // A folder deleted or moved away leaves the nearest one still there open
     const Trinity::Project& l_Project = *m_Session.GetProject();
     while (FindRoot(m_Folder) != nullptr && !IsRoot(m_Folder) && !std::filesystem::is_directory(l_Project.ToNativePath(m_Folder)))
@@ -552,6 +566,7 @@ void ContentBrowserPanel::OnImGuiRender()
         ImGui::TableSetColumnIndex(0);
         if (ImGui::BeginChild("##Folders"))
         {
+            DrawFavorites();
             for (const Root& it_Root : c_Roots)
             {
                 if (IsShown(it_Root, l_Project))
@@ -588,6 +603,62 @@ void ContentBrowserPanel::OnImGuiRender()
 }
 
 // A click or a right-click opens the folder and selects it, as in Unity. It is renamed here
+// The starred folders and files above the roots, each by its name. A folder opens on a click, and a file is shown in its own and in Properties. One no longer there is passed over, and is back when its file is
+void ContentBrowserPanel::DrawFavorites()
+{
+    if (m_Favorites.empty())
+    {
+        return;
+    }
+
+    if (ImGui::TreeNodeEx("##Favorites", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth, "%s Favorites", Trinity::Icons::c_Star))
+    {
+        // Taken out once the rest are drawn, as they are drawn from the list it is in
+        std::optional<std::string> l_Removed;
+        const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+        for (const std::string& it_Path : m_Favorites)
+        {
+            const Listed* l_Listed = FindListed(it_Path);
+            if (l_Listed == nullptr)
+            {
+                continue;
+            }
+
+            const Trinity::AssetRecord* l_Record = !l_Listed->Folder && l_Registry != nullptr ? l_Registry->FindByPath(it_Path) : nullptr;
+            const bool l_Shown = l_Listed->Folder ? it_Path == m_Folder : it_Path == m_Selected;
+            ImGui::TreeNodeEx(it_Path.c_str(), ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth | (l_Shown ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None), "%s %s", GetIcon(m_Session, l_Record, l_Listed->Folder, l_Listed->Name), l_Listed->Name.c_str());
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && l_Listed->Folder)
+            {
+                OpenFolder(it_Path);
+            }
+            else if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+            {
+                RevealPath(it_Path);
+                m_Session.SetInspectedAsset(l_Record != nullptr ? l_Record->ID : Trinity::UUID());
+            }
+
+            ImGui::SetItemTooltip("%s", it_Path.c_str());
+            if (ImGui::BeginPopupContextItem())
+            {
+                if (ImGui::MenuItem(std::format("{} Remove from Favorites", Trinity::Icons::c_Star).c_str()))
+                {
+                    l_Removed = it_Path;
+                }
+
+                ImGui::EndPopup();
+            }
+        }
+
+        ImGui::TreePop();
+        if (l_Removed)
+        {
+            SetFavorite(*l_Removed, false);
+        }
+    }
+
+    ImGui::Separator();
+}
+
 void ContentBrowserPanel::DrawFolderTree(const std::string& path, const std::string& label)
 {
     std::vector<std::string> l_Children;
@@ -1018,6 +1089,15 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
 
         DrawPicture(item, ImVec2(l_Min.x + l_Padding, l_Min.y + l_Padding), l_PictureSize);
 
+        // A starred item's star, in the corner of its picture, or at the end of its row where no play button is
+        if (IsFavorite(item.Path) && !(l_List && l_Playable))
+        {
+            const float l_StarSize = ImGui::GetFontSize() * c_StarScale;
+            const ImVec2 l_Extent = ImGui::GetFont()->CalcTextSizeA(l_StarSize, FLT_MAX, 0.0f, Trinity::Icons::c_Star);
+            const ImVec2 l_StarMin = l_List ? ImVec2(l_Max.x - l_Style.FramePadding.x - l_Extent.x, l_Min.y + (size.y - l_Extent.y) * 0.5f) : ImVec2(l_Min.x + l_Padding + l_PictureSize - l_Extent.x, l_Min.y + l_Padding);
+            l_DrawList.AddText(ImGui::GetFont(), l_StarSize, l_StarMin, Trinity::Theme::GetColorU32(Trinity::ThemeColor::Accent), Trinity::Icons::c_Star);
+        }
+
         // Shown while the item is hovered or its clip plays, on a disc that keeps it clear of the waveform
         if (l_Playable && (l_Hovered || l_Previewing))
         {
@@ -1153,6 +1233,16 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
     if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), "Ctrl+D", false, l_Editable))
     {
         Duplicate(*item);
+    }
+
+    // With several items selected and this one of them, each is starred or let go as this one is
+    const bool l_Favorite = item != nullptr && IsFavorite(item->Path);
+    if (ImGui::MenuItem(std::format("{} {}", Trinity::Icons::c_Star, l_Favorite ? "Remove from Favorites" : "Add to Favorites").c_str(), nullptr, false, l_Editable))
+    {
+        for (const std::string& it_Path : !m_AlsoSelected.empty() && IsSelected(item->Path) ? GetSelectedPaths() : std::vector<std::string>{ item->Path })
+        {
+            SetFavorite(it_Path, !l_Favorite);
+        }
     }
 
     ImGui::Separator();
@@ -1800,6 +1890,75 @@ void ContentBrowserPanel::Select(const Item& item)
     m_Session.SetInspectedAsset(item.Record != nullptr ? item.Record->ID : Trinity::UUID());
 }
 
+bool ContentBrowserPanel::IsFavorite(const std::string& path) const
+{
+    return std::ranges::find(m_Favorites, path) != m_Favorites.end();
+}
+
+// Written at once, so a star outlives a crash
+void ContentBrowserPanel::SetFavorite(const std::string& path, bool favorite)
+{
+    if (favorite == IsFavorite(path))
+    {
+        return;
+    }
+
+    if (favorite)
+    {
+        m_Favorites.push_back(path);
+    }
+    else
+    {
+        std::erase(m_Favorites, path);
+    }
+
+    WriteFavorites();
+}
+
+// A path a line, of those in one of the browser's roots. None where the file is not there yet
+void ContentBrowserPanel::ReadFavorites()
+{
+    m_Favorites.clear();
+    m_FavoritesRead = true;
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(GetFavoritesPath());
+    if (!l_Text)
+    {
+        return;
+    }
+
+    std::size_t l_Start = 0;
+    while (l_Start < l_Text->size())
+    {
+        const std::size_t l_End = std::min(l_Text->find('\n', l_Start), l_Text->size());
+        std::string l_Path = l_Text->substr(l_Start, l_End - l_Start);
+        if (l_Path.ends_with('\r'))
+        {
+            l_Path.pop_back();
+        }
+
+        if (FindRoot(l_Path) != nullptr && !IsRoot(l_Path) && !IsFavorite(l_Path))
+        {
+            m_Favorites.push_back(std::move(l_Path));
+        }
+
+        l_Start = l_End + 1;
+    }
+}
+
+void ContentBrowserPanel::WriteFavorites() const
+{
+    std::string l_Text;
+    for (const std::string& it_Path : m_Favorites)
+    {
+        l_Text += std::format("{}\n", it_Path);
+    }
+
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(GetFavoritesPath(), l_Text); !l_Written)
+    {
+        TR_WARN("Forge: the Content Browser's favorites could not be saved: {}", Trinity::ToString(l_Written.GetError()));
+    }
+}
+
 bool ContentBrowserPanel::IsSelected(const std::string& path) const
 {
     return path == m_Selected || std::ranges::find(m_AlsoSelected, path) != m_AlsoSelected.end();
@@ -2012,16 +2171,21 @@ bool ContentBrowserPanel::Reveal(Trinity::UUID asset)
         return false;
     }
 
-    // No filter is kept, which could leave the file out of what is shown
-    OpenFolder(GetParent(l_Record->Path));
+    RevealPath(l_Record->Path);
+
+    return true;
+}
+
+// The file's folder opened with the file selected alone and scrolled to. No filter is kept, which could leave the file out of what is shown
+void ContentBrowserPanel::RevealPath(const std::string& path)
+{
+    OpenFolder(GetParent(path));
     m_Filters = 0;
-    m_Selected = l_Record->Path;
+    m_Selected = path;
     m_AlsoSelected.clear();
     m_AlsoSelectedWith = m_Selected;
     m_SelectionAnchor = m_Selected;
     m_ScrollToSelected = true;
-
-    return true;
 }
 
 void ContentBrowserPanel::BeginRename(const Item& item)
@@ -2144,6 +2308,22 @@ void ContentBrowserPanel::Move(const std::string& path, const std::string& folde
         }
 
         m_Selected = l_Path;
+
+        // A star follows what it is on, and what is inside a starred folder that moved
+        bool l_Starred = false;
+        for (std::string& it_Favorite : m_Favorites)
+        {
+            if (IsSameOrInside(it_Favorite, path))
+            {
+                it_Favorite = l_Path + it_Favorite.substr(path.size());
+                l_Starred = true;
+            }
+        }
+
+        if (l_Starred)
+        {
+            WriteFavorites();
+        }
     }
 
     m_Listings.clear();
@@ -2168,6 +2348,8 @@ void ContentBrowserPanel::ReleaseAll()
     m_Folder = std::string(Trinity::Project::c_AssetsMount);
     m_History.clear();
     m_HistoryAt = 0;
+    m_Favorites.clear();
+    m_FavoritesRead = false;
     m_Selected.clear();
     m_Renaming.clear();
     m_Search.clear();
@@ -2298,6 +2480,15 @@ std::optional<ContentBrowserPanel::Item> ContentBrowserPanel::FindItem(const std
     }
 
     return std::nullopt;
+}
+
+// The path's entry in its folder's listing, which builds no item to find it. None for a path no longer there
+const ContentBrowserPanel::Listed* ContentBrowserPanel::FindListed(const std::string& path)
+{
+    const std::vector<Listed>& l_Entries = List(GetParent(path));
+    const auto a_Found = std::ranges::find(l_Entries, GetName(path), &Listed::Name);
+
+    return a_Found != l_Entries.end() ? &*a_Found : nullptr;
 }
 
 // The texture itself, once it has loaded and been uploaded. Until then the item shows its icon

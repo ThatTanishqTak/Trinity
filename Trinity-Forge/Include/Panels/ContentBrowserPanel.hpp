@@ -102,6 +102,7 @@ private:
         std::string Folder;
     };
 
+    void DrawFavorites();
     void DrawFolderTree(const std::string& path, const std::string& label);
     void DrawToolbar();
     void DrawFilterMenu(float width);
@@ -125,6 +126,10 @@ private:
     void Open(const Item& item);
     void OpenFolder(const std::string& folder);
     void Go(bool back);
+    void RevealPath(const std::string& path);
+    void SetFavorite(const std::string& path, bool favorite);
+    void ReadFavorites();
+    void WriteFavorites() const;
     void SortItems(std::vector<Item>& items) const;
     void BeginRename(const Item& item);
     void RenameCreated(const std::optional<std::string>& path);
@@ -136,6 +141,7 @@ private:
     void SetSelectedPaths(std::vector<std::string> paths);
     void MoveDragged(const std::string& path, const std::string& folder);
     [[nodiscard]] bool IsSelected(const std::string& path) const;
+    [[nodiscard]] bool IsFavorite(const std::string& path) const;
     [[nodiscard]] std::vector<std::string> GetSelectedPaths() const;
     void AskReimportAll();
     void ShowInFileManager(const Item* item);
@@ -151,6 +157,7 @@ private:
     [[nodiscard]] std::vector<Item> Search();
     void FindMatches(const std::string& folder, std::vector<Item>& matches);
     [[nodiscard]] std::optional<Item> FindItem(const std::string& path);
+    [[nodiscard]] const Listed* FindListed(const std::string& path);
     [[nodiscard]] const Trinity::TextureAsset* GetThumbnail(Trinity::UUID id);
 
     EditorSession& m_Session;
@@ -163,6 +170,9 @@ private:
     // The folders opened, oldest first, and which of them is open: Back and Forward move along them
     std::vector<std::string> m_History;
     std::size_t m_HistoryAt = 0;
+    // The folders and files starred from their menus, by path in the order they were starred. The project's cache keeps them for each person, and they are read from it once a project is open
+    std::vector<std::string> m_Favorites;
+    bool m_FavoritesRead = false;
     std::string m_Selected;
     // The items selected along with it by Ctrl and Shift clicks, and what it was when they were: anything else that selects an item lets go of them
     std::vector<std::string> m_AlsoSelected;
