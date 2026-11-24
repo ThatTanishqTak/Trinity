@@ -10,6 +10,9 @@ namespace Trinity
         constexpr const char* c_Save = "\uF0C7";
         constexpr const char* c_PowerOff = "\uF011";
         constexpr const char* c_Eye = "\uF06E";
+        constexpr const char* c_EyeSlash = "\uF070";
+        constexpr const char* c_Lock = "\uF023";
+        constexpr const char* c_Unlock = "\uF09C";
         constexpr const char* c_Gear = "\uF013";
         constexpr const char* c_EllipsisVertical = "\uF142";
         constexpr const char* c_Terminal = "\uF120";

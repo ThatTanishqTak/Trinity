@@ -896,7 +896,7 @@ namespace Trinity
     }
 
     // Culled in batches on the job system, then sorted stably, so equal keys keep hierarchy order
-    void Renderer3D::Collect(Scene& scene, const RenderView& view, SceneDrawList& list)
+    void Renderer3D::Collect(Scene& scene, const RenderView& view, SceneDrawList& list, const std::unordered_set<std::uint32_t>& hidden)
     {
         TR_PROFILE_FUNCTION();
 
@@ -909,6 +909,11 @@ namespace Trinity
         SceneRegistry& l_Registry = scene.GetRegistry();
         for (Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
         {
+            if (!hidden.empty() && hidden.contains(ToPickID(it_Entity.GetHandle())))
+            {
+                continue;
+            }
+
             if (m_WorldUI != nullptr)
             {
                 CollectWorldUI(scene, it_Entity, view, list);

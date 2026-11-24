@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <functional>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -53,9 +54,10 @@ namespace Trinity
         void SetWorldUISource(const WorldUISource* source) { m_WorldUI = source; }
 
         bool DrawScene(RHI::CommandList& commands, Scene& scene, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height);
-        void DrawScene(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height);
+        // Without the entities whose pick IDs are given, as an editor hides them
+        void DrawScene(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height, const std::unordered_set<std::uint32_t>& hidden = {});
         // Into an R32Uint target in draw order, so a pixel holds the sprite on top there
-        void DrawSceneIDs(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, std::uint32_t width, std::uint32_t height);
+        void DrawSceneIDs(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, std::uint32_t width, std::uint32_t height, const std::unordered_set<std::uint32_t>& hidden = {});
 
         [[nodiscard]] const Statistics& GetStatistics() const { return m_Statistics; }
 
@@ -92,7 +94,7 @@ namespace Trinity
 
         using TextureCache = std::unordered_map<UUID, CachedTexture, std::hash<UUID>, std::equal_to<UUID>, TaggedAllocator<std::pair<const UUID, CachedTexture>, MemoryTag::Renderer>>;
 
-        const CameraComponent* CollectSprites(Scene& scene, glm::mat4& cameraWorld);
+        const CameraComponent* CollectSprites(Scene& scene, glm::mat4& cameraWorld, const std::unordered_set<std::uint32_t>& hidden = {});
         void CollectWorldQuad(Scene& scene, Entity entity);
         // Each world UI document's sprite through this view-projection
         void PlaceWorldQuads(const glm::mat4& viewProjection);

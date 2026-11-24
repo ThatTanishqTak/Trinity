@@ -31,6 +31,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -253,6 +254,14 @@ public:
         m_InspectedAsset = {};
         m_InspectingMixer = false;
     }
+
+    // Entities the Scene panel leaves out, and those a click in it passes over. The user's own, kept in the project's cache and never in the scene's file
+    [[nodiscard]] bool IsHidden(Trinity::UUID entity) const { return m_Hidden.contains(entity); }
+    [[nodiscard]] bool IsLocked(Trinity::UUID entity) const { return m_Locked.contains(entity); }
+    [[nodiscard]] const std::unordered_set<Trinity::UUID>& GetHidden() const { return m_Hidden; }
+    [[nodiscard]] const std::unordered_set<Trinity::UUID>& GetLocked() const { return m_Locked; }
+    void SetHidden(std::span<const Trinity::UUID> entities, bool hidden);
+    void SetLocked(std::span<const Trinity::UUID> entities, bool locked);
 
     // An asset inspected, or the Audio Mixer panel's group or effect, takes Properties from the other
     [[nodiscard]] Trinity::UUID GetInspectedAsset() const { return m_InspectedAsset; }
@@ -578,6 +587,8 @@ private:
     void ReadRecentScenes();
     void WriteRecentScenes() const;
     void RememberScene();
+    void ReadSceneMarks();
+    void WriteSceneMarks();
     bool PasteEntityAt(Trinity::UUID parent, Trinity::UUID before);
     // The selected entities none of whose ancestors is selected too, in the order they were picked
     [[nodiscard]] std::vector<Trinity::UUID> GetSelectedRoots();
@@ -662,6 +673,9 @@ private:
     std::filesystem::path m_ProjectListFile;
     std::vector<RecentProject> m_RecentProjects;
     std::vector<RecentScene> m_RecentScenes;
+    // What the open scene's entities are marked with in the Hierarchy's gutter
+    std::unordered_set<Trinity::UUID> m_Hidden;
+    std::unordered_set<Trinity::UUID> m_Locked;
     std::unordered_map<Trinity::UUID, InputActionsFile> m_InputActionsFiles;
     std::unordered_map<Trinity::UUID, AudioMixerFile> m_AudioMixerFiles;
     std::unordered_map<Trinity::UUID, SoundEventFile> m_SoundEventFiles;

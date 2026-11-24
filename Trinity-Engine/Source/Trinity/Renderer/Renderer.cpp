@@ -397,7 +397,7 @@ namespace Trinity
                 {
                     if (l_Sprites)
                     {
-                        m_Renderer2D->DrawScene(context.GetCommands(), *l_View->Submitted, l_View->Draws.View.ViewProjection, l_View->SceneDescription.TextureFormat, l_View->SceneDescription.Width, l_View->SceneDescription.Height);
+                        m_Renderer2D->DrawScene(context.GetCommands(), *l_View->Submitted, l_View->Draws.View.ViewProjection, l_View->SceneDescription.TextureFormat, l_View->SceneDescription.Width, l_View->SceneDescription.Height, l_View->Options.Hidden);
                     }
 
                     if (layers != nullptr)
@@ -501,7 +501,7 @@ namespace Trinity
             return;
         }
 
-        m_Renderer3D->Collect(scene, camera, l_View->Draws);
+        m_Renderer3D->Collect(scene, camera, l_View->Draws, options.Hidden);
         l_View->Options = options;
         l_View->Submitted = &scene;
     }
@@ -530,9 +530,9 @@ namespace Trinity
         graph.AddPass("Sprite entity IDs", FrameGraphPassType::Raster, [l_Sprites](FrameGraphPassBuilder& builder)
         {
             builder.AddColorAttachment({ l_Sprites, RHI::LoadOp::Clear, { 0.0f, 0.0f, 0.0f, 0.0f } });
-        }, [this, l_Scene, l_ViewProjection, l_Width, l_Height](const FrameGraphContext& context)
+        }, [this, l_Scene, l_ViewProjection, l_Width, l_Height, l_Hidden = view.Options.Hidden](const FrameGraphContext& context)
         {
-            m_Renderer2D->DrawSceneIDs(context.GetCommands(), *l_Scene, l_ViewProjection, l_Width, l_Height);
+            m_Renderer2D->DrawSceneIDs(context.GetCommands(), *l_Scene, l_ViewProjection, l_Width, l_Height, l_Hidden);
         });
 
         const std::size_t l_Slot = static_cast<std::size_t>(m_FrameCount % RHI::c_FramesInFlight);

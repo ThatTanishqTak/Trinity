@@ -135,6 +135,8 @@ private:
     std::uint32_t m_PicksPending = 0;
     // Whether the last click held Ctrl or Shift, so its pick joins or leaves the selection
     bool m_PickToggles = false;
+    // The pick IDs of the entities the Hierarchy hides, as last given to the scene's render, kept for the sprites drawn after it
+    std::unordered_set<std::uint32_t> m_Hidden;
     // Where a left press landed on the image, in its pixels, while the button stays down: a drag from it boxes entities
     std::optional<glm::vec2> m_BoxStart;
     bool m_LightHeatmap = false;

@@ -208,23 +208,23 @@ namespace Trinity
     }
 
     // Through a camera of the caller's, such as an editor camera
-    void Renderer2D::DrawScene(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height)
+    void Renderer2D::DrawScene(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, RHI::Format targetFormat, std::uint32_t width, std::uint32_t height, const std::unordered_set<std::uint32_t>& hidden)
     {
         TR_PROFILE_FUNCTION();
 
         glm::mat4 l_CameraWorld{ 1.0f };
-        static_cast<void>(CollectSprites(scene, l_CameraWorld));
+        static_cast<void>(CollectSprites(scene, l_CameraWorld, hidden));
         PlaceWorldQuads(viewProjection);
         DrawSprites(commands, viewProjection, targetFormat, width, height);
     }
 
     // Over the whole of each quad, whatever its texture's alpha, as PickSprite counts it
-    void Renderer2D::DrawSceneIDs(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, std::uint32_t width, std::uint32_t height)
+    void Renderer2D::DrawSceneIDs(RHI::CommandList& commands, Scene& scene, const glm::mat4& viewProjection, std::uint32_t width, std::uint32_t height, const std::unordered_set<std::uint32_t>& hidden)
     {
         TR_PROFILE_FUNCTION();
 
         glm::mat4 l_CameraWorld{ 1.0f };
-        static_cast<void>(CollectSprites(scene, l_CameraWorld));
+        static_cast<void>(CollectSprites(scene, l_CameraWorld, hidden));
         if (m_Instances.empty() || width == 0 || height == 0)
         {
             return;
@@ -273,7 +273,7 @@ namespace Trinity
     }
 
     // In hierarchy order, the last tie-break. The caller runs the transform pass first
-    const CameraComponent* Renderer2D::CollectSprites(Scene& scene, glm::mat4& cameraWorld)
+    const CameraComponent* Renderer2D::CollectSprites(Scene& scene, glm::mat4& cameraWorld, const std::unordered_set<std::uint32_t>& hidden)
     {
         TR_PROFILE_FUNCTION();
 
@@ -296,6 +296,12 @@ namespace Trinity
                     l_Camera = l_Found;
                     cameraWorld = l_Registry.get<WorldTransformComponent>(l_Handle).Matrix;
                 }
+            }
+
+            // After the camera is looked for, which a hidden entity may still hold
+            if (!hidden.empty() && hidden.contains(ToPickID(l_Handle)))
+            {
+                continue;
             }
 
             const SpriteRendererComponent* l_Sprite = l_Registry.try_get<SpriteRendererComponent>(l_Handle);

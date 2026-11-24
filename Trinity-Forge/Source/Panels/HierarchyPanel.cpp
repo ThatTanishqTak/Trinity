@@ -166,11 +166,15 @@ void HierarchyPanel::OnImGuiRender()
             ImGui::PushID("##Search");
         }
 
+        // The eye's and the lock's columns run down the tree's left side, as Unity's do, and the rows are drawn clear of them
+        const float l_Gutter = ImGui::GetFrameHeight() * 2.0f;
+        ImGui::Indent(l_Gutter);
         for (Trinity::Entity it_Root = l_Scene.GetFirstRoot(); it_Root; it_Root = it_Root.GetNextSibling())
         {
             DrawEntity(it_Root);
         }
 
+        ImGui::Unindent(l_Gutter);
         if (l_Searching)
         {
             ImGui::PopID();
@@ -587,6 +591,7 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
 
     const bool l_Open = ImGui::TreeNodeEx(ToImGuiID(l_ID), l_Flags, "%s", l_Label.c_str());
     m_Rows.push_back({ .Entity = l_ID, .HasChildren = l_HasChildren, .Open = l_HasChildren && l_Open });
+    DrawMarks(entity);
     // Before the override bar, which is drawn over it where a row has both
     if (l_Selected)
     {
@@ -715,6 +720,53 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
     }
 }
 
+// The eye and the lock in the gutter left of the row just drawn, which stays the last item. Each shows while its mark is set or the mouse is on the row. A click marks the row's whole branch, and with Alt the row alone
+void HierarchyPanel::DrawMarks(Trinity::Entity entity)
+{
+    const Trinity::UUID l_ID = entity.GetUUID();
+    const ImGuiWindow* l_Window = ImGui::GetCurrentWindow();
+    const float l_Size = ImGui::GetFrameHeight();
+    const ImVec2 l_Min(l_Window->InnerClipRect.Min.x, ImGui::GetItemRectMin().y);
+    const bool l_Hovered = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(l_Min, ImVec2(l_Window->InnerClipRect.Max.x, l_Min.y + l_Size));
+    const bool l_Alone = ImGui::GetIO().KeyAlt;
+
+    // A mark that is set is drawn as bright as the row's name, and one only offered as dim as a hint
+    const auto a_Draw = [&](const char* id, bool on, const char* icon, const char* tooltip, float left)
+    {
+        // A window is not hovered while an item of it is held, which the offered mark is from its press to its release
+        const std::string l_Name = std::format("##{}{}", id, l_ID.GetValue());
+        if (!on && !l_Hovered && ImGui::GetActiveID() != ImGui::GetID(l_Name.c_str()))
+        {
+            return false;
+        }
+
+        if (on)
+        {
+            ImGui::PushStyleColor(ImGuiCol_TextDisabled, ImGui::GetStyleColorVec4(ImGuiCol_Text));
+        }
+
+        const bool l_Pressed = Trinity::Widgets::OverlayButton(l_Name.c_str(), icon, tooltip, ImVec2(left, l_Min.y));
+        if (on)
+        {
+            ImGui::PopStyleColor();
+        }
+
+        return l_Pressed;
+    };
+
+    const bool l_Hidden = m_Session.IsHidden(l_ID);
+    if (a_Draw("Hide", l_Hidden, l_Hidden ? Trinity::Icons::c_EyeSlash : Trinity::Icons::c_Eye, l_Hidden ? "Hidden in the Scene panel. Click to show it and what is under it, Alt-click for it alone" : "Hide it and what is under it in the Scene panel, Alt-click for it alone (H)", l_Min.x))
+    {
+        Mark(l_ID, false, !l_Hidden, l_Alone);
+    }
+
+    const bool l_Locked = m_Session.IsLocked(l_ID);
+    if (a_Draw("Lock", l_Locked, l_Locked ? Trinity::Icons::c_Lock : Trinity::Icons::c_Unlock, l_Locked ? "Locked: a click in the Scene panel passes over it. Click to unlock it and what is under it, Alt-click for it alone" : "Lock it and what is under it, so a click in the Scene panel passes over them, Alt-click for it alone", l_Min.x + l_Size))
+    {
+        Mark(l_ID, true, !l_Locked, l_Alone);
+    }
+}
+
 // Enter or clicking away keeps the name as one command. Escape puts the text back
 void HierarchyPanel::DrawRenameField(Trinity::Entity entity)
 {
@@ -811,6 +863,21 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
 
     ImGui::EndDisabled();
 
+    ImGui::Separator();
+
+    // The gutter's two marks, which change nothing of the scene and so are open while it plays
+    const bool l_Hidden = m_Session.IsHidden(l_ID);
+    if (ImGui::MenuItem(std::format("{} {}", l_Hidden ? Trinity::Icons::c_Eye : Trinity::Icons::c_EyeSlash, l_Hidden ? "Show in Scene" : "Hide in Scene").c_str(), "H"))
+    {
+        Mark(l_ID, false, !l_Hidden, false);
+    }
+
+    const bool l_Locked = m_Session.IsLocked(l_ID);
+    if (ImGui::MenuItem(std::format("{} {}", l_Locked ? Trinity::Icons::c_Unlock : Trinity::Icons::c_Lock, l_Locked ? "Unlock in Scene" : "Lock in Scene").c_str()))
+    {
+        Mark(l_ID, true, !l_Locked, false);
+    }
+
     const Trinity::Entity l_Instance = Trinity::Prefab::FindInstanceRoot(entity);
     if (!l_Instance)
     {
@@ -878,6 +945,19 @@ void HierarchyPanel::DrawBackground()
                     m_Revealed = {};
                 }
             });
+        }
+
+        ImGui::Separator();
+
+        // The way back for whatever was hidden or locked and then lost sight of
+        if (ImGui::MenuItem(std::format("{} Show All", Trinity::Icons::c_Eye).c_str(), nullptr, false, !m_Session.GetHidden().empty()))
+        {
+            m_Session.SetHidden(std::vector<Trinity::UUID>(m_Session.GetHidden().begin(), m_Session.GetHidden().end()), false);
+        }
+
+        if (ImGui::MenuItem(std::format("{} Unlock All", Trinity::Icons::c_Unlock).c_str(), nullptr, false, !m_Session.GetLocked().empty()))
+        {
+            m_Session.SetLocked(std::vector<Trinity::UUID>(m_Session.GetLocked().begin(), m_Session.GetLocked().end()), false);
         }
 
         ImGui::EndPopup();
@@ -993,6 +1073,12 @@ void HierarchyPanel::ReadShortcuts()
     if (l_Selected && l_Selected.Has<Trinity::TagComponent>() && ImGui::IsKeyPressed(ImGuiKey_F2, false))
     {
         BeginRename(l_Selected);
+    }
+
+    // Unity's H, which hides the selection or shows it again by what the last one picked is
+    if (l_Selected && ImGui::IsKeyChordPressed(ImGuiKey_H))
+    {
+        Mark(l_Selected.GetUUID(), false, !m_Session.IsHidden(l_Selected.GetUUID()), false);
     }
 }
 
@@ -1182,6 +1268,31 @@ void HierarchyPanel::SelectRange(Trinity::UUID entity)
     l_Entities.push_back(entity);
     m_Session.SetSelection(std::move(l_Entities));
     m_Revealed = entity;
+}
+
+// The entity, or with it among several selected each of those, and unless alone everything under each
+void HierarchyPanel::Mark(Trinity::UUID entity, bool lock, bool on, bool alone)
+{
+    const EditorSelection& l_Selected = m_Session.GetSelected();
+    std::vector<Trinity::UUID> l_Marked = l_Selected.GetCount() > 1 && l_Selected.Contains(entity) ? l_Selected.GetEntities() : std::vector<Trinity::UUID>{ entity };
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    for (std::size_t it_Index = 0; it_Index < l_Marked.size() && !alone; ++it_Index)
+    {
+        const Trinity::Entity l_Parent = l_Scene.FindEntityByUUID(l_Marked[it_Index]);
+        for (Trinity::Entity it_Child = l_Parent ? l_Parent.GetFirstChild() : Trinity::Entity(); it_Child; it_Child = it_Child.GetNextSibling())
+        {
+            l_Marked.push_back(it_Child.GetUUID());
+        }
+    }
+
+    if (lock)
+    {
+        m_Session.SetLocked(l_Marked, on);
+    }
+    else
+    {
+        m_Session.SetHidden(l_Marked, on);
+    }
 }
 
 void HierarchyPanel::BeginRename(Trinity::Entity entity)

@@ -578,6 +578,17 @@ void ViewportPanel::PrepareScene()
     l_Options.PickPixel = std::exchange(m_PickPixel, std::nullopt);
     l_Options.Outlined = GetOutlined();
     l_Options.DebugLines = true;
+
+    m_Hidden.clear();
+    for (const Trinity::UUID it_Hidden : m_Session.GetHidden())
+    {
+        if (const Trinity::Entity l_Hidden = l_Scene.FindEntityByUUID(it_Hidden))
+        {
+            m_Hidden.insert(Trinity::ToPickID(l_Hidden.GetHandle()));
+        }
+    }
+
+    l_Options.Hidden = m_Hidden;
     if (m_Mode3D)
     {
         l_Options.Overlay = [this](Trinity::RHI::CommandList& commands, const Trinity::RenderView& view, Trinity::RHI::Format colorFormat, std::uint32_t sampleCount) { m_Grid3D.Draw(commands, view, colorFormat, sampleCount); };
@@ -592,13 +603,13 @@ void ViewportPanel::RenderScene(Trinity::RHI::CommandList& commands)
     const Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
     if (m_Mode3D)
     {
-        Trinity::Application::Get().GetRenderer().GetRenderer2D().DrawScene(commands, m_Session.GetScene(), m_Camera3D.GetProjection(l_ViewportSize) * m_Camera3D.GetView(), l_Renderer.GetSceneFormat(), l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight());
+        Trinity::Application::Get().GetRenderer().GetRenderer2D().DrawScene(commands, m_Session.GetScene(), m_Camera3D.GetProjection(l_ViewportSize) * m_Camera3D.GetView(), l_Renderer.GetSceneFormat(), l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight(), m_Hidden);
 
         return;
     }
 
     m_Grid.Draw(commands, m_Camera, l_ViewportSize);
-    Trinity::Application::Get().GetRenderer().GetRenderer2D().DrawScene(commands, m_Session.GetScene(), m_Camera.GetViewProjection(l_ViewportSize), l_Renderer.GetSceneFormat(), l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight());
+    Trinity::Application::Get().GetRenderer().GetRenderer2D().DrawScene(commands, m_Session.GetScene(), m_Camera.GetViewProjection(l_ViewportSize), l_Renderer.GetSceneFormat(), l_Renderer.GetSceneWidth(), l_Renderer.GetSceneHeight(), m_Hidden);
 }
 
 // Drawn at the scene target's own size, so it is cropped or bordered while resizing, not stretched
@@ -1073,9 +1084,14 @@ void ViewportPanel::ApplyPick()
     SelectPicked(l_Valid ? Trinity::Entity(l_Result->Entity, &l_Scene).GetUUID() : Trinity::UUID(), m_PickToggles);
 }
 
-// A click's: the entity alone, or with Ctrl or Shift in or out of what is selected. With either held, a click on nothing changes nothing
+// A click's: the entity alone, or with Ctrl or Shift in or out of what is selected. With either held, a click on nothing changes nothing. One on an entity the Hierarchy locks or hides is a click on nothing
 void ViewportPanel::SelectPicked(Trinity::UUID entity, bool toggle)
 {
+    if (m_Session.IsLocked(entity) || m_Session.IsHidden(entity))
+    {
+        entity = {};
+    }
+
     if (!toggle)
     {
         m_Session.SetSelection(entity);
@@ -1137,9 +1153,10 @@ void ViewportPanel::UpdateBoxSelect(glm::vec2 imageMin, glm::vec2 viewportSize)
     {
         const glm::vec3 l_Origin(it_World.Matrix[3]);
         const std::optional<glm::vec2> l_Pixel = m_Mode3D ? ProjectPoint(l_ViewProjection, l_Origin, viewportSize) : std::optional<glm::vec2>(m_Camera.WorldToScreen(glm::vec2(l_Origin), viewportSize));
-        if (l_Pixel && l_Pixel->x >= l_Min.x && l_Pixel->x <= l_Max.x && l_Pixel->y >= l_Min.y && l_Pixel->y <= l_Max.y)
+        const Trinity::UUID l_ID = Trinity::Entity(it_Entity, &l_Scene).GetUUID();
+        if (l_Pixel && l_Pixel->x >= l_Min.x && l_Pixel->x <= l_Max.x && l_Pixel->y >= l_Min.y && l_Pixel->y <= l_Max.y && !m_Session.IsLocked(l_ID) && !m_Session.IsHidden(l_ID))
         {
-            l_Boxed.push_back(Trinity::Entity(it_Entity, &l_Scene).GetUUID());
+            l_Boxed.push_back(l_ID);
         }
     }
 

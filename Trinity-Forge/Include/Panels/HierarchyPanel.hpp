@@ -56,6 +56,7 @@ private:
     void UpdateSearch(Trinity::Scene& scene);
     void UpdateOverrides(Trinity::Scene& scene);
     void DrawEntity(Trinity::Entity entity);
+    void DrawMarks(Trinity::Entity entity);
     void DrawRenameField(Trinity::Entity entity);
     void DrawContextMenu(Trinity::Entity entity);
     void DrawBackground();
@@ -69,6 +70,7 @@ private:
 
     void Select(Trinity::UUID entity);
     void SelectRange(Trinity::UUID entity);
+    void Mark(Trinity::UUID entity, bool lock, bool on, bool alone);
     void BeginRename(Trinity::Entity entity);
     void Create(Trinity::UUID parent);
     void Move(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before);

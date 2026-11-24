@@ -21,6 +21,7 @@
 #include <optional>
 #include <span>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Trinity
@@ -237,6 +238,8 @@ namespace Trinity
         std::optional<glm::uvec2> PickPixel;
         // With EntityIDs, entities to outline over the tonemapped image, in any order
         std::vector<std::uint32_t> Outlined;
+        // Entities whose meshes, sprites and world UI the view leaves out, by their pick IDs, as an editor hides them. A light among them still lights the view
+        std::unordered_set<std::uint32_t> Hidden;
         // For a view no layer draws sprites into, such as a game's. The main view's layers draw their own
         bool Sprites = false;
         // An editor's view wants them, a game's does not. Nothing is drawn in Distribution
@@ -313,7 +316,7 @@ namespace Trinity
         void SetWorldUISource(const WorldUISource* source) { m_WorldUI = source; }
 
         // On the main thread, after the transform pass. Meshes stay loaded while views use them
-        void Collect(Scene& scene, const RenderView& view, SceneDrawList& list);
+        void Collect(Scene& scene, const RenderView& view, SceneDrawList& list, const std::unordered_set<std::uint32_t>& hidden = {});
         // Tests every submesh on this thread, for checking Collect against
         static void CollectReference(Scene& scene, const RenderView& view, SceneDrawList& list);
         // Each cluster's light count, then its first c_MaxLights lights, for checking the cluster pass

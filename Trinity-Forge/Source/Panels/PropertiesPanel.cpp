@@ -358,7 +358,7 @@ namespace
         }
 
         DrawResetArrow(label, l_Top, l_Overrides, l_Marked);
-        ImGui::SameLine(ImGui::GetFontSize()* c_LabelWidthInFonts);
+        ImGui::SameLine(ImGui::GetFontSize() * c_LabelWidthInFonts);
         ImGui::SetNextItemWidth(reserve > 0.0f ? -reserve : -FLT_MIN);
     }
 

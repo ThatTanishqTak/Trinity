@@ -41,6 +41,10 @@ namespace
     // In the project's Saved folder, as Unreal does, which new projects leave out of Git
     constexpr std::string_view c_PlayerPrefsPath = "/project/Saved/PlayerPrefs.yaml";
     constexpr std::string_view c_RecentScenesFile = "Editor/RecentScenes.txt";
+    // Every scene's hidden and locked entities, a line each: the scene, which of the two, the entity
+    constexpr std::string_view c_SceneMarksFile = "Editor/SceneMarks.txt";
+    constexpr std::string_view c_HiddenMark = "hidden";
+    constexpr std::string_view c_LockedMark = "locked";
     constexpr std::size_t c_RecentLimit = 10;
     constexpr std::string_view c_BackupScenePrefix = "# Scene: ";
     constexpr std::string_view c_BackupWrittenPrefix = "# Written: ";
@@ -76,6 +80,11 @@ namespace
     std::string GetRecentScenesPath()
     {
         return std::format("{}/{}", Trinity::Project::c_CacheMount, c_RecentScenesFile);
+    }
+
+    std::string GetSceneMarksPath()
+    {
+        return std::format("{}/{}", Trinity::Project::c_CacheMount, c_SceneMarksFile);
     }
 
     // Each line of the text, without its end
@@ -2641,6 +2650,118 @@ void EditorSession::WriteRecentScenes() const
     }
 }
 
+void EditorSession::SetHidden(std::span<const Trinity::UUID> entities, bool hidden)
+{
+    for (const Trinity::UUID it_Entity : entities)
+    {
+        if (hidden)
+        {
+            m_Hidden.insert(it_Entity);
+        }
+        else
+        {
+            m_Hidden.erase(it_Entity);
+        }
+    }
+
+    WriteSceneMarks();
+}
+
+void EditorSession::SetLocked(std::span<const Trinity::UUID> entities, bool locked)
+{
+    for (const Trinity::UUID it_Entity : entities)
+    {
+        if (locked)
+        {
+            m_Locked.insert(it_Entity);
+        }
+        else
+        {
+            m_Locked.erase(it_Entity);
+        }
+    }
+
+    WriteSceneMarks();
+}
+
+// The open scene's lines of the file. A scene with no file yet has none
+void EditorSession::ReadSceneMarks()
+{
+    m_Hidden.clear();
+    m_Locked.clear();
+    const Trinity::UUID l_Scene = GetSceneID();
+    if (!l_Scene)
+    {
+        return;
+    }
+
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(GetSceneMarksPath());
+    if (!l_Text)
+    {
+        return;
+    }
+
+    for (const std::string_view it_Line : SplitLines(*l_Text))
+    {
+        const std::size_t l_First = it_Line.find('\t');
+        const std::size_t l_Second = l_First != std::string_view::npos ? it_Line.find('\t', l_First + 1) : std::string_view::npos;
+        if (l_Second == std::string_view::npos || Trinity::UUID::Parse(it_Line.substr(0, l_First)) != l_Scene)
+        {
+            continue;
+        }
+
+        const std::string_view l_Mark = it_Line.substr(l_First + 1, l_Second - l_First - 1);
+        if (const std::optional<Trinity::UUID> l_Entity = Trinity::UUID::Parse(it_Line.substr(l_Second + 1)); l_Entity && (l_Mark == c_HiddenMark || l_Mark == c_LockedMark))
+        {
+            (l_Mark == c_HiddenMark ? m_Hidden : m_Locked).insert(*l_Entity);
+        }
+    }
+}
+
+// The other scenes' lines as they were, then the open scene's own, of the entities it still has. Nothing is written for a scene with no file yet
+void EditorSession::WriteSceneMarks()
+{
+    const Trinity::UUID l_Scene = GetSceneID();
+    if (!l_Scene)
+    {
+        return;
+    }
+
+    std::string l_Text;
+    const std::string l_Own = std::format("{}\t", l_Scene);
+    if (const Trinity::Expected<std::string, Trinity::FileError> l_Kept = Trinity::FileSystem::ReadText(GetSceneMarksPath()))
+    {
+        for (const std::string_view it_Line : SplitLines(*l_Kept))
+        {
+            if (!it_Line.empty() && !it_Line.starts_with(l_Own))
+            {
+                l_Text += std::format("{}\n", it_Line);
+            }
+        }
+    }
+
+    for (const Trinity::UUID it_Entity : m_Hidden)
+    {
+        if (m_Scene.FindEntityByUUID(it_Entity))
+        {
+            l_Text += std::format("{}{}\t{}\n", l_Own, c_HiddenMark, it_Entity);
+        }
+    }
+
+    for (const Trinity::UUID it_Entity : m_Locked)
+    {
+        if (m_Scene.FindEntityByUUID(it_Entity))
+        {
+            l_Text += std::format("{}{}\t{}\n", l_Own, c_LockedMark, it_Entity);
+        }
+    }
+
+    if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(GetSceneMarksPath(), l_Text); !l_Written)
+    {
+        TR_WARN("Forge: the scene's hidden and locked entities could not be saved: {}", Trinity::ToString(l_Written.GetError()));
+    }
+}
+
 // The open scene goes first, once it has a file, and the eleventh is let go
 void EditorSession::RememberScene()
 {
@@ -3187,6 +3308,7 @@ void EditorSession::RestoreBackup()
 
     const bool l_HasScene = !l_Recovery->ScenePath.empty() && m_Registry && m_Registry->FindByPath(l_Recovery->ScenePath) != nullptr;
     m_ScenePath = l_HasScene ? l_Recovery->ScenePath : std::string();
+    ReadSceneMarks();
     m_Selection = {};
     m_History.Clear();
     m_History.MarkUnsaved();
@@ -5294,6 +5416,8 @@ void EditorSession::NewScene()
     m_ScenePath.clear();
     m_Selection = {};
     m_History.Clear();
+    m_Hidden.clear();
+    m_Locked.clear();
 }
 
 // On an error the scene is left as it was. Otherwise each prefab is read again as the scene asks
@@ -5313,6 +5437,7 @@ void EditorSession::OpenScene(const std::string& assetPath)
     m_Selection = {};
     m_History.Clear();
     RememberScene();
+    ReadSceneMarks();
     TR_INFO("Forge: opened scene {} with {} entities", m_ScenePath, m_Scene.GetEntityCount());
     ReportMissingReferences();
 }
@@ -5385,6 +5510,7 @@ void EditorSession::SaveSceneAs(Action then)
         {
             m_ScenePath = *l_AssetPath;
             RememberScene();
+            WriteSceneMarks();
             if (l_Then)
             {
                 l_Then();
