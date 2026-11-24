@@ -102,6 +102,13 @@ private:
     void RenameCreated(const std::optional<std::string>& path);
     void Duplicate(const Item& item);
     void AskDelete(const Item& item);
+    void AskDeleteSelected();
+    void ToggleSelected(const Item& item);
+    void SelectRange(const std::vector<Item>& items, const std::string& to);
+    void SetSelectedPaths(std::vector<std::string> paths);
+    void MoveDragged(const std::string& path, const std::string& folder);
+    [[nodiscard]] bool IsSelected(const std::string& path) const;
+    [[nodiscard]] std::vector<std::string> GetSelectedPaths() const;
     void AskReimportAll();
     void ShowInFileManager(const Item* item);
     void Move(const std::string& path, const std::string& folder, const std::string& name);
@@ -125,6 +132,12 @@ private:
     std::uint64_t m_CloseListener = 0;
     std::string m_Folder;
     std::string m_Selected;
+    // The items selected along with it by Ctrl and Shift clicks, and what it was when they were: anything else that selects an item lets go of them
+    std::vector<std::string> m_AlsoSelected;
+    std::string m_AlsoSelectedWith;
+    // The item last selected without Shift, which a Shift-click selects from, and the item one landed on until the frame's items are known
+    std::string m_SelectionAnchor;
+    std::optional<std::string> m_RangeTo;
     std::string m_Renaming;
     std::string m_RenameText;
     std::string m_Search;

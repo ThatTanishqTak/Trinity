@@ -372,6 +372,14 @@ void ContentBrowserPanel::OnImGuiRender()
 {
     m_DrawnFrame = ImGui::GetFrameCount();
     m_Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+
+    // Whatever selected an item without the others, as a new asset being selected does, lets go of them
+    if (m_Selected != m_AlsoSelectedWith)
+    {
+        m_AlsoSelected.clear();
+        m_AlsoSelectedWith = m_Selected;
+    }
+
     if (!m_Session.HasProject())
     {
         ImGui::TextDisabled("Open or create a project to see its assets");
@@ -631,6 +639,11 @@ void ContentBrowserPanel::DrawItems()
         }
     }
 
+    if (const std::optional<std::string> l_RangeTo = std::exchange(m_RangeTo, std::nullopt))
+    {
+        SelectRange(l_Items, *l_RangeTo);
+    }
+
     if (l_Items.empty())
     {
         ImGui::TextDisabled(IsSearching() ? "Nothing matches the search" : "This folder is empty");
@@ -676,9 +689,30 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
             l_Preview.Play(item.Record->ID);
         }
     }
-    else if (ImGui::IsItemClicked(ImGuiMouseButton_Right) || l_Released)
+    else if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
     {
-        Select(item);
+        // Only an item that was not selected: a right-click on one of several keeps them all, for the menu to act on
+        if (!IsSelected(item.Path))
+        {
+            Select(item);
+        }
+    }
+    else if (l_Released)
+    {
+        // Ctrl adds the item or takes it out. Shift takes every item from the anchor to this one, once the frame's items are known
+        const ImGuiIO& l_IO = ImGui::GetIO();
+        if (l_IO.KeyCtrl)
+        {
+            ToggleSelected(item);
+        }
+        else if (l_IO.KeyShift)
+        {
+            m_RangeTo = item.Path;
+        }
+        else
+        {
+            Select(item);
+        }
     }
 
     if (l_Hovered && !l_OnPlay && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
@@ -709,7 +743,16 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
             ImGui::SetDragDropPayload(c_ScriptPayload, item.Path.c_str(), item.Path.size() + 1);
         }
 
-        ImGui::TextUnformatted(std::format("{} {}", GetIcon(m_Session, item.Record, item.Folder, item.Name), item.Name).c_str());
+        // One of several selected moves them all when dropped on a folder, and says so. Dropped anywhere else it is itself alone
+        if (!m_AlsoSelected.empty() && IsSelected(item.Path))
+        {
+            ImGui::TextUnformatted(std::format("{} {} items", Trinity::Icons::c_Copy, m_AlsoSelected.size() + 1).c_str());
+        }
+        else
+        {
+            ImGui::TextUnformatted(std::format("{} {}", GetIcon(m_Session, item.Record, item.Folder, item.Name), item.Name).c_str());
+        }
+
         ImGui::EndDragDropSource();
     }
 
@@ -722,9 +765,10 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
     {
         ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
         const ImVec2 l_Max(l_Min.x + size.x, l_Min.y + size.y);
-        if (item.Path == m_Selected || l_Hovered)
+        const bool l_Selected = IsSelected(item.Path);
+        if (l_Selected || l_Hovered)
         {
-            l_DrawList.AddRectFilled(l_Min, l_Max, ImGui::GetColorU32(item.Path == m_Selected ? ImGuiCol_Header : ImGuiCol_HeaderHovered), l_Style.FrameRounding);
+            l_DrawList.AddRectFilled(l_Min, l_Max, ImGui::GetColorU32(l_Selected ? ImGuiCol_Header : ImGuiCol_HeaderHovered), l_Style.FrameRounding);
         }
 
         if (l_Other)
@@ -845,7 +889,15 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
 
     if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), "Delete", false, l_Editable))
     {
-        AskDelete(*item);
+        // With several items selected and this one of them, Delete is theirs
+        if (!m_AlsoSelected.empty() && IsSelected(item->Path))
+        {
+            AskDeleteSelected();
+        }
+        else
+        {
+            AskDelete(*item);
+        }
     }
 
     if (ImGui::MenuItem("Rename", "F2", false, l_Editable))
@@ -1118,7 +1170,11 @@ void ContentBrowserPanel::DrawFooter()
     const float l_PathWidth = std::max(ImGui::GetContentRegionAvail().x - l_SliderWidth - ImGui::GetStyle().ItemSpacing.x, 0.0f);
     const ImVec2 l_Min = ImGui::GetCursorScreenPos();
     ImGui::Dummy(ImVec2(l_PathWidth, ImGui::GetFrameHeight()));
-    if (const std::optional<Item> l_Selected = m_Selected.empty() ? std::nullopt : FindItem(m_Selected))
+    if (!m_AlsoSelected.empty())
+    {
+        ImGui::GetWindowDrawList()->AddText(ImVec2(l_Min.x, l_Min.y + ImGui::GetStyle().FramePadding.y), ImGui::GetColorU32(ImGuiCol_Text), std::format("{} items selected", m_AlsoSelected.size() + 1).c_str());
+    }
+    else if (const std::optional<Item> l_Selected = m_Selected.empty() ? std::nullopt : FindItem(m_Selected))
     {
         const std::string l_Text = std::format("{} {}", GetIcon(m_Session, l_Selected->Record, l_Selected->Folder, l_Selected->Name), l_Selected->Path);
         const float l_TextY = l_Min.y + ImGui::GetStyle().FramePadding.y;
@@ -1387,13 +1443,13 @@ void ContentBrowserPanel::AcceptMove(const std::string& folder)
         const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
         if (const Trinity::AssetRecord* l_Record = l_Registry != nullptr ? l_Registry->Find(Trinity::UUID(l_Value)) : nullptr)
         {
-            m_Deferred.push_back([this, l_Path = l_Record->Path, folder] { Move(l_Path, folder, std::string(GetName(l_Path))); });
+            m_Deferred.push_back([this, l_Path = l_Record->Path, folder] { MoveDragged(l_Path, folder); });
         }
     }
 
     if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_FolderPayload))
     {
-        m_Deferred.push_back([this, l_Path = std::string(static_cast<const char*>(l_Payload->Data)), folder] { Move(l_Path, folder, std::string(GetName(l_Path))); });
+        m_Deferred.push_back([this, l_Path = std::string(static_cast<const char*>(l_Payload->Data)), folder] { MoveDragged(l_Path, folder); });
     }
 
     if (const ImGuiPayload* l_Payload = ImGui::AcceptDragDropPayload(c_EntityPayload))
@@ -1462,7 +1518,14 @@ void ContentBrowserPanel::ReadShortcuts()
     }
     else if (l_Delete)
     {
-        AskDelete(*l_Item);
+        if (m_AlsoSelected.empty())
+        {
+            AskDelete(*l_Item);
+        }
+        else
+        {
+            AskDeleteSelected();
+        }
     }
     else if (l_Rename)
     {
@@ -1470,7 +1533,13 @@ void ContentBrowserPanel::ReadShortcuts()
     }
     else
     {
-        Duplicate(*l_Item);
+        for (const std::string& it_Path : GetSelectedPaths())
+        {
+            if (const std::optional<Item> l_Each = FindItem(it_Path))
+            {
+                Duplicate(*l_Each);
+            }
+        }
     }
 }
 
@@ -1478,7 +1547,103 @@ void ContentBrowserPanel::ReadShortcuts()
 void ContentBrowserPanel::Select(const Item& item)
 {
     m_Selected = item.Path;
+    m_AlsoSelected.clear();
+    m_AlsoSelectedWith = m_Selected;
+    m_SelectionAnchor = item.Path;
     m_Session.SetInspectedAsset(item.Record != nullptr ? item.Record->ID : Trinity::UUID());
+}
+
+bool ContentBrowserPanel::IsSelected(const std::string& path) const
+{
+    return path == m_Selected || std::ranges::find(m_AlsoSelected, path) != m_AlsoSelected.end();
+}
+
+// Every selected item's path, the one Properties shows last
+std::vector<std::string> ContentBrowserPanel::GetSelectedPaths() const
+{
+    std::vector<std::string> l_Paths = m_AlsoSelected;
+    if (!m_Selected.empty())
+    {
+        l_Paths.push_back(m_Selected);
+    }
+
+    return l_Paths;
+}
+
+// These alone, the last of them the one Properties shows
+void ContentBrowserPanel::SetSelectedPaths(std::vector<std::string> paths)
+{
+    m_Selected.clear();
+    if (!paths.empty())
+    {
+        m_Selected = std::move(paths.back());
+        paths.pop_back();
+    }
+
+    m_AlsoSelected = std::move(paths);
+    m_AlsoSelectedWith = m_Selected;
+
+    const std::optional<Item> l_Shown = m_Selected.empty() ? std::nullopt : FindItem(m_Selected);
+    m_Session.SetInspectedAsset(l_Shown && l_Shown->Record != nullptr ? l_Shown->Record->ID : Trinity::UUID());
+}
+
+// A Ctrl-click's: out if the item was selected, and in as the one Properties shows if it was not
+void ContentBrowserPanel::ToggleSelected(const Item& item)
+{
+    std::vector<std::string> l_Paths = GetSelectedPaths();
+    if (std::erase(l_Paths, item.Path) == 0)
+    {
+        l_Paths.push_back(item.Path);
+    }
+
+    SetSelectedPaths(std::move(l_Paths));
+    m_SelectionAnchor = item.Path;
+}
+
+// The items from the anchor to this one as they are shown, this one last. Without the anchor among them, from the selected item, and without that, this one alone
+void ContentBrowserPanel::SelectRange(const std::vector<Item>& items, const std::string& to)
+{
+    auto a_From = std::ranges::find(items, m_SelectionAnchor, &Item::Path);
+    if (a_From == items.end())
+    {
+        a_From = std::ranges::find(items, m_Selected, &Item::Path);
+    }
+
+    const auto a_To = std::ranges::find(items, to, &Item::Path);
+    if (a_To == items.end())
+    {
+        return;
+    }
+
+    if (a_From == items.end())
+    {
+        Select(*a_To);
+
+        return;
+    }
+
+    std::vector<std::string> l_Paths;
+    const std::ptrdiff_t l_Step = a_From <= a_To ? 1 : -1;
+    for (auto it_Item = a_From; it_Item != a_To; it_Item += l_Step)
+    {
+        l_Paths.push_back(it_Item->Path);
+    }
+
+    l_Paths.push_back(to);
+    SetSelectedPaths(std::move(l_Paths));
+}
+
+// The item dragged, and with it the others selected if it is one of several. Each keeps its name
+void ContentBrowserPanel::MoveDragged(const std::string& path, const std::string& folder)
+{
+    const std::vector<std::string> l_Paths = m_AlsoSelected.empty() || !IsSelected(path) ? std::vector<std::string>{ path } : GetSelectedPaths();
+    for (const std::string& it_Path : l_Paths)
+    {
+        if (it_Path != folder)
+        {
+            Move(it_Path, folder, std::string(GetName(it_Path)));
+        }
+    }
 }
 
 // A folder opens here, a scene in Forge, a prefab in prefab mode, others in their panel or program
@@ -1576,6 +1741,34 @@ void ContentBrowserPanel::AskDelete(const Item& item)
     m_Confirmation = Confirmation{ "Delete", std::format("Delete {}{}?", item.Name, item.Folder ? " and everything in it" : ""), std::string(l_Detail), "Delete", [this, l_Path = item.Path]
     {
         static_cast<void>(m_Session.DeleteAsset(l_Path));
+        m_Selected.clear();
+        m_Listings.clear();
+    } };
+    m_OpenConfirmPopup = true;
+}
+
+// One question for every selected item but a root, which stays as it is
+void ContentBrowserPanel::AskDeleteSelected()
+{
+    std::vector<std::string> l_Paths = GetSelectedPaths();
+    std::erase_if(l_Paths, [](const std::string& path) { return IsRoot(path); });
+    if (l_Paths.size() <= 1)
+    {
+        if (const std::optional<Item> l_Item = l_Paths.empty() ? std::nullopt : FindItem(l_Paths.front()))
+        {
+            AskDelete(*l_Item);
+        }
+
+        return;
+    }
+
+    m_Confirmation = Confirmation{ "Delete", std::format("Delete {} items?", l_Paths.size()), "This cannot be undone. A folder goes with everything in it", "Delete", [this, l_Paths = std::move(l_Paths)]
+    {
+        for (const std::string& it_Path : l_Paths)
+        {
+            static_cast<void>(m_Session.DeleteAsset(it_Path));
+        }
+
         m_Selected.clear();
         m_Listings.clear();
     } };
