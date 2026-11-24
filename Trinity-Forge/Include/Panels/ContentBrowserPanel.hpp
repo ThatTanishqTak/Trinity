@@ -6,7 +6,9 @@
 
 #include <Trinity.hpp>
 
+#include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
@@ -21,6 +23,15 @@ struct ImVec2;
 class ContentBrowserPanel final : public Panel
 {
 public:
+    // What the items are ordered by, folders first whichever it is. imgui.ini keeps it for each person
+    enum class Order : std::uint8_t
+    {
+        Name,
+        Type,
+        Modified,
+        Size
+    };
+
     explicit ContentBrowserPanel(EditorSession& session);
     ~ContentBrowserPanel() override;
 
@@ -55,6 +66,17 @@ private:
         std::string Path;
         bool Folder = false;
         const Trinity::AssetRecord* Record = nullptr;
+        std::filesystem::file_time_type Modified;
+        std::uintmax_t Size = 0;
+    };
+
+    // A folder's entry as its listing read it, with the date and size the items are ordered by
+    struct Listed
+    {
+        std::string Name;
+        bool Folder = false;
+        std::filesystem::file_time_type Modified;
+        std::uintmax_t Size = 0;
     };
 
     struct Thumbnail
@@ -82,6 +104,8 @@ private:
 
     void DrawFolderTree(const std::string& path, const std::string& label);
     void DrawToolbar();
+    void DrawFilterMenu(float width);
+    void DrawSortMenu(float width);
     void DrawItems();
     void DrawItem(const Item& item, ImVec2 size);
     void DrawPicture(const Item& item, ImVec2 position, float size);
@@ -100,6 +124,8 @@ private:
     void Select(const Item& item);
     void Open(const Item& item);
     void OpenFolder(const std::string& folder);
+    void Go(bool back);
+    void SortItems(std::vector<Item>& items) const;
     void BeginRename(const Item& item);
     void RenameCreated(const std::optional<std::string>& path);
     void Duplicate(const Item& item);
@@ -118,8 +144,9 @@ private:
     void ReleaseAll();
 
     [[nodiscard]] bool IsListView() const;
-    [[nodiscard]] bool IsSearching() const { return !m_Search.empty(); }
-    [[nodiscard]] const std::vector<Trinity::DirectoryEntry>& List(const std::string& folder);
+    // A kind ticked in the filter menu narrows the items as text in the search does, to what is found in the folder and below
+    [[nodiscard]] bool IsSearching() const { return !m_Search.empty() || m_Filters != 0; }
+    [[nodiscard]] const std::vector<Listed>& List(const std::string& folder);
     [[nodiscard]] std::vector<Item> GetItems(const std::string& folder);
     [[nodiscard]] std::vector<Item> Search();
     void FindMatches(const std::string& folder, std::vector<Item>& matches);
@@ -133,6 +160,9 @@ private:
     std::function<void(Trinity::UUID asset)> m_OpenSoundEvent;
     std::uint64_t m_CloseListener = 0;
     std::string m_Folder;
+    // The folders opened, oldest first, and which of them is open: Back and Forward move along them
+    std::vector<std::string> m_History;
+    std::size_t m_HistoryAt = 0;
     std::string m_Selected;
     // The items selected along with it by Ctrl and Shift clicks, and what it was when they were: anything else that selects an item lets go of them
     std::vector<std::string> m_AlsoSelected;
@@ -145,6 +175,10 @@ private:
     std::string m_Search;
     // Whether the search looks through every root rather than the open folder alone
     bool m_SearchAll = false;
+    // A bit for each kind of file ticked in the filter menu. With none ticked every kind is shown
+    std::uint32_t m_Filters = 0;
+    Order m_Order = Order::Name;
+    bool m_Descending = false;
     std::optional<Confirmation> m_Confirmation;
     // The language of the script New Script asks a name for, the name typed, and its template
     std::optional<Trinity::ScriptLanguage> m_NewScript;
@@ -153,7 +187,7 @@ private:
     // The name typed so far for the prefab Create > Prefab makes
     std::string m_NewPrefabName;
     std::optional<PrefabDrop> m_PrefabDrop;
-    std::unordered_map<std::string, std::vector<Trinity::DirectoryEntry>> m_Listings;
+    std::unordered_map<std::string, std::vector<Listed>> m_Listings;
     std::uint64_t m_ListedScan = 0;
     std::unordered_map<Trinity::UUID, Thumbnail> m_Thumbnails;
     PrefabThumbnails m_PrefabThumbnails{ m_Session };

@@ -42,6 +42,10 @@ namespace
     constexpr float c_SearchWidthInFonts = 14.0f;
     constexpr float c_SliderWidthInFonts = 6.0f;
     constexpr std::string_view c_SizeSetting = "ContentBrowserSize";
+    constexpr std::string_view c_OrderSetting = "ContentBrowserOrder";
+    constexpr std::string_view c_DescendingSetting = "ContentBrowserDescending";
+    // Back goes no further than this many folders
+    constexpr std::size_t c_HistoryLimit = 64;
 
 #if defined(TR_PLATFORM_WINDOWS)
     constexpr const char* c_ShowInFileManager = "Show in Explorer";
@@ -239,6 +243,102 @@ namespace
         return l_Dot == std::string::npos || l_Dot == 0 ? std::string_view(name) : std::string_view(name).substr(0, l_Dot);
     }
 
+    // What the filter menu tells files apart by, and the order Type puts them in
+    enum class Kind : std::uint8_t
+    {
+        Scene,
+        Prefab,
+        Model,
+        Texture,
+        Material,
+        Audio,
+        Script,
+        UI,
+        Other
+    };
+
+    struct KindChoice
+    {
+        Kind Value = Kind::Other;
+        const char* Label = "";
+        const char* Icon = "";
+    };
+
+    constexpr std::array<KindChoice, 9> c_Kinds{ {
+        { Kind::Scene, "Scenes", Trinity::Icons::c_CubeOutline },
+        { Kind::Prefab, "Prefabs", Trinity::Icons::c_PackageVariantClosed },
+        { Kind::Model, "Models", Trinity::Icons::c_Cube },
+        { Kind::Texture, "Textures", Trinity::Icons::c_FileImage },
+        { Kind::Material, "Materials", Trinity::Icons::c_PaintBrush },
+        { Kind::Audio, "Audio", Trinity::Icons::c_FileAudio },
+        { Kind::Script, "Scripts", Trinity::Icons::c_FileCode },
+        { Kind::UI, "UI", Trinity::Icons::c_WindowRestore },
+        { Kind::Other, "Other", Trinity::Icons::c_File }
+    } };
+
+    // A sound's clips, mixers and events are one kind, as a UI's documents, style sheets and fonts are
+    Kind GetKind(const Trinity::AssetRecord* record, std::string_view name)
+    {
+        if (record == nullptr)
+        {
+            return IsScriptFile(name) ? Kind::Script : Kind::Other;
+        }
+
+        const std::string_view l_Importer = record->Importer;
+        if (IsScene(record))
+        {
+            return Kind::Scene;
+        }
+
+        if (IsPrefab(record))
+        {
+            return Kind::Prefab;
+        }
+
+        if (l_Importer == ModelImporter::c_Importer)
+        {
+            return Kind::Model;
+        }
+
+        if (l_Importer == Trinity::TextureAsset::c_AssetType)
+        {
+            return Kind::Texture;
+        }
+
+        if (IsMaterial(record))
+        {
+            return Kind::Material;
+        }
+
+        if (IsAudioClip(record) || l_Importer == Trinity::AudioMixerAsset::c_AssetType || l_Importer == Trinity::SoundEventAsset::c_AssetType)
+        {
+            return Kind::Audio;
+        }
+
+        if (l_Importer == Trinity::UIAssets::c_DocumentType || l_Importer == Trinity::UIAssets::c_StyleSheetType || l_Importer == Trinity::UIAssets::c_FontType)
+        {
+            return Kind::UI;
+        }
+
+        return Kind::Other;
+    }
+
+    // An order by the word imgui.ini keeps it under, and whether choosing it starts from the far end, as the newest and the largest are wanted first
+    struct OrderChoice
+    {
+        ContentBrowserPanel::Order Value = ContentBrowserPanel::Order::Name;
+        std::string_view Key;
+        const char* Label = "";
+        bool Descending = false;
+    };
+
+    constexpr std::array<OrderChoice, 4> c_Orders{ {
+        { ContentBrowserPanel::Order::Name, "name", "Name", false },
+        { ContentBrowserPanel::Order::Type, "type", "Type", false },
+        { ContentBrowserPanel::Order::Modified, "modified", "Date Modified", true },
+        { ContentBrowserPanel::Order::Size, "size", "Size", true }
+    } };
+
     // A variant's icon is Unity's open box, which its template tells
     const char* GetIcon(EditorSession& session, const Trinity::AssetRecord* record, bool folder, std::string_view name)
     {
@@ -346,6 +446,23 @@ void ContentBrowserPanel::EndFrame()
 
 bool ContentBrowserPanel::ReadSetting(std::string_view key, std::string_view value)
 {
+    if (key == c_OrderSetting)
+    {
+        if (const auto a_Order = std::ranges::find(c_Orders, value, &OrderChoice::Key); a_Order != c_Orders.end())
+        {
+            m_Order = a_Order->Value;
+        }
+
+        return true;
+    }
+
+    if (key == c_DescendingSetting)
+    {
+        m_Descending = value == "1";
+
+        return true;
+    }
+
     if (key != c_SizeSetting)
     {
         return false;
@@ -363,7 +480,7 @@ bool ContentBrowserPanel::ReadSetting(std::string_view key, std::string_view val
 
 void ContentBrowserPanel::WriteSettings(ImGuiTextBuffer& buffer) const
 {
-    const std::string l_Line = std::format("{}={}\n", c_SizeSetting, m_ThumbnailSize);
+    const std::string l_Line = std::format("{}={}\n{}={}\n{}={}\n", c_SizeSetting, m_ThumbnailSize, c_OrderSetting, std::ranges::find(c_Orders, m_Order, &OrderChoice::Value)->Key, c_DescendingSetting, m_Descending ? 1 : 0);
     buffer.append(l_Line.c_str(), l_Line.c_str() + l_Line.size());
 }
 
@@ -403,6 +520,25 @@ void ContentBrowserPanel::OnImGuiRender()
     if (FindRoot(m_Folder) == nullptr || !std::filesystem::is_directory(l_Project.ToNativePath(m_Folder)))
     {
         m_Folder = std::string(Trinity::Project::c_AssetsMount);
+    }
+
+    // Whatever opened another folder, the tree, a crumb or a double-click, it joins the folders Back returns through, and those Forward led to are let go
+    if (m_History.empty() || m_History[m_HistoryAt] != m_Folder)
+    {
+        m_History.resize(m_History.empty() ? 0 : m_HistoryAt + 1);
+        m_History.push_back(m_Folder);
+        if (m_History.size() > c_HistoryLimit)
+        {
+            m_History.erase(m_History.begin());
+        }
+
+        m_HistoryAt = m_History.size() - 1;
+    }
+
+    // A mouse's two side buttons, as a file manager and a browser take them
+    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && (ImGui::IsMouseClicked(3) || ImGui::IsMouseClicked(4)))
+    {
+        Go(ImGui::IsMouseClicked(3));
     }
 
     ReadShortcuts();
@@ -455,9 +591,9 @@ void ContentBrowserPanel::OnImGuiRender()
 void ContentBrowserPanel::DrawFolderTree(const std::string& path, const std::string& label)
 {
     std::vector<std::string> l_Children;
-    for (const Trinity::DirectoryEntry& it_Entry : List(path))
+    for (const Listed& it_Entry : List(path))
     {
-        if (it_Entry.Type == Trinity::FileType::Directory)
+        if (it_Entry.Folder)
         {
             l_Children.push_back(it_Entry.Name);
         }
@@ -531,6 +667,24 @@ void ContentBrowserPanel::DrawFolderTree(const std::string& path, const std::str
 // Up, then the open folder's path, each part of which opens it and takes a drop
 void ContentBrowserPanel::DrawToolbar()
 {
+    ImGui::BeginDisabled(m_HistoryAt == 0);
+    if (ImGui::Button(Trinity::Icons::c_ArrowLeft))
+    {
+        Go(true);
+    }
+
+    ImGui::SetItemTooltip("Back (Alt+Left)");
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(m_HistoryAt + 1 >= m_History.size());
+    if (ImGui::Button(Trinity::Icons::c_ArrowRight))
+    {
+        Go(false);
+    }
+
+    ImGui::SetItemTooltip("Forward (Alt+Right)");
+    ImGui::EndDisabled();
+    ImGui::SameLine();
     const Root* l_Root = FindRoot(m_Folder);
     ImGui::BeginDisabled(l_Root == nullptr || m_Folder == l_Root->Path);
     if (ImGui::Button(Trinity::Icons::c_ArrowUp))
@@ -538,6 +692,7 @@ void ContentBrowserPanel::DrawToolbar()
         OpenFolder(GetParent(m_Folder));
     }
 
+    ImGui::SetItemTooltip("Up to the folder this one is in");
     ImGui::EndDisabled();
 
     if (IsSearching())
@@ -579,10 +734,15 @@ void ContentBrowserPanel::DrawToolbar()
         }
     }
 
-    // At the right end, when there is room for it. Escape clears it
+    // At the right end, when there is room for them: the filter, the order and the search, which Escape clears
     const float l_SearchWidth = ImGui::GetFontSize() * c_SearchWidthInFonts;
+    const float l_Button = ImGui::GetFrameHeight();
     ImGui::SameLine();
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(ImGui::GetContentRegionAvail().x - l_SearchWidth, 0.0f));
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(ImGui::GetContentRegionAvail().x - l_SearchWidth - (l_Button + ImGui::GetStyle().ItemSpacing.x) * 2.0f, 0.0f));
+    DrawFilterMenu(l_Button);
+    ImGui::SameLine();
+    DrawSortMenu(l_Button);
+    ImGui::SameLine();
     ImGui::SetNextItemWidth(l_SearchWidth);
     if (std::exchange(m_FocusSearch, false))
     {
@@ -592,7 +752,75 @@ void ContentBrowserPanel::DrawToolbar()
     Trinity::Widgets::SearchField("##Search", "Search", m_Search, ImGuiInputTextFlags_EscapeClearsAll);
 }
 
-// Folders first, then files, by name. A search shows what it finds instead
+// The kinds of file to narrow the items to, any number of them, so the menu stays open as they are ticked
+void ContentBrowserPanel::DrawFilterMenu(float width)
+{
+    if (Trinity::Widgets::ToggleButton(std::format("{}##Filter", Trinity::Icons::c_Filter).c_str(), m_Filters != 0, ImVec2(width, 0.0f)))
+    {
+        ImGui::OpenPopup("##Filters");
+    }
+
+    ImGui::SetItemTooltip("%s", m_Filters != 0 ? "Only the kinds ticked are shown, from this folder and those in it" : "Show only some kinds of file");
+    if (!ImGui::BeginPopup("##Filters"))
+    {
+        return;
+    }
+
+    ImGui::PushItemFlag(ImGuiItemFlags_AutoClosePopups, false);
+    for (const KindChoice& it_Kind : c_Kinds)
+    {
+        const std::uint32_t l_Bit = 1u << static_cast<std::uint32_t>(it_Kind.Value);
+        if (ImGui::MenuItem(std::format("{} {}", it_Kind.Icon, it_Kind.Label).c_str(), nullptr, (m_Filters & l_Bit) != 0))
+        {
+            m_Filters ^= l_Bit;
+        }
+    }
+
+    ImGui::PopItemFlag();
+    ImGui::Separator();
+    if (ImGui::MenuItem("Show Every Kind", nullptr, false, m_Filters != 0))
+    {
+        m_Filters = 0;
+    }
+
+    ImGui::EndPopup();
+}
+
+// What the items are ordered by, and from which end. An order chosen starts from the end it is most wanted from
+void ContentBrowserPanel::DrawSortMenu(float width)
+{
+    if (ImGui::Button(std::format("{}##Sort", Trinity::Icons::c_Sort).c_str(), ImVec2(width, 0.0f)))
+    {
+        ImGui::OpenPopup("##Sort");
+    }
+
+    ImGui::SetItemTooltip("%s", std::format("Ordered by {}", std::ranges::find(c_Orders, m_Order, &OrderChoice::Value)->Label).c_str());
+    if (!ImGui::BeginPopup("##Sort"))
+    {
+        return;
+    }
+
+    for (const OrderChoice& it_Order : c_Orders)
+    {
+        if (ImGui::MenuItem(it_Order.Label, nullptr, m_Order == it_Order.Value) && m_Order != it_Order.Value)
+        {
+            m_Order = it_Order.Value;
+            m_Descending = it_Order.Descending;
+            ImGui::MarkIniSettingsDirty();
+        }
+    }
+
+    ImGui::Separator();
+    if (ImGui::MenuItem("Ascending", nullptr, !m_Descending) || ImGui::MenuItem("Descending", nullptr, m_Descending))
+    {
+        m_Descending = !m_Descending;
+        ImGui::MarkIniSettingsDirty();
+    }
+
+    ImGui::EndPopup();
+}
+
+// Folders first, then files, by name unless another order is chosen. A search or a filter shows what it finds instead
 void ContentBrowserPanel::DrawItems()
 {
     const ImGuiIO& l_IO = ImGui::GetIO();
@@ -613,7 +841,11 @@ void ContentBrowserPanel::DrawItems()
         }
     }
 
-    const std::vector<Item> l_Items = IsSearching() ? Search() : GetItems(m_Folder);
+    std::vector<Item> l_Items = IsSearching() ? Search() : GetItems(m_Folder);
+    if (m_Order != Order::Name || m_Descending)
+    {
+        SortItems(l_Items);
+    }
     if (IsListView())
     {
         const ImVec2 l_Row(ImGui::GetContentRegionAvail().x, ImGui::GetFrameHeight());
@@ -649,7 +881,7 @@ void ContentBrowserPanel::DrawItems()
 
     if (l_Items.empty())
     {
-        ImGui::TextDisabled(IsSearching() ? "Nothing matches the search" : "This folder is empty");
+        ImGui::TextDisabled(!m_Search.empty() ? "Nothing matches the search" : m_Filters != 0 ? "No file of the kinds ticked is here" : "This folder is empty");
     }
 
     DrawBackground();
@@ -1494,6 +1726,13 @@ void ContentBrowserPanel::ReadShortcuts()
         return;
     }
 
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Alt | ImGuiKey_LeftArrow) || ImGui::IsKeyChordPressed(ImGuiMod_Alt | ImGuiKey_RightArrow))
+    {
+        Go(ImGui::IsKeyDown(ImGuiKey_LeftArrow));
+
+        return;
+    }
+
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F))
     {
         m_FocusSearch = true;
@@ -1710,6 +1949,55 @@ void ContentBrowserPanel::OpenFolder(const std::string& folder)
     m_Search.clear();
 }
 
+// Back or Forward along the folders opened, past any that is no longer there
+void ContentBrowserPanel::Go(bool back)
+{
+    const Trinity::Project& l_Project = *m_Session.GetProject();
+    std::size_t l_At = m_HistoryAt;
+    while (back ? l_At > 0 : l_At + 1 < m_History.size())
+    {
+        l_At = back ? l_At - 1 : l_At + 1;
+        if (std::filesystem::is_directory(l_Project.ToNativePath(m_History[l_At])))
+        {
+            m_HistoryAt = l_At;
+            OpenFolder(m_History[l_At]);
+
+            return;
+        }
+    }
+}
+
+// Folders first whichever the order, and by name where the order tells two no further apart. From the far end, the folders too run backwards
+void ContentBrowserPanel::SortItems(std::vector<Item>& items) const
+{
+    std::ranges::stable_sort(items, [this](const Item& left, const Item& right)
+    {
+        if (left.Folder != right.Folder)
+        {
+            return left.Folder;
+        }
+
+        const Item& l_First = m_Descending ? right : left;
+        const Item& l_Second = m_Descending ? left : right;
+        if (m_Order == Order::Type && GetKind(l_First.Record, l_First.Name) != GetKind(l_Second.Record, l_Second.Name))
+        {
+            return GetKind(l_First.Record, l_First.Name) < GetKind(l_Second.Record, l_Second.Name);
+        }
+
+        if (m_Order == Order::Modified && l_First.Modified != l_Second.Modified)
+        {
+            return l_First.Modified < l_Second.Modified;
+        }
+
+        if (m_Order == Order::Size && l_First.Size != l_Second.Size)
+        {
+            return l_First.Size < l_Second.Size;
+        }
+
+        return LessIgnoringCase(l_First.Name, l_Second.Name);
+    });
+}
+
 bool ContentBrowserPanel::Reveal(Trinity::UUID asset)
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
@@ -1724,7 +2012,9 @@ bool ContentBrowserPanel::Reveal(Trinity::UUID asset)
         return false;
     }
 
+    // No filter is kept, which could leave the file out of what is shown
     OpenFolder(GetParent(l_Record->Path));
+    m_Filters = 0;
     m_Selected = l_Record->Path;
     m_AlsoSelected.clear();
     m_AlsoSelectedWith = m_Selected;
@@ -1876,9 +2166,12 @@ void ContentBrowserPanel::ReleaseAll()
     m_PrefabThumbnails.Clear();
     m_Listings.clear();
     m_Folder = std::string(Trinity::Project::c_AssetsMount);
+    m_History.clear();
+    m_HistoryAt = 0;
     m_Selected.clear();
     m_Renaming.clear();
     m_Search.clear();
+    m_Filters = 0;
 }
 
 bool ContentBrowserPanel::IsListView() const
@@ -1886,30 +2179,41 @@ bool ContentBrowserPanel::IsListView() const
     return m_ThumbnailSize < c_MinimumThumbnailSize;
 }
 
-// Read from disk once, and again after a scan, so drawing never touches the disk
-const std::vector<Trinity::DirectoryEntry>& ContentBrowserPanel::List(const std::string& folder)
+// Read from disk once, and again after a scan, so drawing never touches the disk. Each entry's date and size are read with it, for the orders that go by them
+const std::vector<ContentBrowserPanel::Listed>& ContentBrowserPanel::List(const std::string& folder)
 {
     const auto [a_Found, a_Inserted] = m_Listings.try_emplace(folder);
     if (a_Inserted)
     {
         if (const Trinity::Expected<std::vector<Trinity::DirectoryEntry>, Trinity::FileError> l_Entries = Trinity::FileSystem::List(folder))
         {
+            const Trinity::Project& l_Project = *m_Session.GetProject();
             for (const Trinity::DirectoryEntry& it_Entry : *l_Entries)
             {
-                if (!it_Entry.Name.starts_with('.') && !it_Entry.Name.ends_with(Trinity::AssetRegistry::c_MetaExtension))
+                if (it_Entry.Name.starts_with('.') || it_Entry.Name.ends_with(Trinity::AssetRegistry::c_MetaExtension))
                 {
-                    a_Found->second.push_back(it_Entry);
+                    continue;
                 }
+
+                // One that cannot be read keeps the oldest date and no size, and so sorts last
+                Listed l_Listed{ .Name = it_Entry.Name, .Folder = it_Entry.Type == Trinity::FileType::Directory, .Modified = std::filesystem::file_time_type::min(), .Size = 0 };
+                const std::filesystem::path l_Native = l_Project.ToNativePath(std::format("{}/{}", folder, it_Entry.Name));
+                std::error_code l_Error;
+                if (const std::filesystem::file_time_type l_Modified = std::filesystem::last_write_time(l_Native, l_Error); !l_Error)
+                {
+                    l_Listed.Modified = l_Modified;
+                }
+
+                if (const std::uintmax_t l_Size = l_Listed.Folder ? 0 : std::filesystem::file_size(l_Native, l_Error); !l_Listed.Folder && !l_Error)
+                {
+                    l_Listed.Size = l_Size;
+                }
+
+                a_Found->second.push_back(std::move(l_Listed));
             }
         }
 
-        std::ranges::sort(a_Found->second, [](const Trinity::DirectoryEntry& left, const Trinity::DirectoryEntry& right)
-        {
-            const bool l_LeftFolder = left.Type == Trinity::FileType::Directory;
-            const bool l_RightFolder = right.Type == Trinity::FileType::Directory;
-
-            return l_LeftFolder != l_RightFolder ? l_LeftFolder : LessIgnoringCase(left.Name, right.Name);
-        });
+        std::ranges::sort(a_Found->second, [](const Listed& left, const Listed& right) { return left.Folder != right.Folder ? left.Folder : LessIgnoringCase(left.Name, right.Name); });
     }
 
     return a_Found->second;
@@ -1919,13 +2223,15 @@ std::vector<ContentBrowserPanel::Item> ContentBrowserPanel::GetItems(const std::
 {
     const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
     std::vector<Item> l_Items;
-    for (const Trinity::DirectoryEntry& it_Entry : List(folder))
+    for (const Listed& it_Entry : List(folder))
     {
         Item l_Item;
         l_Item.Name = it_Entry.Name;
         l_Item.Path = std::format("{}/{}", folder, it_Entry.Name);
-        l_Item.Folder = it_Entry.Type == Trinity::FileType::Directory;
+        l_Item.Folder = it_Entry.Folder;
         l_Item.Record = !l_Item.Folder && l_Registry != nullptr ? l_Registry->FindByPath(l_Item.Path) : nullptr;
+        l_Item.Modified = it_Entry.Modified;
+        l_Item.Size = it_Entry.Size;
         l_Items.push_back(std::move(l_Item));
     }
 
@@ -1966,7 +2272,9 @@ void ContentBrowserPanel::FindMatches(const std::string& folder, std::vector<Ite
             FindMatches(it_Item.Path, matches);
         }
 
-        if (ContainsIgnoringCase(it_Item.Name, m_Search))
+        // A folder is of no kind, so with one ticked only files are found
+        const bool l_IsKind = m_Filters == 0 || (!it_Item.Folder && (m_Filters & (1u << static_cast<std::uint32_t>(GetKind(it_Item.Record, it_Item.Name)))) != 0);
+        if (l_IsKind && ContainsIgnoringCase(it_Item.Name, m_Search))
         {
             matches.push_back(std::move(it_Item));
         }

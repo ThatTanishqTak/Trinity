@@ -38,6 +38,10 @@ namespace Trinity
         constexpr const char* c_Music = "\uF001";
         constexpr const char* c_ArrowUp = "\uF062";
         constexpr const char* c_ArrowDown = "\uF063";
+        constexpr const char* c_ArrowLeft = "\uF060";
+        constexpr const char* c_ArrowRight = "\uF061";
+        constexpr const char* c_Filter = "\uF0B0";
+        constexpr const char* c_Sort = "\uF0DC";
         constexpr const char* c_ChevronLeft = "\uF053";
         constexpr const char* c_ChevronRight = "\uF054";
         constexpr const char* c_ChevronDown = "\uF078";
