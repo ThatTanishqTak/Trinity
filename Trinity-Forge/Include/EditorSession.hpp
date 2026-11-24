@@ -228,10 +228,12 @@ public:
     [[nodiscard]] std::string GetSceneName() const;
 
     // In prefab mode the open prefab's. Otherwise the scene's, which is kept while prefab mode is open
-    [[nodiscard]] Trinity::UUID GetSelection() const { return m_Stage ? m_Stage->Selection : m_Selection; }
+    [[nodiscard]] const EditorSelection& GetSelected() const { return m_Stage ? m_Stage->Selection : m_Selection; }
+    // The primary one of the entities selected, which is the only one while one is selected at a time
+    [[nodiscard]] Trinity::UUID GetSelection() const { return GetSelected().GetPrimary(); }
     void SetSelection(Trinity::UUID selection)
     {
-        (m_Stage ? m_Stage->Selection : m_Selection) = selection;
+        (m_Stage ? m_Stage->Selection : m_Selection).Set(selection);
         m_InspectedAsset = {};
         m_InspectingMixer = false;
     }
@@ -520,7 +522,7 @@ private:
         Trinity::UUID Prefab;
         std::string Text;
         Trinity::Scene Scene;
-        Trinity::UUID Selection;
+        EditorSelection Selection;
         CommandStack History{ Scene, Selection };
     };
 
@@ -627,7 +629,7 @@ private:
     bool m_Paused = false;
     bool m_StepRequested = false;
     std::string m_ScenePath;
-    Trinity::UUID m_Selection;
+    EditorSelection m_Selection;
     CommandStack m_History{ m_Scene, m_Selection };
     Trinity::UUID m_InspectedAsset;
     std::optional<CopiedEntity> m_CopiedEntity;

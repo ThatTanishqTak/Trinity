@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EditorSelection.hpp"
+
 #include <Trinity.hpp>
 
 #include <cstddef>
@@ -31,7 +33,7 @@ class CommandStack
 public:
     static constexpr std::size_t c_DefaultCapacity = std::size_t{ 64 } * 1024 * 1024;
 
-    CommandStack(Trinity::Scene& scene, Trinity::UUID& selection, std::size_t capacity = c_DefaultCapacity);
+    CommandStack(Trinity::Scene& scene, EditorSelection& selection, std::size_t capacity = c_DefaultCapacity);
 
     CommandStack(const CommandStack&) = delete;
     CommandStack& operator=(const CommandStack&) = delete;
@@ -82,7 +84,7 @@ private:
     void Trim();
 
     Trinity::Scene& m_Scene;
-    Trinity::UUID& m_Selection;
+    EditorSelection& m_Selection;
     std::deque<Trinity::Scope<EditorCommand>> m_Commands;
     std::size_t m_Position = 0;
     std::optional<std::size_t> m_SavedPosition = 0;

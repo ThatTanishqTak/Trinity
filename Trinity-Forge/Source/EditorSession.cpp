@@ -1939,14 +1939,10 @@ void EditorSession::UpdateChangedPrefabs()
     RestoreStandIns();
 
     // In prefab mode the scene's selection waits for it to close
-    if (m_Selection && !(m_Play ? GetScene() : m_Scene).FindEntityByUUID(m_Selection))
+    m_Selection.Prune(m_Play ? GetScene() : m_Scene);
+    if (m_Stage)
     {
-        m_Selection = {};
-    }
-
-    if (m_Stage && m_Stage->Selection && !m_Stage->Scene.FindEntityByUUID(m_Stage->Selection))
-    {
-        m_Stage->Selection = {};
+        m_Stage->Selection.Prune(m_Stage->Scene);
     }
 }
 
@@ -2115,8 +2111,8 @@ void EditorSession::RestoreStandIns()
                 }
 
                 it_Scene->DestroyEntity(it_StandIn);
-                Trinity::UUID& l_Selection = it_Scene == &m_Scene ? m_Selection : m_Stage->Selection;
-                l_Selection = l_Selection == l_Old ? l_Instance->GetUUID() : l_Selection;
+                EditorSelection& l_Selection = it_Scene == &m_Scene ? m_Selection : m_Stage->Selection;
+                l_Selection.Replace(l_Old, l_Instance->GetUUID());
                 ++l_Count;
             }
         }
@@ -2162,10 +2158,7 @@ void EditorSession::UpdatePrefabStage()
     }
     else
     {
-        if (!m_Stage->Scene.FindEntityByUUID(m_Stage->Selection))
-        {
-            m_Stage->Selection = {};
-        }
+        m_Stage->Selection.Prune(m_Stage->Scene);
 
         TR_INFO("Forge: prefab {} changed outside Forge, so prefab mode shows it as it is now", l_Record->Path);
     }
@@ -3007,10 +3000,7 @@ void EditorSession::UpdatePlay(Trinity::Timestep timestep)
         m_Play->Step();
     }
 
-    if (m_Selection && !GetScene().FindEntityByUUID(m_Selection))
-    {
-        m_Selection = {};
-    }
+    m_Selection.Prune(GetScene());
 }
 
 // The copy is the scene saved to the binary a cooked game loads and read back, keeping every UUID
@@ -3104,10 +3094,7 @@ void EditorSession::StopPlay()
     m_Paused = false;
     m_StepRequested = false;
     m_History.SetLocked(false);
-    if (!m_Scene.FindEntityByUUID(m_Selection))
-    {
-        m_Selection = {};
-    }
+    m_Selection.Prune(m_Scene);
 
     TR_INFO("Forge: stopped playing {}, which is as it was", GetSceneName());
 }
@@ -4783,7 +4770,7 @@ void EditorSession::OpenPrefab(Trinity::UUID prefab)
 
     l_Stage->Prefab = prefab;
     l_Stage->Text = std::move(*l_Text);
-    l_Stage->Selection = l_Stage->Scene.GetFirstRoot().GetUUID();
+    l_Stage->Selection.Set(l_Stage->Scene.GetFirstRoot().GetUUID());
     m_History.EndMerge();
     m_Stage = std::move(l_Stage);
     m_InspectedAsset = {};
@@ -4822,10 +4809,7 @@ bool EditorSession::SavePrefab()
         return false;
     }
 
-    if (m_Selection && !m_Scene.FindEntityByUUID(m_Selection))
-    {
-        m_Selection = {};
-    }
+    m_Selection.Prune(m_Scene);
 
     m_Stage->Text = *l_Text;
     m_Stage->History.MarkSaved();

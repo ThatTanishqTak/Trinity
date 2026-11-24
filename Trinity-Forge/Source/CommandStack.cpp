@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <utility>
 
-CommandStack::CommandStack(Trinity::Scene& scene, Trinity::UUID& selection, std::size_t capacity) : m_Scene(scene), m_Selection(selection), m_Capacity(capacity)
+CommandStack::CommandStack(Trinity::Scene& scene, EditorSelection& selection, std::size_t capacity) : m_Scene(scene), m_Selection(selection), m_Capacity(capacity)
 {
 
 }
@@ -162,7 +162,7 @@ bool CommandStack::RefuseLocked(bool changesScene)
     return true;
 }
 
-// What the command touched, while it is in the scene. A deleted entity leaves nothing selected
+// What the command touched, alone, while it is in the scene. A deleted entity leaves nothing selected
 void CommandStack::Select(const EditorCommand& command)
 {
     if (!command.SelectsSubject())
@@ -171,7 +171,7 @@ void CommandStack::Select(const EditorCommand& command)
     }
 
     const Trinity::UUID l_Subject = command.GetSubject();
-    m_Selection = m_Scene.FindEntityByUUID(l_Subject) ? l_Subject : Trinity::UUID();
+    m_Selection.Set(m_Scene.FindEntityByUUID(l_Subject) ? l_Subject : Trinity::UUID());
 }
 
 // A saved state among the dropped commands can no longer be reached
