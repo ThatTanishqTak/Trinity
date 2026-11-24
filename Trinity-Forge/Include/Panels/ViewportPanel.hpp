@@ -81,8 +81,10 @@ private:
     [[nodiscard]] Glide GetFramedGlide(glm::vec2 viewportSize);
     [[nodiscard]] Trinity::Entity PickLight(glm::vec2 mouse, glm::vec2 viewportSize);
     [[nodiscard]] Trinity::UUID PickAudioIcon(glm::vec2 mouse) const;
-    void RequestPick(glm::vec2 mouse, glm::vec2 viewportSize);
+    void RequestPick(glm::vec2 mouse, glm::vec2 viewportSize, bool toggle);
     void ApplyPick();
+    void SelectPicked(Trinity::UUID entity, bool toggle);
+    void UpdateBoxSelect(glm::vec2 imageMin, glm::vec2 viewportSize);
     [[nodiscard]] std::vector<std::uint32_t> GetOutlined();
     void AcceptAssetDrop(glm::vec2 imageMin, glm::vec2 viewportSize);
     void DrawOverlays(ImDrawList& drawList, glm::vec2 imageMin, glm::vec2 viewportSize);
@@ -131,6 +133,10 @@ private:
     // A click's pixel, picked through the entity IDs the next frame draws, and the picks pending
     std::optional<glm::uvec2> m_PickPixel;
     std::uint32_t m_PicksPending = 0;
+    // Whether the last click held Ctrl or Shift, so its pick joins or leaves the selection
+    bool m_PickToggles = false;
+    // Where a left press landed on the image, in its pixels, while the button stays down: a drag from it boxes entities
+    std::optional<glm::vec2> m_BoxStart;
     bool m_LightHeatmap = false;
     // Every collider and joint, and while playing where bodies touch, not the selection's alone
     bool m_PhysicsDebug = false;

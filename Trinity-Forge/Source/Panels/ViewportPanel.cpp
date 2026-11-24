@@ -33,6 +33,8 @@ namespace
     constexpr double c_SettleSeconds = 0.1;
     constexpr double c_CameraSaveSeconds = 0.5;
     constexpr float c_StatsMargin = 8.0f;
+    // How much of the accent fills the box a drag selects with
+    constexpr float c_BoxSelectFill = 0.15f;
 
     constexpr ImU32 c_CameraOutlineColor = IM_COL32(255, 255, 255, 200);
 
@@ -653,6 +655,8 @@ void ViewportPanel::OnImGuiRender()
         HandleInput(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize, ImGui::IsWindowHovered(), l_Focused);
     }
 
+    UpdateBoxSelect(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
+
     if (const std::optional<bool> l_Request = std::exchange(m_FrameRequest, std::nullopt))
     {
         Frame(l_ViewportSize, *l_Request);
@@ -836,17 +840,20 @@ void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool
         HandleGizmoKeys();
     }
 
-    // A click on the gizmo is the gizmo's, not a pick. An audio icon is picked at once
+    // A click on the gizmo is the gizmo's, not a pick. An audio icon is picked at once. Ctrl or Shift adds to the selection or takes from it
     if (hovered && !m_GizmoHovered && !m_GizmoDragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
+        const bool l_Toggle = l_IO.KeyCtrl || l_IO.KeyShift;
         if (const Trinity::UUID l_Icon = PickAudioIcon(l_Mouse))
         {
-            m_Session.SetSelection(l_Icon);
+            SelectPicked(l_Icon, l_Toggle);
         }
         else
         {
-            RequestPick(l_Mouse, viewportSize);
+            RequestPick(l_Mouse, viewportSize, l_Toggle);
         }
+
+        m_BoxStart = l_Mouse;
     }
 }
 
@@ -955,18 +962,21 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
     // A click on the gizmo, or with Alt held, is no pick. Light markers and audio icons pick at once
     if (hovered && !l_IO.KeyAlt && !m_GizmoHovered && !m_GizmoDragging && !m_OrientationHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
+        const bool l_Toggle = l_IO.KeyCtrl || l_IO.KeyShift;
         if (const Trinity::Entity l_Light = PickLight(l_Mouse, viewportSize))
         {
-            m_Session.SetSelection(l_Light.GetUUID());
+            SelectPicked(l_Light.GetUUID(), l_Toggle);
         }
         else if (const Trinity::UUID l_Icon = PickAudioIcon(l_Mouse))
         {
-            m_Session.SetSelection(l_Icon);
+            SelectPicked(l_Icon, l_Toggle);
         }
         else
         {
-            RequestPick(l_Mouse, viewportSize);
+            RequestPick(l_Mouse, viewportSize, l_Toggle);
         }
+
+        m_BoxStart = l_Mouse;
     }
 }
 
@@ -1036,7 +1046,7 @@ Trinity::UUID ViewportPanel::PickAudioIcon(glm::vec2 mouse) const
 }
 
 // Read from the entity IDs the next frame draws. The answer comes back a frame or two later
-void ViewportPanel::RequestPick(glm::vec2 mouse, glm::vec2 viewportSize)
+void ViewportPanel::RequestPick(glm::vec2 mouse, glm::vec2 viewportSize, bool toggle)
 {
     if (mouse.x < 0.0f || mouse.y < 0.0f || mouse.x >= viewportSize.x || mouse.y >= viewportSize.y)
     {
@@ -1044,6 +1054,7 @@ void ViewportPanel::RequestPick(glm::vec2 mouse, glm::vec2 viewportSize)
     }
 
     m_PickPixel = glm::uvec2(mouse);
+    m_PickToggles = toggle;
     ++m_PicksPending;
 }
 
@@ -1059,10 +1070,83 @@ void ViewportPanel::ApplyPick()
     --m_PicksPending;
     Trinity::Scene& l_Scene = m_Session.GetScene();
     const bool l_Valid = l_Result->Entity != entt::null && l_Scene.GetRegistry().valid(l_Result->Entity);
-    m_Session.SetSelection(l_Valid ? Trinity::Entity(l_Result->Entity, &l_Scene).GetUUID() : Trinity::UUID());
+    SelectPicked(l_Valid ? Trinity::Entity(l_Result->Entity, &l_Scene).GetUUID() : Trinity::UUID(), m_PickToggles);
 }
 
-// The selected entity and everything under it, and what the Hierarchy's search matches
+// A click's: the entity alone, or with Ctrl or Shift in or out of what is selected. With either held, a click on nothing changes nothing
+void ViewportPanel::SelectPicked(Trinity::UUID entity, bool toggle)
+{
+    if (!toggle)
+    {
+        m_Session.SetSelection(entity);
+    }
+    else if (entity)
+    {
+        m_Session.ToggleSelection(entity);
+    }
+}
+
+// A left drag that began on the image, off the gizmo, draws a box, and on release selects the entities whose origins are in it. With Ctrl or Shift they join the selection
+void ViewportPanel::UpdateBoxSelect(glm::vec2 imageMin, glm::vec2 viewportSize)
+{
+    if (!m_BoxStart)
+    {
+        return;
+    }
+
+    if (m_GizmoDragging)
+    {
+        m_BoxStart.reset();
+
+        return;
+    }
+
+    const ImGuiIO& l_IO = ImGui::GetIO();
+    const glm::vec2 l_Mouse = glm::clamp(glm::vec2(l_IO.MousePos.x, l_IO.MousePos.y) - imageMin, glm::vec2(0.0f), viewportSize);
+    const glm::vec2 l_Min = glm::min(*m_BoxStart, l_Mouse);
+    const glm::vec2 l_Max = glm::max(*m_BoxStart, l_Mouse);
+    const bool l_Dragged = glm::distance(*m_BoxStart, l_Mouse) > l_IO.MouseDragThreshold;
+    if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+    {
+        if (l_Dragged)
+        {
+            ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+            const ImVec2 l_From(imageMin.x + l_Min.x, imageMin.y + l_Min.y);
+            const ImVec2 l_To(imageMin.x + l_Max.x, imageMin.y + l_Max.y);
+            l_DrawList.AddRectFilled(l_From, l_To, Trinity::Theme::GetColorU32(Trinity::ThemeColor::Accent, c_BoxSelectFill));
+            l_DrawList.AddRect(l_From, l_To, Trinity::Theme::GetColorU32(Trinity::ThemeColor::Accent));
+        }
+
+        return;
+    }
+
+    m_BoxStart.reset();
+    if (!l_Dragged)
+    {
+        return;
+    }
+
+    // The press asked for a pick, whose answer may still be on its way and would undo the box's
+    m_PickPixel.reset();
+    m_PicksPending = 0;
+
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    std::vector<Trinity::UUID> l_Boxed = l_IO.KeyCtrl || l_IO.KeyShift ? m_Session.GetSelected().GetEntities() : std::vector<Trinity::UUID>();
+    const glm::mat4 l_ViewProjection = m_Camera3D.GetProjection(viewportSize) * m_Camera3D.GetView();
+    for (const auto [it_Entity, it_World] : l_Scene.GetRegistry().view<Trinity::WorldTransformComponent>().each())
+    {
+        const glm::vec3 l_Origin(it_World.Matrix[3]);
+        const std::optional<glm::vec2> l_Pixel = m_Mode3D ? ProjectPoint(l_ViewProjection, l_Origin, viewportSize) : std::optional<glm::vec2>(m_Camera.WorldToScreen(glm::vec2(l_Origin), viewportSize));
+        if (l_Pixel && l_Pixel->x >= l_Min.x && l_Pixel->x <= l_Max.x && l_Pixel->y >= l_Min.y && l_Pixel->y <= l_Max.y)
+        {
+            l_Boxed.push_back(Trinity::Entity(it_Entity, &l_Scene).GetUUID());
+        }
+    }
+
+    m_Session.SetSelection(std::move(l_Boxed));
+}
+
+// Every selected entity and everything under each, and what the Hierarchy's search matches
 std::vector<std::uint32_t> ViewportPanel::GetOutlined()
 {
     std::vector<std::uint32_t> l_Outlined;
@@ -1078,13 +1162,15 @@ std::vector<std::uint32_t> ViewportPanel::GetOutlined()
         }
     }
 
-    const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(m_Session.GetSelection());
-    if (!l_Selected)
+    std::vector<Trinity::Entity> l_Pending;
+    for (const Trinity::UUID it_Selected : m_Session.GetSelected().GetEntities())
     {
-        return l_Outlined;
+        if (const Trinity::Entity l_Selected = l_Scene.FindEntityByUUID(it_Selected))
+        {
+            l_Pending.push_back(l_Selected);
+        }
     }
 
-    std::vector<Trinity::Entity> l_Pending{ l_Selected };
     while (!l_Pending.empty())
     {
         const Trinity::Entity l_Entity = l_Pending.back();
