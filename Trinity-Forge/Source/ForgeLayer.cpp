@@ -206,6 +206,15 @@ void ForgeLayer::OnAttach()
     // Docked after the Console, so it is the tab the default layout shows
     Trinity::Scope<ContentBrowserPanel> l_ContentBrowser = Trinity::CreateScope<ContentBrowserPanel>(m_Session);
     m_ContentBrowser = l_ContentBrowser.get();
+    // Locate in Content Browser, on an asset slot of Properties, shows the asset there, bringing it forward
+    m_PropertiesPanel->SetLocateAsset([this](Trinity::UUID asset)
+    {
+        if (m_ContentBrowser->Reveal(asset))
+        {
+            m_ContentBrowser->SetOpen(true);
+            m_ContentBrowser->RequestFocus();
+        }
+    });
     // Find References In Scene shows its finds in the Hierarchy's search, bringing it forward
     m_ContentBrowser->SetFindReferences([this](std::string search)
     {

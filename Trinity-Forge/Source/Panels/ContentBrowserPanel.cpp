@@ -644,6 +644,9 @@ void ContentBrowserPanel::DrawItems()
         SelectRange(l_Items, *l_RangeTo);
     }
 
+    // Let go of where the item was not among those drawn, so no later frame scrolls to it unasked
+    m_ScrollToSelected = false;
+
     if (l_Items.empty())
     {
         ImGui::TextDisabled(IsSearching() ? "Nothing matches the search" : "This folder is empty");
@@ -660,6 +663,11 @@ void ContentBrowserPanel::DrawItem(const Item& item, ImVec2 size)
     const bool l_List = IsListView();
     const ImVec2 l_Min = ImGui::GetCursorScreenPos();
     ImGui::InvisibleButton("##Item", size);
+    if (m_ScrollToSelected && item.Path == m_Selected)
+    {
+        ImGui::SetScrollHereY();
+    }
+
     const bool l_Visible = ImGui::IsItemVisible();
     const bool l_Hovered = ImGui::IsItemHovered();
 
@@ -1700,6 +1708,30 @@ void ContentBrowserPanel::OpenFolder(const std::string& folder)
 {
     m_Folder = folder;
     m_Search.clear();
+}
+
+bool ContentBrowserPanel::Reveal(Trinity::UUID asset)
+{
+    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+    const Trinity::AssetRecord* l_Record = l_Registry != nullptr ? l_Registry->Find(asset) : nullptr;
+    if (l_Record != nullptr && l_Record->Parent)
+    {
+        l_Record = l_Registry->Find(l_Record->Parent);
+    }
+
+    if (l_Record == nullptr || FindRoot(l_Record->Path) == nullptr)
+    {
+        return false;
+    }
+
+    OpenFolder(GetParent(l_Record->Path));
+    m_Selected = l_Record->Path;
+    m_AlsoSelected.clear();
+    m_AlsoSelectedWith = m_Selected;
+    m_SelectionAnchor = m_Selected;
+    m_ScrollToSelected = true;
+
+    return true;
 }
 
 void ContentBrowserPanel::BeginRename(const Item& item)

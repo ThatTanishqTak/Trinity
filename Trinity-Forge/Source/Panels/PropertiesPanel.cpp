@@ -47,6 +47,8 @@ namespace
     constexpr float c_ComponentChoiceLines = 16.0f;
     constexpr const char* c_ScriptAssetPickerPopup = "##ScriptAssetPicker";
     constexpr const char* c_UnappliedPopup = "Unapplied Import Settings###ForgeUnappliedSettings";
+    // A texture's picture in its slot's tooltip is this many font sizes along its longer side
+    constexpr float c_SlotPreviewInFonts = 10.0f;
 
     // Components with an editor of their own here. Transform is never removed, and Tag is the name
     constexpr std::array<std::string_view, 27> c_EditedComponents{ Trinity::TagComponent::c_TypeName, Trinity::TransformComponent::c_TypeName, Trinity::CameraComponent::c_TypeName, Trinity::SpriteRendererComponent::c_TypeName, Trinity::MeshRendererComponent::c_TypeName, Trinity::LightComponent::c_TypeName, Trinity::EnvironmentComponent::c_TypeName, Trinity::RigidBodyComponent::c_TypeName, Trinity::BoxColliderComponent::c_TypeName, Trinity::SphereColliderComponent::c_TypeName, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::CylinderColliderComponent::c_TypeName, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::MeshColliderComponent::c_TypeName, Trinity::CharacterControllerComponent::c_TypeName, Trinity::JointComponent::c_TypeName, Trinity::RigidBody2DComponent::c_TypeName, Trinity::BoxCollider2DComponent::c_TypeName, Trinity::CircleCollider2DComponent::c_TypeName, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::CharacterController2DComponent::c_TypeName, Trinity::Joint2DComponent::c_TypeName, Trinity::AudioSourceComponent::c_TypeName, Trinity::AudioListenerComponent::c_TypeName, Trinity::UIDocumentComponent::c_TypeName, Trinity::ScriptComponent::c_TypeName };
@@ -482,6 +484,42 @@ namespace
         }
 
         return { GetAssetName(*l_Record), l_Record->Path, false };
+    }
+
+    // The texture, where the asset is one already loaded and uploaded, as a scene's and a material's are. Nothing is loaded for the look of a slot
+    const Trinity::TextureAsset* FindLoadedTexture(Trinity::UUID id)
+    {
+        const Trinity::Asset* l_Loaded = id.IsValid() && Trinity::AssetManager::GetState(id) == Trinity::AssetState::Ready ? Trinity::AssetManager::GetAsset(id) : nullptr;
+        const Trinity::TextureAsset* l_Texture = l_Loaded != nullptr && l_Loaded->GetAssetType() == Trinity::TextureAsset::c_AssetType ? static_cast<const Trinity::TextureAsset*>(l_Loaded) : nullptr;
+
+        return l_Texture != nullptr && l_Texture->GetTexture() && l_Texture->GetShaderResourceIndex() != Trinity::RHI::c_NoBindlessIndex ? l_Texture : nullptr;
+    }
+
+    // Over a slot's button: what the slot holds, or the hint of what it takes, and under it a loaded texture's picture and size
+    void DrawSlotTooltip(const SlotText& slot, const char* hint, const Trinity::TextureAsset* texture)
+    {
+        const char* l_Text = !slot.Tooltip.empty() ? slot.Tooltip.c_str() : hint;
+        const bool l_HasText = l_Text != nullptr && l_Text[0] != '\0';
+        if ((!l_HasText && texture == nullptr) || !ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) || !ImGui::BeginTooltip())
+        {
+            return;
+        }
+
+        if (l_HasText)
+        {
+            ImGui::TextUnformatted(l_Text);
+        }
+
+        if (texture != nullptr && texture->GetWidth() > 0 && texture->GetHeight() > 0)
+        {
+            const float l_Width = static_cast<float>(texture->GetWidth());
+            const float l_Height = static_cast<float>(texture->GetHeight());
+            const float l_Scale = ImGui::GetFontSize() * c_SlotPreviewInFonts / std::max(l_Width, l_Height);
+            ImGui::Image(ImTextureRef(static_cast<ImTextureID>(Trinity::GetImGuiTextureID(*texture))), ImVec2(std::max(l_Width * l_Scale, 1.0f), std::max(l_Height * l_Scale, 1.0f)));
+            ImGui::TextDisabled("%u x %u", texture->GetWidth(), texture->GetHeight());
+        }
+
+        ImGui::EndTooltip();
     }
 
     // As an asset slot's: the entity's name, what an empty slot means, or a warning if it is gone
@@ -2366,8 +2404,17 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
     const SlotText l_Slot = DescribeAssetSlot(l_Registry, assetType, current);
 
     Label(label);
+
+    // A texture that is loaded goes before its name, as a material's maps do
     const float l_ClearWidth = ImGui::GetFrameHeight();
-    const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_ClearWidth - ImGui::GetStyle().ItemSpacing.x - reserve, 1.0f);
+    const Trinity::TextureAsset* l_Texture = FindLoadedTexture(current);
+    if (l_Texture != nullptr)
+    {
+        ImGui::Image(ImTextureRef(static_cast<ImTextureID>(Trinity::GetImGuiTextureID(*l_Texture))), ImVec2(l_ClearWidth, l_ClearWidth));
+        ImGui::SameLine();
+    }
+
+    const float l_Width = std::max(ImGui::GetContentRegionAvail().x - (l_ClearWidth + ImGui::GetStyle().ItemSpacing.x) * 2.0f - reserve, 1.0f);
     PushSlotColor(l_Slot);
     const bool l_Clicked = ImGui::Button(std::format("{}###{}", l_Slot.Text, label).c_str(), ImVec2(l_Width, 0.0f));
     PopSlotColor(l_Slot);
@@ -2377,10 +2424,7 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
         ImGui::OpenPopup(popup);
     }
 
-    if (ImGui::IsItemHovered())
-    {
-        ImGui::SetTooltip("%s", l_Slot.Tooltip.empty() ? hint : l_Slot.Tooltip.c_str());
-    }
+    DrawSlotTooltip(l_Slot, hint, l_Texture);
 
     if (ImGui::BeginDragDropTarget())
     {
@@ -2397,6 +2441,7 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
         ImGui::EndDragDropTarget();
     }
 
+    DrawSlotLocate(label, current, l_ClearWidth);
     ImGui::SameLine();
     ImGui::BeginDisabled(!current);
     if (ImGui::Button(std::format("{}##Clear{}", Trinity::Icons::c_TimesCircle, label).c_str(), ImVec2(l_ClearWidth, 0.0f)))
@@ -2407,6 +2452,36 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
     ImGui::EndDisabled();
 
     DrawAssetPicker(popup, assetType, current, set);
+}
+
+// After a slot's button, which is the last item: Locate and Copy Path on a right-click of it, then beside it the button that shows what the slot holds in the Content Browser. A mesh built into the engine is in no folder, so neither is offered for it
+void PropertiesPanel::DrawSlotLocate(const char* id, Trinity::UUID current, float width)
+{
+    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
+    const Trinity::AssetRecord* l_Record = l_Registry != nullptr && current ? l_Registry->Find(current) : nullptr;
+    const std::string l_Menu = std::format("##SlotMenu{}", id);
+    bool l_Locate = false;
+    ImGui::OpenPopupOnItemClick(l_Menu.c_str(), ImGuiPopupFlags_MouseButtonRight);
+    if (ImGui::BeginPopup(l_Menu.c_str()))
+    {
+        l_Locate = ImGui::MenuItem(std::format("{} Locate in Content Browser", Trinity::Icons::c_Search).c_str(), nullptr, false, l_Record != nullptr);
+        if (ImGui::MenuItem(std::format("{} Copy Path", Trinity::Icons::c_Copy).c_str(), nullptr, false, l_Record != nullptr))
+        {
+            ImGui::SetClipboardText(l_Record->Path.c_str());
+        }
+
+        ImGui::EndPopup();
+    }
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(l_Record == nullptr);
+    l_Locate = ImGui::Button(std::format("{}##Locate{}", Trinity::Icons::c_Search, id).c_str(), ImVec2(width, 0.0f)) || l_Locate;
+    ImGui::SetItemTooltip("Locate in Content Browser");
+    ImGui::EndDisabled();
+    if (l_Locate && l_Record != nullptr && m_LocateAsset)
+    {
+        m_LocateAsset(current);
+    }
 }
 
 // The project's assets of one type, or all, by path, under headings, narrowed by what is typed
@@ -5507,9 +5582,8 @@ void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, c
 
         // The thumbnail only for a texture already loaded, which the material keeps loaded
         const float l_Size = ImGui::GetFrameHeight();
-        const Trinity::Asset* l_Loaded = l_Slot.Texture.IsValid() && Trinity::AssetManager::GetState(l_Slot.Texture) == Trinity::AssetState::Ready ? Trinity::AssetManager::GetAsset(l_Slot.Texture) : nullptr;
-        const Trinity::TextureAsset* l_Texture = l_Loaded != nullptr && l_Loaded->GetAssetType() == Trinity::TextureAsset::c_AssetType ? static_cast<const Trinity::TextureAsset*>(l_Loaded) : nullptr;
-        if (l_Texture != nullptr && l_Texture->GetTexture() && l_Texture->GetShaderResourceIndex() != Trinity::RHI::c_NoBindlessIndex)
+        const Trinity::TextureAsset* l_Texture = FindLoadedTexture(l_Slot.Texture);
+        if (l_Texture != nullptr)
         {
             ImGui::Image(ImTextureRef(static_cast<ImTextureID>(Trinity::GetImGuiTextureID(*l_Texture))), ImVec2(l_Size, l_Size));
         }
@@ -5521,7 +5595,7 @@ void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, c
         ImGui::SameLine();
         const SlotText l_Text = DescribeAssetSlot(l_Registry, Trinity::TextureAsset::c_AssetType, l_Slot.Texture);
         const float l_UVWidth = ImGui::GetFontSize() * 3.5f;
-        const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_Size - l_UVWidth - ImGui::GetStyle().ItemSpacing.x * 2.0f, 1.0f);
+        const float l_Width = std::max(ImGui::GetContentRegionAvail().x - l_Size * 2.0f - l_UVWidth - ImGui::GetStyle().ItemSpacing.x * 3.0f, 1.0f);
         const std::string l_Popup = std::format("##Pick{}", it_Slot.Texture);
         PushSlotColor(l_Text);
         const bool l_Clicked = ImGui::Button(std::format("{}###Texture", l_Text.Text).c_str(), ImVec2(l_Width, 0.0f));
@@ -5532,10 +5606,7 @@ void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, c
             ImGui::OpenPopup(l_Popup.c_str());
         }
 
-        if (!l_Text.Tooltip.empty() && ImGui::IsItemHovered())
-        {
-            ImGui::SetTooltip("%s", l_Text.Tooltip.c_str());
-        }
+        DrawSlotTooltip(l_Text, nullptr, l_Texture);
 
         if (ImGui::BeginDragDropTarget())
         {
@@ -5552,6 +5623,7 @@ void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, c
             ImGui::EndDragDropTarget();
         }
 
+        DrawSlotLocate("Texture", l_Slot.Texture, l_Size);
         ImGui::SameLine();
         ImGui::BeginDisabled(!l_Slot.Texture);
         if (ImGui::Button(std::format("{}##Clear", Trinity::Icons::c_TimesCircle).c_str(), ImVec2(l_Size, 0.0f)))

@@ -29,6 +29,8 @@ public:
     void DrawPopups();
     // Brings the Console forward, as a stopped script's badge does when clicked
     void SetShowConsole(std::function<void()> showConsole) { m_ShowConsole = std::move(showConsole); }
+    // Where an asset slot's Locate in Content Browser shows what the slot holds
+    void SetLocateAsset(std::function<void(Trinity::UUID asset)> locate) { m_LocateAsset = std::move(locate); }
 
 protected:
     void OnImGuiRender() override;
@@ -83,6 +85,7 @@ private:
     template<typename T>
     void DrawShapeSlot(Trinity::Entity entity, Trinity::CollisionShapeKind kind, const char* popup, const char* hint);
     void DrawAssetPicker(const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& pick);
+    void DrawSlotLocate(const char* id, Trinity::UUID current, float width);
     void DrawAssetSlot(const char* label, const char* popup, std::string_view assetType, Trinity::UUID current, const std::function<void(Trinity::UUID)>& set, const char* hint, float reserve = 0.0f);
     void DrawOtherComponents(Trinity::Entity entity);
     void DrawAddComponent(Trinity::Entity entity);
@@ -134,6 +137,7 @@ private:
     int m_ComponentHighlight = 0;
     bool m_ScrollToHighlight = false;
     std::function<void()> m_ShowConsole;
+    std::function<void(Trinity::UUID asset)> m_LocateAsset;
     Trinity::UUID m_EulerEntity;
     glm::quat m_EulerRotation = glm::identity<glm::quat>();
     glm::vec3 m_EulerDegrees{ 0.0f };
