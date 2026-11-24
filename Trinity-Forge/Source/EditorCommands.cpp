@@ -1157,6 +1157,49 @@ std::size_t DuplicateEntityCommand::GetMemorySize() const
     return sizeof(*this) + m_Text.capacity() + m_Label.capacity();
 }
 
+GroupCommand::GroupCommand(std::string label, std::vector<Trinity::Scope<EditorCommand>> commands) : m_Label(std::move(label)), m_Commands(std::move(commands))
+{
+
+}
+
+bool GroupCommand::Execute(Trinity::Scene& scene)
+{
+    std::erase_if(m_Commands, [&scene](const Trinity::Scope<EditorCommand>& command) { return !command->Execute(scene); });
+
+    return !m_Commands.empty();
+}
+
+void GroupCommand::Undo(Trinity::Scene& scene)
+{
+    for (auto it_Command = m_Commands.rbegin(); it_Command != m_Commands.rend(); ++it_Command)
+    {
+        (*it_Command)->Undo(scene);
+    }
+}
+
+std::vector<Trinity::UUID> GroupCommand::GetSubjects() const
+{
+    std::vector<Trinity::UUID> l_Subjects;
+    l_Subjects.reserve(m_Commands.size());
+    for (const Trinity::Scope<EditorCommand>& it_Command : m_Commands)
+    {
+        l_Subjects.push_back(it_Command->GetSubject());
+    }
+
+    return l_Subjects;
+}
+
+std::size_t GroupCommand::GetMemorySize() const
+{
+    std::size_t l_Size = sizeof(*this) + m_Label.capacity() + m_Commands.capacity() * sizeof(Trinity::Scope<EditorCommand>);
+    for (const Trinity::Scope<EditorCommand>& it_Command : m_Commands)
+    {
+        l_Size += it_Command->GetMemorySize();
+    }
+
+    return l_Size;
+}
+
 PasteEntityCommand::PasteEntityCommand(std::string text, Trinity::UUID parent, Trinity::UUID before, std::optional<Trinity::TransformComponent> world) : m_Text(std::move(text)), m_Parent(parent), m_Before(before), m_World(world)
 {
 

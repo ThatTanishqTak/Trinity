@@ -68,6 +68,7 @@ private:
     void UpdateSlowClick(Trinity::Scene& scene);
 
     void Select(Trinity::UUID entity);
+    void SelectRange(Trinity::UUID entity);
     void BeginRename(Trinity::Entity entity);
     void Create(Trinity::UUID parent);
     void Move(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before);
@@ -85,6 +86,8 @@ private:
     double m_SlowClickTime = 0.0;
     // The row a left press landed on, which it selects once released without a drag
     Trinity::UUID m_Pressed;
+    // The row last selected without Shift, which a Shift-click selects from
+    Trinity::UUID m_SelectionAnchor;
     // The search text, and while there is any, the entities it matches and those shown with parents
     std::string m_Search;
     std::unordered_set<Trinity::UUID> m_Matched;

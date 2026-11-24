@@ -9,6 +9,7 @@
 #include <deque>
 #include <optional>
 #include <string>
+#include <vector>
 
 class EditorCommand
 {
@@ -25,6 +26,8 @@ public:
 
     [[nodiscard]] virtual std::string GetName() const = 0;
     [[nodiscard]] virtual Trinity::UUID GetSubject() const = 0;
+    // Every one of them for a command that touched several, the last being the one the history makes the primary
+    [[nodiscard]] virtual std::vector<Trinity::UUID> GetSubjects() const { return { GetSubject() }; }
     [[nodiscard]] virtual std::size_t GetMemorySize() const = 0;
 };
 

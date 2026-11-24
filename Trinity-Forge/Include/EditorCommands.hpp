@@ -394,6 +394,25 @@ private:
     std::string m_Label;
 };
 
+// Several commands as one step in the history: run in order and undone in reverse. One that changes nothing is left out, and a group with none left is not kept
+class GroupCommand final : public EditorCommand
+{
+public:
+    GroupCommand(std::string label, std::vector<Trinity::Scope<EditorCommand>> commands);
+
+    [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
+    void Undo(Trinity::Scene& scene) override;
+
+    [[nodiscard]] std::string GetName() const override { return m_Label; }
+    [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Commands.empty() ? Trinity::UUID() : m_Commands.back()->GetSubject(); }
+    [[nodiscard]] std::vector<Trinity::UUID> GetSubjects() const override;
+    [[nodiscard]] std::size_t GetMemorySize() const override;
+
+private:
+    std::string m_Label;
+    std::vector<Trinity::Scope<EditorCommand>> m_Commands;
+};
+
 // From the text Copy took, with new UUIDs, links inside the copy naming the copy, as Duplicate
 class PasteEntityCommand final : public EditorCommand
 {

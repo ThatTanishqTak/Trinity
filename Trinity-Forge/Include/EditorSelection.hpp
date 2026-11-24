@@ -17,6 +17,8 @@ public:
 
     // The entity alone, or nothing for the invalid UUID
     void Set(Trinity::UUID entity);
+    // These alone, in this order, so the last is the primary. An invalid UUID is passed over, and so is a repeat but for its place
+    void Set(std::vector<Trinity::UUID> entities);
     // Makes the entity the primary, whether or not it was selected already
     void Add(Trinity::UUID entity);
     void Remove(Trinity::UUID entity);

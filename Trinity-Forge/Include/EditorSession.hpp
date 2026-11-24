@@ -238,6 +238,22 @@ public:
         m_InspectingMixer = false;
     }
 
+    // These alone, the last of them the primary, as a Shift-click selects a run of rows
+    void SetSelection(std::vector<Trinity::UUID> entities)
+    {
+        (m_Stage ? m_Stage->Selection : m_Selection).Set(std::move(entities));
+        m_InspectedAsset = {};
+        m_InspectingMixer = false;
+    }
+
+    // A Ctrl-click's: in as the primary if it was out, and out if it was in
+    void ToggleSelection(Trinity::UUID entity)
+    {
+        (m_Stage ? m_Stage->Selection : m_Selection).Toggle(entity);
+        m_InspectedAsset = {};
+        m_InspectingMixer = false;
+    }
+
     // An asset inspected, or the Audio Mixer panel's group or effect, takes Properties from the other
     [[nodiscard]] Trinity::UUID GetInspectedAsset() const { return m_InspectedAsset; }
     void SetInspectedAsset(Trinity::UUID asset)
@@ -415,6 +431,9 @@ public:
     bool DuplicateEntity(Trinity::UUID entity);
     // In one command, as the Delete key and the Hierarchy's menu ask
     bool DeleteEntity(Trinity::UUID entity);
+    // The same for every selected entity that no other selected one holds, as one command to undo
+    bool DuplicateSelection();
+    bool DeleteSelection();
     // A sprite of the texture at the point, its size in units, in one command
     bool CreateSprite(std::string name, Trinity::UUID texture, glm::vec3 position, glm::vec2 size);
     // Plays the clip or event as the scene starts. At the point if given, else at the parent's origin
@@ -560,6 +579,8 @@ private:
     void WriteRecentScenes() const;
     void RememberScene();
     bool PasteEntityAt(Trinity::UUID parent, Trinity::UUID before);
+    // The selected entities none of whose ancestors is selected too, in the order they were picked
+    [[nodiscard]] std::vector<Trinity::UUID> GetSelectedRoots();
     [[nodiscard]] bool CanTakeChildren(Trinity::UUID parent);
     [[nodiscard]] Place FindPlace(Trinity::UUID parent, Trinity::UUID before);
     [[nodiscard]] glm::vec3 ToLocalPoint(Trinity::UUID parent, glm::vec3 point);

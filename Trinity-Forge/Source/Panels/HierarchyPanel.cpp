@@ -513,7 +513,9 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         return;
     }
 
-    const bool l_Selected = l_ID == m_Session.GetSelection();
+    // The primary is the one scrolled to and renamed. Every selected row is drawn as one
+    const bool l_Primary = l_ID == m_Session.GetSelection();
+    const bool l_Selected = l_Primary || m_Session.GetSelected().Contains(l_ID);
     const bool l_Renaming = l_ID == m_Renaming;
 
     bool l_HasChildren = entity.GetChildCount() > 0;
@@ -603,12 +605,12 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         ImGui::PopStyleColor();
     }
 
-    if (l_Selected && m_ScrollToSelection)
+    if (l_Primary && m_ScrollToSelection)
     {
         ImGui::SetScrollHereY();
         m_ScrollToSelection = false;
     }
-    else if (l_Selected && std::exchange(m_KeepSelectionVisible, false))
+    else if (l_Primary && std::exchange(m_KeepSelectionVisible, false))
     {
         ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleEdgeY);
     }
@@ -627,12 +629,13 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
     else if (l_LeftClicked)
     {
         const ImGuiIO& l_IO = ImGui::GetIO();
-        m_SlowClick = l_Selected && !l_Renaming && !l_IO.KeyCtrl && !l_IO.KeyShift && !l_IO.KeyAlt ? l_ID : Trinity::UUID();
+        m_SlowClick = l_Selected && m_Session.GetSelected().GetCount() == 1 && !l_Renaming && !l_IO.KeyCtrl && !l_IO.KeyShift && !l_IO.KeyAlt ? l_ID : Trinity::UUID();
         m_SlowClickTime = ImGui::GetTime();
         m_Pressed = l_ID;
     }
-    else if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !ImGui::IsItemToggledOpen())
+    else if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !ImGui::IsItemToggledOpen() && !l_Selected)
     {
+        // Only a row that was not selected: a right-click on one of several keeps them all, for the menu to act on
         Select(l_ID);
     }
 
@@ -640,7 +643,21 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
     {
         if (ImGui::IsItemHovered() && !ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Left))
         {
-            Select(l_ID);
+            // Ctrl adds the row or takes it out. Shift takes every row from the anchor to this one, once all the rows are known
+            const ImGuiIO& l_IO = ImGui::GetIO();
+            if (l_IO.KeyCtrl)
+            {
+                m_Session.ToggleSelection(l_ID);
+                m_SelectionAnchor = l_ID;
+            }
+            else if (l_IO.KeyShift)
+            {
+                m_Deferred.push_back([this, l_ID] { SelectRange(l_ID); });
+            }
+            else
+            {
+                Select(l_ID);
+            }
         }
 
         m_Pressed = {};
@@ -778,16 +795,18 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
         BeginRename(entity);
     }
 
+    // With several rows selected and this one of them, Duplicate and Delete are theirs
+    const bool l_Several = m_Session.GetSelected().GetCount() > 1 && m_Session.GetSelected().Contains(l_ID);
     if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
     {
-        m_Deferred.push_back([this, l_ID] { static_cast<void>(m_Session.DuplicateEntity(l_ID)); });
+        m_Deferred.push_back([this, l_ID, l_Several] { static_cast<void>(l_Several ? m_Session.DuplicateSelection() : m_Session.DuplicateEntity(l_ID)); });
     }
 
     ImGui::Separator();
 
     if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), "Delete"))
     {
-        m_Deferred.push_back([this, l_ID] { static_cast<void>(m_Session.DeleteEntity(l_ID)); });
+        m_Deferred.push_back([this, l_ID, l_Several] { static_cast<void>(l_Several ? m_Session.DeleteSelection() : m_Session.DeleteEntity(l_ID)); });
     }
 
     ImGui::EndDisabled();
@@ -1137,6 +1156,31 @@ void HierarchyPanel::UpdateSlowClick(Trinity::Scene& scene)
 void HierarchyPanel::Select(Trinity::UUID entity)
 {
     m_Session.SetSelection(entity);
+    m_Revealed = entity;
+    m_SelectionAnchor = entity;
+}
+
+// The rows from the anchor to this one as they are shown, this one last and so the primary. Without the anchor among them, this one alone
+void HierarchyPanel::SelectRange(Trinity::UUID entity)
+{
+    const auto a_From = std::ranges::find(m_Rows, m_SelectionAnchor, &Row::Entity);
+    const auto a_To = std::ranges::find(m_Rows, entity, &Row::Entity);
+    if (a_From == m_Rows.end() || a_To == m_Rows.end())
+    {
+        Select(entity);
+
+        return;
+    }
+
+    std::vector<Trinity::UUID> l_Entities;
+    const std::ptrdiff_t l_Step = a_From <= a_To ? 1 : -1;
+    for (auto it_Row = a_From; it_Row != a_To; it_Row += l_Step)
+    {
+        l_Entities.push_back(it_Row->Entity);
+    }
+
+    l_Entities.push_back(entity);
+    m_Session.SetSelection(std::move(l_Entities));
     m_Revealed = entity;
 }
 

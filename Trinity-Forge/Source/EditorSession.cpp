@@ -4883,6 +4883,92 @@ bool EditorSession::DeleteEntity(Trinity::UUID entity)
     return GetHistory().Execute(Trinity::CreateScope<DeleteEntityCommand>(entity));
 }
 
+// Acting on a parent takes its children with it, so a child selected along with it is left to that
+std::vector<Trinity::UUID> EditorSession::GetSelectedRoots()
+{
+    const EditorSelection& l_Selection = GetSelected();
+    Trinity::Scene& l_Scene = GetEditedScene();
+    std::vector<Trinity::UUID> l_Roots;
+    for (const Trinity::UUID it_Entity : l_Selection.GetEntities())
+    {
+        const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(it_Entity);
+        if (!l_Entity)
+        {
+            continue;
+        }
+
+        bool l_Held = false;
+        for (Trinity::Entity it_Parent = l_Entity.GetParent(); it_Parent && !l_Held; it_Parent = it_Parent.GetParent())
+        {
+            l_Held = l_Selection.Contains(it_Parent.GetUUID());
+        }
+
+        if (!l_Held)
+        {
+            l_Roots.push_back(it_Entity);
+        }
+    }
+
+    return l_Roots;
+}
+
+// One entity goes the way it always has. Several are refused together if any of them would be alone
+bool EditorSession::DuplicateSelection()
+{
+    const std::vector<Trinity::UUID> l_Roots = GetSelectedRoots();
+    if (l_Roots.size() <= 1)
+    {
+        return !l_Roots.empty() && DuplicateEntity(l_Roots.front());
+    }
+
+    std::vector<Trinity::Scope<EditorCommand>> l_Commands;
+    for (const Trinity::UUID it_Root : l_Roots)
+    {
+        const Trinity::Entity l_Entity = GetEditedScene().FindEntityByUUID(it_Root);
+        if (IsPrefabRoot(it_Root))
+        {
+            Notify(std::format("{} is the prefab's root, and a prefab has one root", GetEntityLabel(l_Entity)));
+
+            return false;
+        }
+
+        if (const std::optional<std::string> l_Problem = FindCopyProblem(l_Entity))
+        {
+            Notify(*l_Problem);
+
+            return false;
+        }
+
+        l_Commands.push_back(Trinity::CreateScope<DuplicateEntityCommand>(it_Root));
+    }
+
+    return GetHistory().Execute(Trinity::CreateScope<GroupCommand>(std::format("Duplicate {} Entities", l_Roots.size()), std::move(l_Commands)));
+}
+
+bool EditorSession::DeleteSelection()
+{
+    const std::vector<Trinity::UUID> l_Roots = GetSelectedRoots();
+    if (l_Roots.size() <= 1)
+    {
+        return !l_Roots.empty() && DeleteEntity(l_Roots.front());
+    }
+
+    std::vector<Trinity::Scope<EditorCommand>> l_Commands;
+    for (const Trinity::UUID it_Root : l_Roots)
+    {
+        if (IsPrefabRoot(it_Root))
+        {
+            Notify(std::format("{} is the prefab's root, which prefab mode keeps. A prefab is deleted in the Content Browser", GetEntityLabel(m_Stage->Scene.GetFirstRoot())));
+
+            return false;
+        }
+
+        l_Commands.push_back(Trinity::CreateScope<DeleteEntityCommand>(it_Root));
+    }
+
+    return GetHistory().Execute(Trinity::CreateScope<GroupCommand>(std::format("Delete {} Entities", l_Roots.size()), std::move(l_Commands)));
+}
+
 // A notice says why not
 bool EditorSession::CanTakeChildren(Trinity::UUID parent)
 {

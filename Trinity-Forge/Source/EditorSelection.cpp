@@ -16,6 +16,15 @@ void EditorSelection::Set(Trinity::UUID entity)
     }
 }
 
+void EditorSelection::Set(std::vector<Trinity::UUID> entities)
+{
+    m_Entities.clear();
+    for (const Trinity::UUID it_Entity : entities)
+    {
+        Add(it_Entity);
+    }
+}
+
 void EditorSelection::Add(Trinity::UUID entity)
 {
     if (!entity)
