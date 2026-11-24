@@ -279,6 +279,7 @@ namespace
         }
 
         ImGui::TextUnformatted(label);
+        Trinity::Widgets::ScrubWithLastItem();
         if (l_Marked)
         {
             ImGui::PopFont();
@@ -1186,10 +1187,10 @@ namespace
         });
 
         Label("Friction");
-        EditField<T>(history, entity, "Friction", [](T& collider) { return ImGui::DragFloat("##Friction", &collider.Friction, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<T>(history, entity, "Friction", [](T& collider) { return Trinity::Widgets::DragFloat("##Friction", &collider.Friction, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
         Label("Restitution");
-        EditField<T>(history, entity, "Restitution", [](T& collider) { return ImGui::DragFloat("##Restitution", &collider.Restitution, 0.01f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<T>(history, entity, "Restitution", [](T& collider) { return Trinity::Widgets::DragFloat("##Restitution", &collider.Restitution, 0.01f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("How much of its speed a body keeps as it bounces off: 0 stops dead, 1 bounces back as fast");
@@ -1221,7 +1222,7 @@ namespace
         EditField<T>(history, entity, "OffsetAngle", [](T& collider)
         {
             float l_Degrees = glm::degrees(collider.OffsetAngle);
-            if (!ImGui::DragFloat("##OffsetAngle", &l_Degrees, 0.5f, 0.0f, 0.0f, "%.2f\xC2\xB0"))
+            if (!Trinity::Widgets::DragFloat("##OffsetAngle", &l_Degrees, 0.5f, 0.0f, 0.0f, "%.2f\xC2\xB0"))
             {
                 return false;
             }
@@ -1232,10 +1233,10 @@ namespace
         });
 
         Label("Friction");
-        EditField<T>(history, entity, "Friction", [](T& collider) { return ImGui::DragFloat("##Friction", &collider.Friction, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<T>(history, entity, "Friction", [](T& collider) { return Trinity::Widgets::DragFloat("##Friction", &collider.Friction, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
         Label("Restitution");
-        EditField<T>(history, entity, "Restitution", [](T& collider) { return ImGui::DragFloat("##Restitution", &collider.Restitution, 0.01f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<T>(history, entity, "Restitution", [](T& collider) { return Trinity::Widgets::DragFloat("##Restitution", &collider.Restitution, 0.01f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("How much of its speed a body keeps as it bounces off: 0 stops dead, 1 bounces back as fast");
@@ -1946,28 +1947,28 @@ void PropertiesPanel::DrawCamera(Trinity::Entity entity)
     if (entity.Get<Trinity::CameraComponent>().Projection == Trinity::CameraProjection::Perspective)
     {
         Label("Field of View");
-        EditField<Trinity::CameraComponent>(l_History, entity, "FieldOfView", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##FieldOfView", &camera.FieldOfView, 0.25f, 1.0f, 179.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Trinity::CameraComponent>(l_History, entity, "FieldOfView", [](Trinity::CameraComponent& camera) { return Trinity::Widgets::DragFloat("##FieldOfView", &camera.FieldOfView, 0.25f, 1.0f, 179.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp); });
 
         Label("Near");
-        EditField<Trinity::CameraComponent>(l_History, entity, "PerspectiveNear", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##PerspectiveNear", &camera.PerspectiveNear, 0.001f, 0.0001f, 1000.0f, "%.4f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+        EditField<Trinity::CameraComponent>(l_History, entity, "PerspectiveNear", [](Trinity::CameraComponent& camera) { return Trinity::Widgets::DragFloat("##PerspectiveNear", &camera.PerspectiveNear, 0.001f, 0.0001f, 1000.0f, "%.4f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     }
     else
     {
         Label("Size");
-        EditField<Trinity::CameraComponent>(l_History, entity, "OrthographicSize", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Size", &camera.OrthographicSize, 0.05f, 0.01f, FLT_MAX, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Trinity::CameraComponent>(l_History, entity, "OrthographicSize", [](Trinity::CameraComponent& camera) { return Trinity::Widgets::DragFloat("##Size", &camera.OrthographicSize, 0.05f, 0.01f, FLT_MAX, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
         Label("Near");
-        EditField<Trinity::CameraComponent>(l_History, entity, "Near", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Near", &camera.Near, 0.05f, 0.0f, 0.0f, "%.3f"); });
+        EditField<Trinity::CameraComponent>(l_History, entity, "Near", [](Trinity::CameraComponent& camera) { return Trinity::Widgets::DragFloat("##Near", &camera.Near, 0.05f, 0.0f, 0.0f, "%.3f"); });
 
         Label("Far");
-        EditField<Trinity::CameraComponent>(l_History, entity, "Far", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Far", &camera.Far, 0.05f, 0.0f, 0.0f, "%.3f"); });
+        EditField<Trinity::CameraComponent>(l_History, entity, "Far", [](Trinity::CameraComponent& camera) { return Trinity::Widgets::DragFloat("##Far", &camera.Far, 0.05f, 0.0f, 0.0f, "%.3f"); });
     }
 
     Label("Primary");
     EditField<Trinity::CameraComponent>(l_History, entity, "Primary", [](Trinity::CameraComponent& camera) { return ImGui::Checkbox("##Primary", &camera.Primary); });
 
     Label("Exposure");
-    EditField<Trinity::CameraComponent>(l_History, entity, "ExposureEV100", [](Trinity::CameraComponent& camera) { return ImGui::DragFloat("##Exposure", &camera.ExposureEV100, 0.05f, -10.0f, 24.0f, "%.2f EV100", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::CameraComponent>(l_History, entity, "ExposureEV100", [](Trinity::CameraComponent& camera) { return Trinity::Widgets::DragFloat("##Exposure", &camera.ExposureEV100, 0.05f, -10.0f, 24.0f, "%.2f EV100", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Tonemapper");
     EditField<Trinity::CameraComponent>(l_History, entity, "Tonemap", [](Trinity::CameraComponent& camera)
@@ -2032,7 +2033,7 @@ void PropertiesPanel::DrawLight(Trinity::Entity entity)
     const Trinity::LightComponent& l_Light = entity.Get<Trinity::LightComponent>();
     const bool l_Directional = l_Light.Type == Trinity::LightType::Directional;
     Label("Intensity");
-    EditField<Trinity::LightComponent>(l_History, entity, "Intensity", [l_Directional](Trinity::LightComponent& light) { return ImGui::DragFloat("##Intensity", &light.Intensity, 0.05f, 0.0f, 200000.0f, l_Directional ? "%.3f lux" : "%.3f cd", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    EditField<Trinity::LightComponent>(l_History, entity, "Intensity", [l_Directional](Trinity::LightComponent& light) { return Trinity::Widgets::DragFloat("##Intensity", &light.Intensity, 0.05f, 0.0f, 200000.0f, l_Directional ? "%.3f lux" : "%.3f cd", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
 
     if (l_Light.Type != Trinity::LightType::Point)
     {
@@ -2058,7 +2059,7 @@ void PropertiesPanel::DrawLight(Trinity::Entity entity)
     {
         const std::string l_Format = light.Range > 0.0f ? std::string("%.3f m") : std::format("Automatic, {:.2f} m", light.GetRange());
 
-        return ImGui::DragFloat("##Range", &light.Range, 0.05f, 0.0f, 100000.0f, l_Format.c_str(), ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
+        return Trinity::Widgets::DragFloat("##Range", &light.Range, 0.05f, 0.0f, 100000.0f, l_Format.c_str(), ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
     });
 
     if (ImGui::IsItemHovered())
@@ -2072,12 +2073,12 @@ void PropertiesPanel::DrawLight(Trinity::Entity entity)
     }
 
     Label("Inner Angle");
-    EditField<Trinity::LightComponent>(l_History, entity, "InnerConeAngle", [](Trinity::LightComponent& light) { return ImGui::DragFloat("##InnerConeAngle", &light.InnerConeAngle, 0.25f, 0.0f, light.OuterConeAngle, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::LightComponent>(l_History, entity, "InnerConeAngle", [](Trinity::LightComponent& light) { return Trinity::Widgets::DragFloat("##InnerConeAngle", &light.InnerConeAngle, 0.25f, 0.0f, light.OuterConeAngle, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Outer Angle");
     EditField<Trinity::LightComponent>(l_History, entity, "OuterConeAngle", [](Trinity::LightComponent& light)
     {
-        const bool l_Changed = ImGui::DragFloat("##OuterConeAngle", &light.OuterConeAngle, 0.25f, 0.1f, 90.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+        const bool l_Changed = Trinity::Widgets::DragFloat("##OuterConeAngle", &light.OuterConeAngle, 0.25f, 0.1f, 90.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
         light.InnerConeAngle = std::min(light.InnerConeAngle, light.OuterConeAngle);
 
         return l_Changed;
@@ -2104,10 +2105,10 @@ void PropertiesPanel::DrawEnvironment(Trinity::Entity entity)
     DrawAssetSlot("Environment", c_EnvironmentPickerPopup, Trinity::EnvironmentAsset::c_AssetType, entity.Get<Trinity::EnvironmentComponent>().Environment, a_SetEnvironment, "An equirectangular .hdr in the project. Without one the scene keeps its ambient light");
 
     Label("Intensity");
-    EditField<Trinity::EnvironmentComponent>(l_History, entity, "Intensity", [](Trinity::EnvironmentComponent& environment) { return ImGui::DragFloat("##Intensity", &environment.Intensity, 0.01f, 0.0f, 1000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    EditField<Trinity::EnvironmentComponent>(l_History, entity, "Intensity", [](Trinity::EnvironmentComponent& environment) { return Trinity::Widgets::DragFloat("##Intensity", &environment.Intensity, 0.01f, 0.0f, 1000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
 
     Label("Rotation");
-    EditField<Trinity::EnvironmentComponent>(l_History, entity, "Rotation", [](Trinity::EnvironmentComponent& environment) { return ImGui::DragFloat("##Rotation", &environment.Rotation, 0.5f, -360.0f, 360.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::EnvironmentComponent>(l_History, entity, "Rotation", [](Trinity::EnvironmentComponent& environment) { return Trinity::Widgets::DragFloat("##Rotation", &environment.Rotation, 0.5f, -360.0f, 360.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp); });
 }
 
 void PropertiesPanel::DrawSpriteRenderer(Trinity::Entity entity)
@@ -2133,10 +2134,10 @@ void PropertiesPanel::DrawSpriteRenderer(Trinity::Entity entity)
     EditField<Trinity::SpriteRendererComponent>(l_History, entity, "UVRect", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::DragFloat4("##UVRect", &sprite.UVRect.x, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Sorting Layer");
-    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "SortingLayer", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::DragInt("##SortingLayer", &sprite.SortingLayer, 0.1f); });
+    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "SortingLayer", [](Trinity::SpriteRendererComponent& sprite) { return Trinity::Widgets::DragInt("##SortingLayer", &sprite.SortingLayer, 0.1f); });
 
     Label("Order in Layer");
-    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "OrderInLayer", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::DragInt("##OrderInLayer", &sprite.OrderInLayer, 0.1f); });
+    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "OrderInLayer", [](Trinity::SpriteRendererComponent& sprite) { return Trinity::Widgets::DragInt("##OrderInLayer", &sprite.OrderInLayer, 0.1f); });
 }
 
 // The mesh, a material for each slot, and shadow casting. Trailing empty slots are not kept
@@ -2438,20 +2439,20 @@ void PropertiesPanel::DrawRigidBody(Trinity::Entity entity)
     }
 
     Label("Mass");
-    EditField<Trinity::RigidBodyComponent>(l_History, entity, "Mass", [](Trinity::RigidBodyComponent& body) { return ImGui::DragFloat("##Mass", &body.Mass, 0.05f, 0.0f, 1.0e6f, body.Mass > 0.0f ? "%.3f kg" : "From colliders", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "Mass", [](Trinity::RigidBodyComponent& body) { return Trinity::Widgets::DragFloat("##Mass", &body.Mass, 0.05f, 0.0f, 1.0e6f, body.Mass > 0.0f ? "%.3f kg" : "From colliders", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("0 takes the mass from the colliders, at the density of water");
     }
 
     Label("Linear Damping");
-    EditField<Trinity::RigidBodyComponent>(l_History, entity, "LinearDamping", [](Trinity::RigidBodyComponent& body) { return ImGui::DragFloat("##LinearDamping", &body.LinearDamping, 0.005f, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "LinearDamping", [](Trinity::RigidBodyComponent& body) { return Trinity::Widgets::DragFloat("##LinearDamping", &body.LinearDamping, 0.005f, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Angular Damping");
-    EditField<Trinity::RigidBodyComponent>(l_History, entity, "AngularDamping", [](Trinity::RigidBodyComponent& body) { return ImGui::DragFloat("##AngularDamping", &body.AngularDamping, 0.005f, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "AngularDamping", [](Trinity::RigidBodyComponent& body) { return Trinity::Widgets::DragFloat("##AngularDamping", &body.AngularDamping, 0.005f, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Gravity Factor");
-    EditField<Trinity::RigidBodyComponent>(l_History, entity, "GravityFactor", [](Trinity::RigidBodyComponent& body) { return ImGui::DragFloat("##GravityFactor", &body.GravityFactor, 0.01f, -100.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "GravityFactor", [](Trinity::RigidBodyComponent& body) { return Trinity::Widgets::DragFloat("##GravityFactor", &body.GravityFactor, 0.01f, -100.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Continuous");
     EditField<Trinity::RigidBodyComponent>(l_History, entity, "ContinuousCollision", [](Trinity::RigidBodyComponent& body) { return ImGui::Checkbox("##ContinuousCollision", &body.ContinuousCollision); });
@@ -2511,28 +2512,28 @@ void PropertiesPanel::DrawColliders(Trinity::Entity entity)
     {
         DrawColliderSettings<Trinity::SphereColliderComponent>(l_History, entity, l_Layers);
         Label("Radius");
-        EditField<Trinity::SphereColliderComponent>(l_History, entity, "Radius", [](Trinity::SphereColliderComponent& sphere) { return ImGui::DragFloat("##Radius", &sphere.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Trinity::SphereColliderComponent>(l_History, entity, "Radius", [](Trinity::SphereColliderComponent& sphere) { return Trinity::Widgets::DragFloat("##Radius", &sphere.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
     if (entity.Has<Trinity::CapsuleColliderComponent>() && BeginComponent(entity, Trinity::CapsuleColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline))
     {
         DrawColliderSettings<Trinity::CapsuleColliderComponent>(l_History, entity, l_Layers);
         Label("Radius");
-        EditField<Trinity::CapsuleColliderComponent>(l_History, entity, "Radius", [](Trinity::CapsuleColliderComponent& capsule) { return ImGui::DragFloat("##Radius", &capsule.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Trinity::CapsuleColliderComponent>(l_History, entity, "Radius", [](Trinity::CapsuleColliderComponent& capsule) { return Trinity::Widgets::DragFloat("##Radius", &capsule.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
 
         // Never less than the two end caps
         Label("Height");
-        EditField<Trinity::CapsuleColliderComponent>(l_History, entity, "Height", [](Trinity::CapsuleColliderComponent& capsule) { return ImGui::DragFloat("##Height", &capsule.Height, 0.01f, capsule.Radius * 2.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Trinity::CapsuleColliderComponent>(l_History, entity, "Height", [](Trinity::CapsuleColliderComponent& capsule) { return Trinity::Widgets::DragFloat("##Height", &capsule.Height, 0.01f, capsule.Radius * 2.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
     if (entity.Has<Trinity::CylinderColliderComponent>() && BeginComponent(entity, Trinity::CylinderColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline))
     {
         DrawColliderSettings<Trinity::CylinderColliderComponent>(l_History, entity, l_Layers);
         Label("Radius");
-        EditField<Trinity::CylinderColliderComponent>(l_History, entity, "Radius", [](Trinity::CylinderColliderComponent& cylinder) { return ImGui::DragFloat("##Radius", &cylinder.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Trinity::CylinderColliderComponent>(l_History, entity, "Radius", [](Trinity::CylinderColliderComponent& cylinder) { return Trinity::Widgets::DragFloat("##Radius", &cylinder.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
 
         Label("Height");
-        EditField<Trinity::CylinderColliderComponent>(l_History, entity, "Height", [](Trinity::CylinderColliderComponent& cylinder) { return ImGui::DragFloat("##Height", &cylinder.Height, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Trinity::CylinderColliderComponent>(l_History, entity, "Height", [](Trinity::CylinderColliderComponent& cylinder) { return Trinity::Widgets::DragFloat("##Height", &cylinder.Height, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
     if (entity.Has<Trinity::ConvexHullColliderComponent>() && BeginComponent(entity, Trinity::ConvexHullColliderComponent::c_TypeName, Trinity::Icons::c_CubeOutline))
@@ -2584,11 +2585,11 @@ void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
     }
 
     Label("Radius");
-    EditField<Character>(l_History, entity, "Radius", [](Character& character) { return ImGui::DragFloat("##Radius", &character.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Character>(l_History, entity, "Radius", [](Character& character) { return Trinity::Widgets::DragFloat("##Radius", &character.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
 
     // Never less than the two end caps
     Label("Height");
-    EditField<Character>(l_History, entity, "Height", [](Character& character) { return ImGui::DragFloat("##Height", &character.Height, 0.01f, character.Radius * 2.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Character>(l_History, entity, "Height", [](Character& character) { return Trinity::Widgets::DragFloat("##Height", &character.Height, 0.01f, character.Radius * 2.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("The whole capsule's, end caps included");
@@ -2605,7 +2606,7 @@ void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
     EditField<Character>(l_History, entity, "MaxSlope", [](Character& character)
     {
         float l_Degrees = glm::degrees(character.MaxSlope);
-        const bool l_Changed = ImGui::DragFloat("##MaxSlope", &l_Degrees, 0.5f, 1.0f, 90.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+        const bool l_Changed = Trinity::Widgets::DragFloat("##MaxSlope", &l_Degrees, 0.5f, 1.0f, 90.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
         character.MaxSlope = glm::radians(l_Degrees);
 
         return l_Changed;
@@ -2616,7 +2617,7 @@ void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
     }
 
     Label("Step Height");
-    EditField<Character>(l_History, entity, "StepHeight", [](Character& character) { return ImGui::DragFloat("##StepHeight", &character.StepHeight, 0.01f, 0.0f, 1.0e4f, character.StepHeight > 0.0f ? "%.3f m" : "None", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Character>(l_History, entity, "StepHeight", [](Character& character) { return Trinity::Widgets::DragFloat("##StepHeight", &character.StepHeight, 0.01f, 0.0f, 1.0e4f, character.StepHeight > 0.0f ? "%.3f m" : "None", ImGuiSliderFlags_AlwaysClamp); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("How high a step it climbs, and how far down it keeps to the floor. Its round end cap climbs a little higher by itself");
@@ -2633,7 +2634,7 @@ void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
     const bool l_Physical = entity.Get<Character>().Mode == Trinity::CharacterMode::Physical;
     Label("Push Strength");
     ImGui::BeginDisabled(l_Physical);
-    EditField<Character>(l_History, entity, "PushStrength", [](Character& character) { return ImGui::DragFloat("##PushStrength", &character.PushStrength, 1.0f, 0.0f, 1.0e9f, character.PushStrength > 0.0f ? "%.1f N" : "Pushes nothing", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    EditField<Character>(l_History, entity, "PushStrength", [](Character& character) { return Trinity::Widgets::DragFloat("##PushStrength", &character.PushStrength, 1.0f, 0.0f, 1.0e9f, character.PushStrength > 0.0f ? "%.1f N" : "Pushes nothing", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
     {
@@ -2641,7 +2642,7 @@ void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
     }
 
     Label("Mass");
-    EditField<Character>(l_History, entity, "Mass", [](Character& character) { return ImGui::DragFloat("##Mass", &character.Mass, 0.05f, 0.1f, 1.0e6f, "%.3f kg", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    EditField<Character>(l_History, entity, "Mass", [](Character& character) { return Trinity::Widgets::DragFloat("##Mass", &character.Mass, 0.05f, 0.1f, 1.0e6f, "%.3f kg", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("%s", l_Physical ? "Its body's mass, by which it pushes, is knocked back and weighs on what it stands on" : "Its weight on a dynamic body it stands on");
@@ -2742,7 +2743,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
             EditField<Joint>(l_History, entity, "LowerLimit", [](Joint& joint)
             {
                 float l_Degrees = glm::degrees(joint.LowerLimit);
-                const bool l_Changed = ImGui::DragFloat("##LowerLimit", &l_Degrees, 0.5f, -180.0f, 0.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+                const bool l_Changed = Trinity::Widgets::DragFloat("##LowerLimit", &l_Degrees, 0.5f, -180.0f, 0.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
                 joint.LowerLimit = glm::radians(l_Degrees);
 
                 return l_Changed;
@@ -2752,7 +2753,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
             EditField<Joint>(l_History, entity, "UpperLimit", [](Joint& joint)
             {
                 float l_Degrees = glm::degrees(joint.UpperLimit);
-                const bool l_Changed = ImGui::DragFloat("##UpperLimit", &l_Degrees, 0.5f, 0.0f, 180.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+                const bool l_Changed = Trinity::Widgets::DragFloat("##UpperLimit", &l_Degrees, 0.5f, 0.0f, 180.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
                 joint.UpperLimit = glm::radians(l_Degrees);
 
                 return l_Changed;
@@ -2761,10 +2762,10 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
         else if (l_Joint.UseLimits)
         {
             Label("Lower");
-            EditField<Joint>(l_History, entity, "LowerLimit", [](Joint& joint) { return ImGui::DragFloat("##LowerLimit", &joint.LowerLimit, 0.01f, -1.0e4f, 0.0f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+            EditField<Joint>(l_History, entity, "LowerLimit", [](Joint& joint) { return Trinity::Widgets::DragFloat("##LowerLimit", &joint.LowerLimit, 0.01f, -1.0e4f, 0.0f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
 
             Label("Upper");
-            EditField<Joint>(l_History, entity, "UpperLimit", [](Joint& joint) { return ImGui::DragFloat("##UpperLimit", &joint.UpperLimit, 0.01f, 0.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+            EditField<Joint>(l_History, entity, "UpperLimit", [](Joint& joint) { return Trinity::Widgets::DragFloat("##UpperLimit", &joint.UpperLimit, 0.01f, 0.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
         }
 
         Label("Motor");
@@ -2776,42 +2777,42 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
             {
                 if (!l_Hinge)
                 {
-                    return ImGui::DragFloat("##MotorSpeed", &joint.MotorSpeed, 0.01f, -1.0e4f, 1.0e4f, "%.3f m/s", ImGuiSliderFlags_AlwaysClamp);
+                    return Trinity::Widgets::DragFloat("##MotorSpeed", &joint.MotorSpeed, 0.01f, -1.0e4f, 1.0e4f, "%.3f m/s", ImGuiSliderFlags_AlwaysClamp);
                 }
 
                 float l_Degrees = glm::degrees(joint.MotorSpeed);
-                const bool l_Changed = ImGui::DragFloat("##MotorSpeed", &l_Degrees, 1.0f, -1.0e5f, 1.0e5f, "%.1f\xC2\xB0/s", ImGuiSliderFlags_AlwaysClamp);
+                const bool l_Changed = Trinity::Widgets::DragFloat("##MotorSpeed", &l_Degrees, 1.0f, -1.0e5f, 1.0e5f, "%.1f\xC2\xB0/s", ImGuiSliderFlags_AlwaysClamp);
                 joint.MotorSpeed = glm::radians(l_Degrees);
 
                 return l_Changed;
             });
 
             Label(l_Hinge ? "Max Torque" : "Max Force");
-            EditField<Joint>(l_History, entity, "MotorMaxForce", [l_Hinge](Joint& joint) { return ImGui::DragFloat("##MotorMaxForce", &joint.MotorMaxForce, 1.0f, 0.0f, 1.0e9f, l_Hinge ? "%.1f N m" : "%.1f N", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+            EditField<Joint>(l_History, entity, "MotorMaxForce", [l_Hinge](Joint& joint) { return Trinity::Widgets::DragFloat("##MotorMaxForce", &joint.MotorMaxForce, 1.0f, 0.0f, 1.0e9f, l_Hinge ? "%.1f N m" : "%.1f N", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
         }
     }
 
     if (l_Distance)
     {
         Label("Min Distance");
-        EditField<Joint>(l_History, entity, "MinDistance", [](Joint& joint) { return ImGui::DragFloat("##MinDistance", &joint.MinDistance, 0.01f, -1.0f, 1.0e4f, joint.MinDistance >= 0.0f ? "%.3f m" : "From start", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Joint>(l_History, entity, "MinDistance", [](Joint& joint) { return Trinity::Widgets::DragFloat("##MinDistance", &joint.MinDistance, 0.01f, -1.0f, 1.0e4f, joint.MinDistance >= 0.0f ? "%.3f m" : "From start", ImGuiSliderFlags_AlwaysClamp); });
 
         Label("Max Distance");
-        EditField<Joint>(l_History, entity, "MaxDistance", [](Joint& joint) { return ImGui::DragFloat("##MaxDistance", &joint.MaxDistance, 0.01f, -1.0f, 1.0e4f, joint.MaxDistance >= 0.0f ? "%.3f m" : "From start", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Joint>(l_History, entity, "MaxDistance", [](Joint& joint) { return Trinity::Widgets::DragFloat("##MaxDistance", &joint.MaxDistance, 0.01f, -1.0f, 1.0e4f, joint.MaxDistance >= 0.0f ? "%.3f m" : "From start", ImGuiSliderFlags_AlwaysClamp); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("Below 0, the distance between the two ends as the scene starts");
         }
 
         Label("Spring");
-        EditField<Joint>(l_History, entity, "SpringFrequency", [](Joint& joint) { return ImGui::DragFloat("##SpringFrequency", &joint.SpringFrequency, 0.01f, 0.0f, 1000.0f, joint.SpringFrequency > 0.0f ? "%.2f Hz" : "Rigid", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Joint>(l_History, entity, "SpringFrequency", [](Joint& joint) { return Trinity::Widgets::DragFloat("##SpringFrequency", &joint.SpringFrequency, 0.01f, 0.0f, 1000.0f, joint.SpringFrequency > 0.0f ? "%.2f Hz" : "Rigid", ImGuiSliderFlags_AlwaysClamp); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("How many times a second a body on the spring bounces, 0 for a rigid range");
         }
 
         Label("Damping");
-        EditField<Joint>(l_History, entity, "SpringDamping", [](Joint& joint) { return ImGui::DragFloat("##SpringDamping", &joint.SpringDamping, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Joint>(l_History, entity, "SpringDamping", [](Joint& joint) { return Trinity::Widgets::DragFloat("##SpringDamping", &joint.SpringDamping, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("0 bounces for ever, 1 settles as fast as it can without overshooting");
@@ -2819,12 +2820,12 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
     }
 
     Label("Break Force");
-    EditField<Joint>(l_History, entity, "BreakForce", [](Joint& joint) { return ImGui::DragFloat("##BreakForce", &joint.BreakForce, 1.0f, 0.0f, 1.0e9f, joint.BreakForce > 0.0f ? "%.1f N" : "Unbreakable", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    EditField<Joint>(l_History, entity, "BreakForce", [](Joint& joint) { return Trinity::Widgets::DragFloat("##BreakForce", &joint.BreakForce, 1.0f, 0.0f, 1.0e9f, joint.BreakForce > 0.0f ? "%.1f N" : "Unbreakable", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
 
     if (l_Joint.Type == Trinity::JointType::Fixed || l_Hinge || l_Slider)
     {
         Label("Break Torque");
-        EditField<Joint>(l_History, entity, "BreakTorque", [](Joint& joint) { return ImGui::DragFloat("##BreakTorque", &joint.BreakTorque, 1.0f, 0.0f, 1.0e9f, joint.BreakTorque > 0.0f ? "%.1f N m" : "Unbreakable", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+        EditField<Joint>(l_History, entity, "BreakTorque", [](Joint& joint) { return Trinity::Widgets::DragFloat("##BreakTorque", &joint.BreakTorque, 1.0f, 0.0f, 1.0e9f, joint.BreakTorque > 0.0f ? "%.1f N m" : "Unbreakable", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     }
 }
 
@@ -2868,20 +2869,20 @@ void PropertiesPanel::DrawRigidBody2D(Trinity::Entity entity)
     }
 
     Label("Mass");
-    EditField<Body>(l_History, entity, "Mass", [](Body& body) { return ImGui::DragFloat("##Mass", &body.Mass, 0.05f, 0.0f, 1.0e6f, body.Mass > 0.0f ? "%.3f kg" : "From colliders", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    EditField<Body>(l_History, entity, "Mass", [](Body& body) { return Trinity::Widgets::DragFloat("##Mass", &body.Mass, 0.05f, 0.0f, 1.0e6f, body.Mass > 0.0f ? "%.3f kg" : "From colliders", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("0 takes the mass from the colliders, at 1 kg per square metre");
     }
 
     Label("Linear Damping");
-    EditField<Body>(l_History, entity, "LinearDamping", [](Body& body) { return ImGui::DragFloat("##LinearDamping", &body.LinearDamping, 0.005f, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Body>(l_History, entity, "LinearDamping", [](Body& body) { return Trinity::Widgets::DragFloat("##LinearDamping", &body.LinearDamping, 0.005f, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Angular Damping");
-    EditField<Body>(l_History, entity, "AngularDamping", [](Body& body) { return ImGui::DragFloat("##AngularDamping", &body.AngularDamping, 0.005f, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Body>(l_History, entity, "AngularDamping", [](Body& body) { return Trinity::Widgets::DragFloat("##AngularDamping", &body.AngularDamping, 0.005f, 0.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Gravity Factor");
-    EditField<Body>(l_History, entity, "GravityFactor", [](Body& body) { return ImGui::DragFloat("##GravityFactor", &body.GravityFactor, 0.01f, -100.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Body>(l_History, entity, "GravityFactor", [](Body& body) { return Trinity::Widgets::DragFloat("##GravityFactor", &body.GravityFactor, 0.01f, -100.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Continuous");
     EditField<Body>(l_History, entity, "ContinuousCollision", [](Body& body) { return ImGui::Checkbox("##ContinuousCollision", &body.ContinuousCollision); });
@@ -2904,7 +2905,7 @@ void PropertiesPanel::DrawRigidBody2D(Trinity::Entity entity)
     EditField<Body>(l_History, entity, "InitialAngularVelocity", [](Body& body)
     {
         float l_Degrees = glm::degrees(body.InitialAngularVelocity);
-        if (!ImGui::DragFloat("##InitialAngularVelocity", &l_Degrees, 1.0f, 0.0f, 0.0f, "%.1f\xC2\xB0/s"))
+        if (!Trinity::Widgets::DragFloat("##InitialAngularVelocity", &l_Degrees, 1.0f, 0.0f, 0.0f, "%.1f\xC2\xB0/s"))
         {
             return false;
         }
@@ -2946,18 +2947,18 @@ void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
     {
         DrawCollider2DSettings<Trinity::CircleCollider2DComponent>(l_History, entity, l_Layers);
         Label("Radius");
-        EditField<Trinity::CircleCollider2DComponent>(l_History, entity, "Radius", [](Trinity::CircleCollider2DComponent& circle) { return ImGui::DragFloat("##Radius", &circle.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Trinity::CircleCollider2DComponent>(l_History, entity, "Radius", [](Trinity::CircleCollider2DComponent& circle) { return Trinity::Widgets::DragFloat("##Radius", &circle.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
     if (entity.Has<Trinity::CapsuleCollider2DComponent>() && BeginComponent(entity, Trinity::CapsuleCollider2DComponent::c_TypeName, Trinity::Icons::c_CubeOutline))
     {
         DrawCollider2DSettings<Trinity::CapsuleCollider2DComponent>(l_History, entity, l_Layers);
         Label("Radius");
-        EditField<Trinity::CapsuleCollider2DComponent>(l_History, entity, "Radius", [](Trinity::CapsuleCollider2DComponent& capsule) { return ImGui::DragFloat("##Radius", &capsule.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Trinity::CapsuleCollider2DComponent>(l_History, entity, "Radius", [](Trinity::CapsuleCollider2DComponent& capsule) { return Trinity::Widgets::DragFloat("##Radius", &capsule.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
 
         // Never less than the two end caps
         Label("Height");
-        EditField<Trinity::CapsuleCollider2DComponent>(l_History, entity, "Height", [](Trinity::CapsuleCollider2DComponent& capsule) { return ImGui::DragFloat("##Height", &capsule.Height, 0.01f, capsule.Radius * 2.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Trinity::CapsuleCollider2DComponent>(l_History, entity, "Height", [](Trinity::CapsuleCollider2DComponent& capsule) { return Trinity::Widgets::DragFloat("##Height", &capsule.Height, 0.01f, capsule.Radius * 2.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     }
 
     if (!entity.Has<Trinity::PolygonCollider2DComponent>() || !BeginComponent(entity, Trinity::PolygonCollider2DComponent::c_TypeName, Trinity::Icons::c_CubeOutline))
@@ -3024,7 +3025,7 @@ void PropertiesPanel::DrawColliders2D(Trinity::Entity entity)
     }
 
     Label("Radius");
-    EditField<Polygon>(l_History, entity, "Radius", [](Polygon& polygon) { return ImGui::DragFloat("##Radius", &polygon.Radius, 0.005f, 0.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Polygon>(l_History, entity, "Radius", [](Polygon& polygon) { return Trinity::Widgets::DragFloat("##Radius", &polygon.Radius, 0.005f, 0.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Rounds the corners, and grows the shape outward by as much");
@@ -3071,11 +3072,11 @@ void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
     }
 
     Label("Radius");
-    EditField<Character>(l_History, entity, "Radius", [](Character& character) { return ImGui::DragFloat("##Radius", &character.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Character>(l_History, entity, "Radius", [](Character& character) { return Trinity::Widgets::DragFloat("##Radius", &character.Radius, 0.01f, 0.001f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
 
     // Never less than the two end caps
     Label("Height");
-    EditField<Character>(l_History, entity, "Height", [](Character& character) { return ImGui::DragFloat("##Height", &character.Height, 0.01f, character.Radius * 2.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Character>(l_History, entity, "Height", [](Character& character) { return Trinity::Widgets::DragFloat("##Height", &character.Height, 0.01f, character.Radius * 2.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("The whole capsule's, end caps included");
@@ -3092,7 +3093,7 @@ void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
     EditField<Character>(l_History, entity, "MaxSlope", [](Character& character)
     {
         float l_Degrees = glm::degrees(character.MaxSlope);
-        const bool l_Changed = ImGui::DragFloat("##MaxSlope", &l_Degrees, 0.5f, 1.0f, 90.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+        const bool l_Changed = Trinity::Widgets::DragFloat("##MaxSlope", &l_Degrees, 0.5f, 1.0f, 90.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
         character.MaxSlope = glm::radians(l_Degrees);
 
         return l_Changed;
@@ -3103,7 +3104,7 @@ void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
     }
 
     Label("Step Height");
-    EditField<Character>(l_History, entity, "StepHeight", [](Character& character) { return ImGui::DragFloat("##StepHeight", &character.StepHeight, 0.01f, 0.0f, 1.0e4f, character.StepHeight > 0.0f ? "%.3f m" : "None", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Character>(l_History, entity, "StepHeight", [](Character& character) { return Trinity::Widgets::DragFloat("##StepHeight", &character.StepHeight, 0.01f, 0.0f, 1.0e4f, character.StepHeight > 0.0f ? "%.3f m" : "None", ImGuiSliderFlags_AlwaysClamp); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("How high a step it climbs, and how far down it keeps to the floor. Its round end cap climbs a little higher by itself");
@@ -3120,7 +3121,7 @@ void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
     const bool l_Physical = entity.Get<Character>().Mode == Trinity::CharacterMode::Physical;
     Label("Push Strength");
     ImGui::BeginDisabled(l_Physical);
-    EditField<Character>(l_History, entity, "PushStrength", [](Character& character) { return ImGui::DragFloat("##PushStrength", &character.PushStrength, 1.0f, 0.0f, 1.0e9f, character.PushStrength > 0.0f ? "%.1f N" : "Pushes nothing", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    EditField<Character>(l_History, entity, "PushStrength", [](Character& character) { return Trinity::Widgets::DragFloat("##PushStrength", &character.PushStrength, 1.0f, 0.0f, 1.0e9f, character.PushStrength > 0.0f ? "%.1f N" : "Pushes nothing", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
     {
@@ -3128,7 +3129,7 @@ void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
     }
 
     Label("Mass");
-    EditField<Character>(l_History, entity, "Mass", [](Character& character) { return ImGui::DragFloat("##Mass", &character.Mass, 0.05f, 0.1f, 1.0e6f, "%.3f kg", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    EditField<Character>(l_History, entity, "Mass", [](Character& character) { return Trinity::Widgets::DragFloat("##Mass", &character.Mass, 0.05f, 0.1f, 1.0e6f, "%.3f kg", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("%s", l_Physical ? "Its body's mass, by which it pushes, is knocked back and weighs on what it stands on" : "Its weight on a dynamic 2D body it stands on");
@@ -3237,7 +3238,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
             EditField<Joint>(l_History, entity, "LowerLimit", [](Joint& joint)
             {
                 float l_Degrees = glm::degrees(joint.LowerLimit);
-                const bool l_Changed = ImGui::DragFloat("##LowerLimit", &l_Degrees, 0.5f, -178.2f, 0.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+                const bool l_Changed = Trinity::Widgets::DragFloat("##LowerLimit", &l_Degrees, 0.5f, -178.2f, 0.0f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
                 joint.LowerLimit = glm::radians(l_Degrees);
 
                 return l_Changed;
@@ -3247,7 +3248,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
             EditField<Joint>(l_History, entity, "UpperLimit", [](Joint& joint)
             {
                 float l_Degrees = glm::degrees(joint.UpperLimit);
-                const bool l_Changed = ImGui::DragFloat("##UpperLimit", &l_Degrees, 0.5f, 0.0f, 178.2f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+                const bool l_Changed = Trinity::Widgets::DragFloat("##UpperLimit", &l_Degrees, 0.5f, 0.0f, 178.2f, "%.1f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
                 joint.UpperLimit = glm::radians(l_Degrees);
 
                 return l_Changed;
@@ -3256,10 +3257,10 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
         else if (l_Joint.UseLimits)
         {
             Label("Lower");
-            EditField<Joint>(l_History, entity, "LowerLimit", [](Joint& joint) { return ImGui::DragFloat("##LowerLimit", &joint.LowerLimit, 0.01f, -1.0e4f, 0.0f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+            EditField<Joint>(l_History, entity, "LowerLimit", [](Joint& joint) { return Trinity::Widgets::DragFloat("##LowerLimit", &joint.LowerLimit, 0.01f, -1.0e4f, 0.0f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
 
             Label("Upper");
-            EditField<Joint>(l_History, entity, "UpperLimit", [](Joint& joint) { return ImGui::DragFloat("##UpperLimit", &joint.UpperLimit, 0.01f, 0.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
+            EditField<Joint>(l_History, entity, "UpperLimit", [](Joint& joint) { return Trinity::Widgets::DragFloat("##UpperLimit", &joint.UpperLimit, 0.01f, 0.0f, 1.0e4f, "%.3f m", ImGuiSliderFlags_AlwaysClamp); });
         }
 
         Label("Motor");
@@ -3276,28 +3277,28 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
             {
                 if (!l_Turns)
                 {
-                    return ImGui::DragFloat("##MotorSpeed", &joint.MotorSpeed, 0.01f, -1.0e4f, 1.0e4f, "%.3f m/s", ImGuiSliderFlags_AlwaysClamp);
+                    return Trinity::Widgets::DragFloat("##MotorSpeed", &joint.MotorSpeed, 0.01f, -1.0e4f, 1.0e4f, "%.3f m/s", ImGuiSliderFlags_AlwaysClamp);
                 }
 
                 float l_Degrees = glm::degrees(joint.MotorSpeed);
-                const bool l_Changed = ImGui::DragFloat("##MotorSpeed", &l_Degrees, 1.0f, -1.0e5f, 1.0e5f, "%.1f\xC2\xB0/s", ImGuiSliderFlags_AlwaysClamp);
+                const bool l_Changed = Trinity::Widgets::DragFloat("##MotorSpeed", &l_Degrees, 1.0f, -1.0e5f, 1.0e5f, "%.1f\xC2\xB0/s", ImGuiSliderFlags_AlwaysClamp);
                 joint.MotorSpeed = glm::radians(l_Degrees);
 
                 return l_Changed;
             });
 
             Label(l_Turns ? "Max Torque" : "Max Force");
-            EditField<Joint>(l_History, entity, "MotorMaxForce", [l_Turns](Joint& joint) { return ImGui::DragFloat("##MotorMaxForce", &joint.MotorMaxForce, 1.0f, 0.0f, 1.0e9f, l_Turns ? "%.1f N m" : "%.1f N", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+            EditField<Joint>(l_History, entity, "MotorMaxForce", [l_Turns](Joint& joint) { return Trinity::Widgets::DragFloat("##MotorMaxForce", &joint.MotorMaxForce, 1.0f, 0.0f, 1.0e9f, l_Turns ? "%.1f N m" : "%.1f N", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
         }
     }
 
     if (l_Distance)
     {
         Label("Min Distance");
-        EditField<Joint>(l_History, entity, "MinDistance", [](Joint& joint) { return ImGui::DragFloat("##MinDistance", &joint.MinDistance, 0.01f, -1.0f, 1.0e4f, joint.MinDistance >= 0.0f ? "%.3f m" : "From start", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Joint>(l_History, entity, "MinDistance", [](Joint& joint) { return Trinity::Widgets::DragFloat("##MinDistance", &joint.MinDistance, 0.01f, -1.0f, 1.0e4f, joint.MinDistance >= 0.0f ? "%.3f m" : "From start", ImGuiSliderFlags_AlwaysClamp); });
 
         Label("Max Distance");
-        EditField<Joint>(l_History, entity, "MaxDistance", [](Joint& joint) { return ImGui::DragFloat("##MaxDistance", &joint.MaxDistance, 0.01f, -1.0f, 1.0e4f, joint.MaxDistance >= 0.0f ? "%.3f m" : "From start", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Joint>(l_History, entity, "MaxDistance", [](Joint& joint) { return Trinity::Widgets::DragFloat("##MaxDistance", &joint.MaxDistance, 0.01f, -1.0f, 1.0e4f, joint.MaxDistance >= 0.0f ? "%.3f m" : "From start", ImGuiSliderFlags_AlwaysClamp); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("Below 0, the distance between the two ends as the scene starts. Without a spring the ends move freely between the two");
@@ -3307,14 +3308,14 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
     if (l_Distance || l_Wheel)
     {
         Label("Spring");
-        EditField<Joint>(l_History, entity, "SpringFrequency", [](Joint& joint) { return ImGui::DragFloat("##SpringFrequency", &joint.SpringFrequency, 0.01f, 0.0f, 1000.0f, joint.SpringFrequency > 0.0f ? "%.2f Hz" : "None", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Joint>(l_History, entity, "SpringFrequency", [](Joint& joint) { return Trinity::Widgets::DragFloat("##SpringFrequency", &joint.SpringFrequency, 0.01f, 0.0f, 1000.0f, joint.SpringFrequency > 0.0f ? "%.2f Hz" : "None", ImGuiSliderFlags_AlwaysClamp); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("%s", l_Distance ? "How many times a second a body on the spring bounces. It pulls towards the middle of the range" : "How many times a second the wheel bounces on its suspension. Without one the wheel travels freely along its axis");
         }
 
         Label("Damping");
-        EditField<Joint>(l_History, entity, "SpringDamping", [](Joint& joint) { return ImGui::DragFloat("##SpringDamping", &joint.SpringDamping, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Joint>(l_History, entity, "SpringDamping", [](Joint& joint) { return Trinity::Widgets::DragFloat("##SpringDamping", &joint.SpringDamping, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("0 bounces for ever, 1 settles as fast as it can without overshooting");
@@ -3322,13 +3323,13 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
     }
 
     Label("Break Force");
-    EditField<Joint>(l_History, entity, "BreakForce", [](Joint& joint) { return ImGui::DragFloat("##BreakForce", &joint.BreakForce, 1.0f, 0.0f, 1.0e9f, joint.BreakForce > 0.0f ? "%.1f N" : "Unbreakable", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    EditField<Joint>(l_History, entity, "BreakForce", [](Joint& joint) { return Trinity::Widgets::DragFloat("##BreakForce", &joint.BreakForce, 1.0f, 0.0f, 1.0e9f, joint.BreakForce > 0.0f ? "%.1f N" : "Unbreakable", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
 
     // A revolute joint resists turning only at its limits, and a wheel never, since motors are left out
     if (l_Joint.Type == Trinity::Joint2DType::Weld || l_Prismatic || (l_Revolute && l_Joint.UseLimits))
     {
         Label("Break Torque");
-        EditField<Joint>(l_History, entity, "BreakTorque", [](Joint& joint) { return ImGui::DragFloat("##BreakTorque", &joint.BreakTorque, 1.0f, 0.0f, 1.0e9f, joint.BreakTorque > 0.0f ? "%.1f N m" : "Unbreakable", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+        EditField<Joint>(l_History, entity, "BreakTorque", [](Joint& joint) { return Trinity::Widgets::DragFloat("##BreakTorque", &joint.BreakTorque, 1.0f, 0.0f, 1.0e9f, joint.BreakTorque > 0.0f ? "%.1f N m" : "Unbreakable", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     }
 }
 
@@ -3700,7 +3701,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     Label("Min Distance");
     EditField<Trinity::AudioSourceComponent>(l_History, entity, "MinDistance", [](Trinity::AudioSourceComponent& source)
     {
-        const bool l_Changed = ImGui::DragFloat("##MinDistance", &source.MinDistance, 0.05f, 0.01f, 100000.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
+        const bool l_Changed = Trinity::Widgets::DragFloat("##MinDistance", &source.MinDistance, 0.05f, 0.01f, 100000.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
         source.MaxDistance = std::max(source.MaxDistance, source.MinDistance);
 
         return l_Changed;
@@ -3712,7 +3713,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     }
 
     Label("Max Distance");
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "MaxDistance", [](Trinity::AudioSourceComponent& source) { return ImGui::DragFloat("##MaxDistance", &source.MaxDistance, 0.5f, source.MinDistance, 100000.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "MaxDistance", [](Trinity::AudioSourceComponent& source) { return Trinity::Widgets::DragFloat("##MaxDistance", &source.MaxDistance, 0.5f, source.MinDistance, 100000.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
     {
         ImGui::SetTooltip("Beyond this it falls no further, which for Linear is silence");
@@ -3765,7 +3766,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     }
 
     Label("Occlusion Cutoff");
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "OcclusionCutoff", [](Trinity::AudioSourceComponent& source) { return ImGui::DragFloat("##OcclusionCutoff", &source.OcclusionCutoff, 10.0f, 10.0f, 22000.0f, "%.0f Hz", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "OcclusionCutoff", [](Trinity::AudioSourceComponent& source) { return Trinity::Widgets::DragFloat("##OcclusionCutoff", &source.OcclusionCutoff, 10.0f, 10.0f, 22000.0f, "%.0f Hz", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
     {
         ImGui::SetTooltip("Behind something, what is above this falls away, 12 dB an octave");
@@ -3841,7 +3842,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
 
     const bool l_World = entity.Get<Trinity::UIDocumentComponent>().RenderMode == Trinity::UIRenderMode::World;
     Label(l_World ? "Order In Layer" : "Sort Order");
-    EditField<Trinity::UIDocumentComponent>(l_History, entity, "SortOrder", [](Trinity::UIDocumentComponent& document) { return ImGui::DragInt("##SortOrder", &document.SortOrder, 0.1f); });
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "SortOrder", [](Trinity::UIDocumentComponent& document) { return Trinity::Widgets::DragInt("##SortOrder", &document.SortOrder, 0.1f); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip(l_World ? "Sorted with the sprites, its order in its sorting layer, as a sprite's is. Sorted by depth, it is not used" : "Drawn over the documents of a lower order, and over those of the same order above it in the hierarchy");
@@ -3869,7 +3870,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
         DrawUIWorldSettings(entity);
         ImGui::SeparatorText("Panel Settings");
         Label("Scale");
-        EditField<Trinity::UIDocumentComponent>(l_History, entity, "Scale", [](Trinity::UIDocumentComponent& document) { return ImGui::DragFloat("##Scale", &document.Panel.Scale, 0.01f, Trinity::UIPanelSettings::c_MinScale, Trinity::UIPanelSettings::c_MaxScale, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+        EditField<Trinity::UIDocumentComponent>(l_History, entity, "Scale", [](Trinity::UIDocumentComponent& document) { return Trinity::Widgets::DragFloat("##Scale", &document.Panel.Scale, 0.01f, Trinity::UIPanelSettings::c_MinScale, Trinity::UIPanelSettings::c_MaxScale, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("Pixels of its texture to one dp. Raise it with the size and pixels per unit for sharper text at the same size");
@@ -3899,7 +3900,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
         case Trinity::UIScaleMode::ConstantPixelSize:
         {
             Label("Scale");
-            EditField<Trinity::UIDocumentComponent>(l_History, entity, "Scale", [](Trinity::UIDocumentComponent& document) { return ImGui::DragFloat("##Scale", &document.Panel.Scale, 0.01f, Trinity::UIPanelSettings::c_MinScale, Trinity::UIPanelSettings::c_MaxScale, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+            EditField<Trinity::UIDocumentComponent>(l_History, entity, "Scale", [](Trinity::UIDocumentComponent& document) { return Trinity::Widgets::DragFloat("##Scale", &document.Panel.Scale, 0.01f, Trinity::UIPanelSettings::c_MinScale, Trinity::UIPanelSettings::c_MaxScale, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             {
                 ImGui::SetTooltip("Pixels to one dp, whatever the view's size");
@@ -3954,7 +3955,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
         case Trinity::UIScaleMode::ConstantPhysicalSize:
         {
             Label("Reference DPI");
-            EditField<Trinity::UIDocumentComponent>(l_History, entity, "ReferenceDpi", [](Trinity::UIDocumentComponent& document) { return ImGui::DragFloat("##ReferenceDpi", &document.Panel.ReferenceDpi, 1.0f, 1.0f, 1000.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp); });
+            EditField<Trinity::UIDocumentComponent>(l_History, entity, "ReferenceDpi", [](Trinity::UIDocumentComponent& document) { return Trinity::Widgets::DragFloat("##ReferenceDpi", &document.Panel.ReferenceDpi, 1.0f, 1.0f, 1000.0f, "%.0f", ImGuiSliderFlags_AlwaysClamp); });
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
             {
                 ImGui::SetTooltip("The DPI the document is written for, on which one dp is one pixel");
@@ -3988,7 +3989,7 @@ void PropertiesPanel::DrawUIWorldSettings(Trinity::Entity entity)
     if (entity.Get<Trinity::UIDocumentComponent>().World.Sorting == Trinity::UIWorldSorting::Sprites)
     {
         Label("Sorting Layer");
-        EditField<Trinity::UIDocumentComponent>(l_History, entity, "WorldSortingLayer", [](Trinity::UIDocumentComponent& document) { return ImGui::DragInt("##WorldSortingLayer", &document.World.SortingLayer, 0.1f); });
+        EditField<Trinity::UIDocumentComponent>(l_History, entity, "WorldSortingLayer", [](Trinity::UIDocumentComponent& document) { return Trinity::Widgets::DragInt("##WorldSortingLayer", &document.World.SortingLayer, 0.1f); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("Drawn over the sprites of lower layers, as a sprite's sorting layer is");
@@ -4029,7 +4030,7 @@ void PropertiesPanel::DrawUIWorldSettings(Trinity::Entity entity)
     }
 
     Label("Pixels Per Unit");
-    EditField<Trinity::UIDocumentComponent>(l_History, entity, "PixelsPerUnit", [](Trinity::UIDocumentComponent& document) { return ImGui::DragFloat("##PixelsPerUnit", &document.World.PixelsPerUnit, 1.0f, Trinity::UIWorldSettings::c_MinPixelsPerUnit, Trinity::UIWorldSettings::c_MaxPixelsPerUnit, "%.1f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "PixelsPerUnit", [](Trinity::UIDocumentComponent& document) { return Trinity::Widgets::DragFloat("##PixelsPerUnit", &document.World.PixelsPerUnit, 1.0f, Trinity::UIWorldSettings::c_MinPixelsPerUnit, Trinity::UIWorldSettings::c_MaxPixelsPerUnit, "%.1f", ImGuiSliderFlags_AlwaysClamp); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("How many of its pixels one unit of the scene holds, so 400 pixels at 100 are 4 units wide");
@@ -4373,27 +4374,27 @@ bool PropertiesPanel::DrawFieldValue(const Trinity::ScriptFieldDescription& fiel
         }
         case Trinity::ScriptFieldType::Int32:
         {
-            return ImGui::DragScalar("##Value", ImGuiDataType_S32, &value.Get<std::int32_t>(), 0.25f);
+            return Trinity::Widgets::DragScalar("##Value", ImGuiDataType_S32, &value.Get<std::int32_t>(), 0.25f);
         }
         case Trinity::ScriptFieldType::Int64:
         {
-            return ImGui::DragScalar("##Value", ImGuiDataType_S64, &value.Get<std::int64_t>(), 0.25f);
+            return Trinity::Widgets::DragScalar("##Value", ImGuiDataType_S64, &value.Get<std::int64_t>(), 0.25f);
         }
         case Trinity::ScriptFieldType::UInt32:
         {
-            return ImGui::DragScalar("##Value", ImGuiDataType_U32, &value.Get<std::uint32_t>(), 0.25f);
+            return Trinity::Widgets::DragScalar("##Value", ImGuiDataType_U32, &value.Get<std::uint32_t>(), 0.25f);
         }
         case Trinity::ScriptFieldType::UInt64:
         {
-            return ImGui::DragScalar("##Value", ImGuiDataType_U64, &value.Get<std::uint64_t>(), 0.25f);
+            return Trinity::Widgets::DragScalar("##Value", ImGuiDataType_U64, &value.Get<std::uint64_t>(), 0.25f);
         }
         case Trinity::ScriptFieldType::Float:
         {
-            return ImGui::DragFloat("##Value", &value.Get<float>(), 0.01f, 0.0f, 0.0f, "%.3f");
+            return Trinity::Widgets::DragFloat("##Value", &value.Get<float>(), 0.01f, 0.0f, 0.0f, "%.3f");
         }
         case Trinity::ScriptFieldType::Double:
         {
-            return ImGui::DragScalar("##Value", ImGuiDataType_Double, &value.Get<double>(), 0.01f, nullptr, nullptr, "%.6f");
+            return Trinity::Widgets::DragScalar("##Value", ImGuiDataType_Double, &value.Get<double>(), 0.01f, nullptr, nullptr, "%.6f");
         }
         case Trinity::ScriptFieldType::Vector2:
         {
@@ -4958,7 +4959,7 @@ void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
     if (m_ModelSettings.UnitScale)
     {
         Label("Unit Scale");
-        ImGui::DragFloat("##UnitScale", &*m_ModelSettings.UnitScale, 0.001f, 0.0001f, 10000.0f, "%.4f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
+        Trinity::Widgets::DragFloat("##UnitScale", &*m_ModelSettings.UnitScale, 0.001f, 0.0001f, 10000.0f, "%.4f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic);
     }
 
     Label("Up Axis");
@@ -5211,6 +5212,7 @@ void PropertiesPanel::DrawMaterial(const Trinity::AssetRecord& record)
             ImGui::TextUnformatted(label);
         }
 
+        Trinity::Widgets::ScrubWithLastItem();
         const std::string l_Popup = std::format("##Revert{}", label);
         if (l_IsOverridden)
         {
@@ -5281,10 +5283,10 @@ void PropertiesPanel::DrawMaterial(const Trinity::AssetRecord& record)
     });
 
     a_Label("Emissive Strength", { "EmissiveStrength" });
-    a_Edit("Emissive Strength", [](Trinity::MaterialData& material) { return ImGui::DragFloat("##EmissiveStrength", &material.EmissiveStrength, 0.05f, 0.0f, FLT_MAX, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    a_Edit("Emissive Strength", [](Trinity::MaterialData& material) { return Trinity::Widgets::DragFloat("##EmissiveStrength", &material.EmissiveStrength, 0.05f, 0.0f, FLT_MAX, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     a_Label("Normal Scale", { "NormalScale" });
-    a_Edit("Normal Scale", [](Trinity::MaterialData& material) { return ImGui::DragFloat("##NormalScale", &material.NormalScale, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    a_Edit("Normal Scale", [](Trinity::MaterialData& material) { return Trinity::Widgets::DragFloat("##NormalScale", &material.NormalScale, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     a_Label("Occlusion Strength", { "OcclusionStrength" });
     a_Edit("Occlusion Strength", [](Trinity::MaterialData& material) { return ImGui::SliderFloat("##OcclusionStrength", &material.OcclusionStrength, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });

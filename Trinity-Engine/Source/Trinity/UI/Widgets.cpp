@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <utility>
 
 namespace Trinity
 {
@@ -35,6 +36,85 @@ namespace Trinity
         constexpr float c_AxisFillHovered = 0.55f;
         constexpr float c_AxisLetterToText = 0.5f;
 
+        // A row's label, until the row's drag field takes it
+        struct ScrubLabel
+        {
+            ImGuiID Window = 0;
+            int Frame = -1;
+            ImRect Rect;
+            // What clipped the label, which in a table is another column's than the field's
+            ImRect Clip;
+        };
+
+        ScrubLabel s_ScrubLabel;
+        // The field whose drag began on its label or its letter, which keeps the cursor for as long as the drag lasts
+        ImGuiID s_Scrubbed = 0;
+
+        // What ImGui's drag field does as it is pressed, done before the field is drawn so the drag is the field's own from this frame on
+        void BeginScrub(ImGuiID id)
+        {
+            ImGuiContext& l_Context = *ImGui::GetCurrentContext();
+            ImGuiWindow* l_Window = l_Context.CurrentWindow;
+            ImGui::SetKeyOwner(ImGuiKey_MouseLeft, id);
+            ImGui::SetActiveID(id, l_Window);
+            ImGui::SetFocusID(id, l_Window);
+            ImGui::FocusWindow(l_Window);
+            l_Context.ActiveIdUsingNavDirMask = (1 << ImGuiDir_Left) | (1 << ImGuiDir_Right);
+            s_Scrubbed = id;
+        }
+
+        [[nodiscard]] bool IsScrubbed(ImGuiID id)
+        {
+            return s_Scrubbed == id && ImGui::GetActiveID() == id;
+        }
+
+        // After the field, which is what ends its drag
+        void DrawScrubCursor(ImGuiID id)
+        {
+            if (IsScrubbed(id))
+            {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+            }
+            else if (s_Scrubbed == id)
+            {
+                s_Scrubbed = 0;
+            }
+        }
+
+        // Takes the label left for the field about to be drawn at the cursor, and begins the field's drag as the label is pressed
+        void ScrubFromLabel(ImGuiID id)
+        {
+            ImGuiContext& l_Context = *ImGui::GetCurrentContext();
+            ImGuiWindow* l_Window = l_Context.CurrentWindow;
+            const ScrubLabel l_Label = std::exchange(s_ScrubLabel, ScrubLabel());
+            const ImVec2 l_Cursor = l_Window->DC.CursorPos;
+            const float l_Bottom = l_Cursor.y + ImGui::GetFrameHeight();
+
+            // A row with no drag field leaves its label behind, which is told from this row's by where it is
+            const bool l_IsHere = l_Label.Window == l_Window->ID && l_Label.Frame == l_Context.FrameCount && l_Label.Rect.GetWidth() > 0.0f;
+            const bool l_IsOnRow = l_Label.Rect.Min.x < l_Cursor.x && l_Label.Rect.Min.y < l_Bottom && l_Label.Rect.Max.y > l_Cursor.y;
+            if (l_Window->SkipItems || !l_IsHere || !l_IsOnRow || ImGui::TempInputIsActive(id))
+            {
+                return;
+            }
+
+            // Under the field's own ID, so ImGui takes the label for a part of the field. The field's column would clip the label out of the test
+            const ImRect l_Clip = l_Window->ClipRect;
+            l_Window->ClipRect.Add(l_Label.Clip);
+            const bool l_Hovered = ImGui::ItemHoverable(ImRect(l_Label.Rect.Min.x, l_Cursor.y, l_Cursor.x, l_Bottom), id, l_Context.CurrentItemFlags | ImGuiItemFlags_AllowDuplicateId);
+            l_Window->ClipRect = l_Clip;
+            if (!l_Hovered)
+            {
+                return;
+            }
+
+            ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left, ImGuiInputFlags_None, id))
+            {
+                BeginScrub(id);
+            }
+        }
+
         // What ImGui's own DragScalarN does, with a letter's cell before each field
         bool DragAxes(const char* label, float* values, std::size_t count, float speed, float minimum, float maximum, const char* format, ImGuiSliderFlags flags, std::optional<float> reset)
         {
@@ -47,6 +127,9 @@ namespace Trinity
             const float l_Height = ImGui::GetFrameHeight();
             const float l_Letter = std::round(ImGui::GetFontSize() * c_AxisLetterInFonts);
             ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+
+            // The row's label is no one field's to be dragged from
+            s_ScrubLabel = ScrubLabel();
 
             bool l_Changed = false;
             ImGui::BeginGroup();
@@ -62,23 +145,30 @@ namespace Trinity
 
                 const float l_Width = ImGui::CalcItemWidth();
                 const ImVec2 l_Min = ImGui::GetCursorScreenPos();
-                bool l_Hovered = false;
+                const ImGuiID l_Field = ImGui::GetID("");
+                const bool l_Pressed = ImGui::InvisibleButton("##Axis", ImVec2(l_Letter, l_Height));
+                const bool l_Hovered = ImGui::IsItemHovered() || IsScrubbed(l_Field);
+                if (l_Hovered)
+                {
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                }
+
                 if (reset)
                 {
-                    if (ImGui::InvisibleButton("##Reset", ImVec2(l_Letter, l_Height)))
-                    {
-                        // Marked, so the group reads as edited to a caller that waits for the edit to end
-                        values[it_Axis] = *reset;
-                        l_Changed = true;
-                        ImGui::MarkItemEdited(ImGui::GetItemID());
-                    }
-
-                    l_Hovered = ImGui::IsItemHovered();
                     ImGui::SetItemTooltip("Reset %s to %g", c_AxisLetters[it_Axis], *reset);
                 }
-                else
+
+                if (ImGui::IsItemActive() && ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Left))
                 {
-                    ImGui::Dummy(ImVec2(l_Letter, l_Height));
+                    // The press was a drag, which the field takes over from the letter
+                    BeginScrub(l_Field);
+                }
+                else if (l_Pressed && reset)
+                {
+                    // Marked, so the group reads as edited to a caller that waits for the edit to end
+                    values[it_Axis] = *reset;
+                    l_Changed = true;
+                    ImGui::MarkItemEdited(ImGui::GetItemID());
                 }
 
                 // The cell runs on under the field's rounded corners, so the two read as one
@@ -92,6 +182,7 @@ namespace Trinity
                 ImGui::SameLine(0.0f, 0.0f);
                 ImGui::SetNextItemWidth(std::max(1.0f, l_Width - l_Letter));
                 l_Changed |= ImGui::DragScalar("", ImGuiDataType_Float, &values[it_Axis], speed, &minimum, &maximum, format, flags);
+                DrawScrubCursor(l_Field);
                 ImGui::PopID();
                 ImGui::PopItemWidth();
             }
@@ -262,6 +353,32 @@ namespace Trinity
             const float l_Rounding = l_Style.FrameRounding * c_OverlayRounding;
             drawList.AddRectFilled(minimum, maximum, Theme::GetColorU32(ThemeColor::Overlay), l_Rounding);
             drawList.AddRect(minimum, maximum, ImGui::GetColorU32(ImGuiCol_Border), l_Rounding, l_Style.ChildBorderSize);
+        }
+
+        void ScrubWithLastItem()
+        {
+            const ImGuiContext& l_Context = *ImGui::GetCurrentContext();
+            s_ScrubLabel = ScrubLabel{ l_Context.CurrentWindow->ID, l_Context.FrameCount, l_Context.LastItemData.Rect, l_Context.CurrentWindow->ClipRect };
+        }
+
+        bool DragScalar(const char* label, ImGuiDataType type, void* value, float speed, const void* minimum, const void* maximum, const char* format, ImGuiSliderFlags flags)
+        {
+            const ImGuiID l_ID = ImGui::GetID(label);
+            ScrubFromLabel(l_ID);
+            const bool l_Changed = ImGui::DragScalar(label, type, value, speed, minimum, maximum, format, flags);
+            DrawScrubCursor(l_ID);
+
+            return l_Changed;
+        }
+
+        bool DragFloat(const char* label, float* value, float speed, float minimum, float maximum, const char* format, ImGuiSliderFlags flags)
+        {
+            return DragScalar(label, ImGuiDataType_Float, value, speed, &minimum, &maximum, format, flags);
+        }
+
+        bool DragInt(const char* label, int* value, float speed, int minimum, int maximum, const char* format, ImGuiSliderFlags flags)
+        {
+            return DragScalar(label, ImGuiDataType_S32, value, speed, &minimum, &maximum, format, flags);
         }
 
         bool DragFloat2(const char* label, float* values, float speed, float minimum, float maximum, const char* format, ImGuiSliderFlags flags, std::optional<float> reset)

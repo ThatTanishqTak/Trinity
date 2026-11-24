@@ -37,6 +37,7 @@ namespace
     {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(label);
+        Trinity::Widgets::ScrubWithLastItem();
         ImGui::SameLine(ImGui::GetFontSize() * c_LabelWidthInFonts);
         ImGui::SetNextItemWidth(-FLT_MIN);
     }
@@ -858,7 +859,7 @@ void InputActionsPanel::DrawInteraction(const Trinity::InputActionsData& data)
         case Trinity::InputInteractionKind::Tap:
         {
             Label(l_Interaction.Kind == Trinity::InputInteractionKind::Hold ? "Hold for" : "Let go within");
-            if (ImGui::DragFloat("##Duration", &l_Edited.Duration, 0.01f, 0.01f, 10.0f, "%.2f s", ImGuiSliderFlags_AlwaysClamp))
+            if (Trinity::Widgets::DragFloat("##Duration", &l_Edited.Duration, 0.01f, 0.01f, 10.0f, "%.2f s", ImGuiSliderFlags_AlwaysClamp))
             {
                 a_Edited(l_Edited, std::format("Set the {} time of {}", Trinity::ToString(l_Interaction.Kind), l_Path), l_Field + "Duration");
             }
@@ -869,20 +870,20 @@ void InputActionsPanel::DrawInteraction(const Trinity::InputActionsData& data)
         {
             int l_Count = static_cast<int>(l_Interaction.Count);
             Label("Taps");
-            if (ImGui::DragInt("##Count", &l_Count, 0.05f, 2, 10, "%d", ImGuiSliderFlags_AlwaysClamp))
+            if (Trinity::Widgets::DragInt("##Count", &l_Count, 0.05f, 2, 10, "%d", ImGuiSliderFlags_AlwaysClamp))
             {
                 l_Edited.Count = static_cast<std::uint32_t>(l_Count);
                 a_Edited(l_Edited, std::format("Set the taps of {}", l_Path), l_Field + "Count");
             }
 
             Label("Each within");
-            if (ImGui::DragFloat("##Duration", &l_Edited.Duration, 0.01f, 0.01f, 10.0f, "%.2f s", ImGuiSliderFlags_AlwaysClamp))
+            if (Trinity::Widgets::DragFloat("##Duration", &l_Edited.Duration, 0.01f, 0.01f, 10.0f, "%.2f s", ImGuiSliderFlags_AlwaysClamp))
             {
                 a_Edited(l_Edited, std::format("Set the tap time of {}", l_Path), l_Field + "Duration");
             }
 
             Label("Apart by up to");
-            if (ImGui::DragFloat("##Spacing", &l_Edited.Spacing, 0.01f, 0.01f, 10.0f, "%.2f s", ImGuiSliderFlags_AlwaysClamp))
+            if (Trinity::Widgets::DragFloat("##Spacing", &l_Edited.Spacing, 0.01f, 0.01f, 10.0f, "%.2f s", ImGuiSliderFlags_AlwaysClamp))
             {
                 a_Edited(l_Edited, std::format("Set the time between taps of {}", l_Path), l_Field + "Spacing");
             }
@@ -1083,14 +1084,14 @@ void InputActionsPanel::DrawProcessors(const Trinity::InputActionsData& data)
             case Trinity::InputProcessorKind::AxialDeadzone:
             {
                 Label("Min");
-                if (ImGui::DragFloat("##Min", &l_Edited.Min, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
+                if (Trinity::Widgets::DragFloat("##Min", &l_Edited.Min, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
                 {
                     a_Set("Min");
                 }
 
                 ImGui::SetItemTooltip("Nothing below this");
                 Label("Max");
-                if (ImGui::DragFloat("##Max", &l_Edited.Max, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
+                if (Trinity::Widgets::DragFloat("##Max", &l_Edited.Max, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
                 {
                     a_Set("Max");
                 }

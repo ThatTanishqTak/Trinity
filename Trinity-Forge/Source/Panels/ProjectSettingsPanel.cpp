@@ -33,6 +33,7 @@ namespace
     {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(label);
+        Trinity::Widgets::ScrubWithLastItem();
         ImGui::SameLine(ImGui::GetFontSize() * c_LabelWidthInFonts);
         ImGui::SetNextItemWidth(-FLT_MIN);
     }
@@ -144,7 +145,7 @@ void ProjectSettingsPanel::DrawAudio(Trinity::AudioSettings settings, const Trin
     ImGui::BeginDisabled(playing);
     Label("Real Voices");
     int l_Real = static_cast<int>(settings.RealVoices);
-    if (ImGui::DragInt("##RealVoices", &l_Real, 0.2f, 1, c_MaxRealVoices, "%d at once", ImGuiSliderFlags_AlwaysClamp))
+    if (Trinity::Widgets::DragInt("##RealVoices", &l_Real, 0.2f, 1, c_MaxRealVoices, "%d at once", ImGuiSliderFlags_AlwaysClamp))
     {
         settings.RealVoices = static_cast<std::uint32_t>(l_Real);
         settings.VirtualVoices = std::max(settings.VirtualVoices, settings.RealVoices);
@@ -155,7 +156,7 @@ void ProjectSettingsPanel::DrawAudio(Trinity::AudioSettings settings, const Trin
 
     Label("Virtual Voices");
     int l_Virtual = static_cast<int>(settings.VirtualVoices);
-    if (ImGui::DragInt("##VirtualVoices", &l_Virtual, 1.0f, static_cast<int>(settings.RealVoices), c_MaxVirtualVoices, "%d at once", ImGuiSliderFlags_AlwaysClamp))
+    if (Trinity::Widgets::DragInt("##VirtualVoices", &l_Virtual, 1.0f, static_cast<int>(settings.RealVoices), c_MaxVirtualVoices, "%d at once", ImGuiSliderFlags_AlwaysClamp))
     {
         settings.VirtualVoices = static_cast<std::uint32_t>(l_Virtual);
         m_Session.EditAudioSettings(settings, "virtual voices");
@@ -164,7 +165,7 @@ void ProjectSettingsPanel::DrawAudio(Trinity::AudioSettings settings, const Trin
     Tooltip("Sounds playing at once, heard or not. Beyond it the least important stop");
 
     Label("Doppler Factor");
-    if (ImGui::DragFloat("##DopplerFactor", &settings.DopplerFactor, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+    if (Trinity::Widgets::DragFloat("##DopplerFactor", &settings.DopplerFactor, 0.01f, 0.0f, 10.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
     {
         m_Session.EditAudioSettings(settings, "Doppler factor");
     }
@@ -181,7 +182,7 @@ void ProjectSettingsPanel::DrawAudio(Trinity::AudioSettings settings, const Trin
 
     Label("Occlusion Rays");
     int l_Rays = static_cast<int>(settings.OcclusionRays);
-    if (ImGui::DragInt("##OcclusionRays", &l_Rays, 0.2f, 0, c_MaxOcclusionRays, "%d a frame", ImGuiSliderFlags_AlwaysClamp))
+    if (Trinity::Widgets::DragInt("##OcclusionRays", &l_Rays, 0.2f, 0, c_MaxOcclusionRays, "%d a frame", ImGuiSliderFlags_AlwaysClamp))
     {
         settings.OcclusionRays = static_cast<std::uint32_t>(l_Rays);
         m_Session.EditAudioSettings(settings, "occlusion rays");
@@ -190,7 +191,7 @@ void ProjectSettingsPanel::DrawAudio(Trinity::AudioSettings settings, const Trin
     Tooltip("Rays cast a frame at most, from the listener to the occluded sources in turn. 0 checks none, so nothing is muffled");
 
     Label("Occlusion Time");
-    if (ImGui::DragFloat("##OcclusionTime", &settings.OcclusionTime, 0.01f, 0.0f, 10.0f, "%.2f s", ImGuiSliderFlags_AlwaysClamp))
+    if (Trinity::Widgets::DragFloat("##OcclusionTime", &settings.OcclusionTime, 0.01f, 0.0f, 10.0f, "%.2f s", ImGuiSliderFlags_AlwaysClamp))
     {
         m_Session.EditAudioSettings(settings, "occlusion time");
     }
@@ -267,7 +268,7 @@ void ProjectSettingsPanel::DrawWorlds(Trinity::PhysicsSettings settings)
 
     Label("Step Rate");
     int l_Rate = static_cast<int>(settings.StepRate);
-    if (ImGui::DragInt("##StepRate", &l_Rate, 0.5f, static_cast<int>(Trinity::SimulationClock::c_MinimumRate), static_cast<int>(Trinity::SimulationClock::c_MaximumRate), "%d steps a second", ImGuiSliderFlags_AlwaysClamp))
+    if (Trinity::Widgets::DragInt("##StepRate", &l_Rate, 0.5f, static_cast<int>(Trinity::SimulationClock::c_MinimumRate), static_cast<int>(Trinity::SimulationClock::c_MaximumRate), "%d steps a second", ImGuiSliderFlags_AlwaysClamp))
     {
         settings.StepRate = static_cast<std::uint32_t>(l_Rate);
         m_Session.EditPhysicsSettings(settings, "step rate");

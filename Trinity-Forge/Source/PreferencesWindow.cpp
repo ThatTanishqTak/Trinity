@@ -57,6 +57,7 @@ namespace
     {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(label.data(), label.data() + label.size());
+        Trinity::Widgets::ScrubWithLastItem();
         ImGui::SameLine(ImGui::GetFontSize() * c_LabelWidthInFonts);
         ImGui::SetNextItemWidth(-FLT_MIN);
     }
@@ -460,7 +461,7 @@ void PreferencesWindow::DrawSceneView()
     if (Shows(Section::SceneView, "Camera Fly Speed"))
     {
         Label("Camera Fly Speed");
-        l_Changed = ImGui::DragFloat("##CameraSpeed", &l_Preferences.CameraSpeed, 1.0f, EditorCamera3D::c_MinimumSpeed, EditorCamera3D::c_MaximumSpeed, "%.2f units a second", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic) || l_Changed;
+        l_Changed = Trinity::Widgets::DragFloat("##CameraSpeed", &l_Preferences.CameraSpeed, 1.0f, EditorCamera3D::c_MinimumSpeed, EditorCamera3D::c_MaximumSpeed, "%.2f units a second", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic) || l_Changed;
         Tooltip("How fast the 3D camera flies at first in a scene the Scene panel has not shown before. The wheel changes it while flying, and each scene keeps its own");
     }
 
@@ -472,7 +473,7 @@ void PreferencesWindow::DrawSceneView()
         {
             ImGui::PushID(static_cast<int>(it_Axis));
             Label(l_Name);
-            l_Changed = ImGui::DragFloat("##Step", &l_Preferences.SnapSteps[static_cast<glm::length_t>(it_Axis)], 0.01f, EditorPreferences::c_MinimumSnap, EditorPreferences::c_MaximumSnap, l_Format, ImGuiSliderFlags_AlwaysClamp) || l_Changed;
+            l_Changed = Trinity::Widgets::DragFloat("##Step", &l_Preferences.SnapSteps[static_cast<glm::length_t>(it_Axis)], 0.01f, EditorPreferences::c_MinimumSnap, EditorPreferences::c_MaximumSnap, l_Format, ImGuiSliderFlags_AlwaysClamp) || l_Changed;
             Tooltip("The step a gizmo drag goes by while snapping is on, or Ctrl is held with it off, as the Scene panel's toolbar shows it");
             ImGui::PopID();
         }

@@ -273,6 +273,7 @@ namespace
         ImGui::TableNextColumn();
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(label);
+        Trinity::Widgets::ScrubWithLastItem();
         if (tooltip != nullptr)
         {
             ImGui::SetItemTooltip("%s", tooltip);
@@ -1033,7 +1034,7 @@ void SoundEventPanel::DrawContainerDetails(Trinity::UUID asset, const Trinity::S
         Row(label, tooltip);
         float l_Value = container.*member * shown;
         const std::string l_ID = std::format("##{}", label);
-        const bool l_Changed = drag ? ImGui::DragFloat(l_ID.c_str(), &l_Value, (maximum - minimum) * shown * 0.001f, minimum * shown, maximum * shown, format, ImGuiSliderFlags_AlwaysClamp) : ImGui::SliderFloat(l_ID.c_str(), &l_Value, minimum * shown, maximum * shown, format, ImGuiSliderFlags_AlwaysClamp);
+        const bool l_Changed = drag ? Trinity::Widgets::DragFloat(l_ID.c_str(), &l_Value, (maximum - minimum) * shown * 0.001f, minimum * shown, maximum * shown, format, ImGuiSliderFlags_AlwaysClamp) : ImGui::SliderFloat(l_ID.c_str(), &l_Value, minimum * shown, maximum * shown, format, ImGuiSliderFlags_AlwaysClamp);
         if (l_Changed)
         {
             a_Change(std::format("Set {} of {}", what, l_Name), std::format("{} {}", label, container.ID), [&](Trinity::SoundContainer& changed) { changed.*member = std::clamp(l_Value / shown, minimum, maximum); });
@@ -1172,7 +1173,7 @@ void SoundEventPanel::DrawContainerDetails(Trinity::UUID asset, const Trinity::S
 
                 Row("Trigger Count", "How many times it triggers itself, or 0 for as long as the event plays");
                 int l_Count = static_cast<int>(container.TriggerCount);
-                if (ImGui::DragInt("##TriggerCount", &l_Count, 0.1f, 0, 100000, l_Count == 0 ? "%d, forever" : "%d", ImGuiSliderFlags_AlwaysClamp))
+                if (Trinity::Widgets::DragInt("##TriggerCount", &l_Count, 0.1f, 0, 100000, l_Count == 0 ? "%d, forever" : "%d", ImGuiSliderFlags_AlwaysClamp))
                 {
                     a_Change(std::format("Set trigger count of {}", l_Name), std::format("TriggerCount {}", container.ID), [l_Count](Trinity::SoundContainer& changed) { changed.TriggerCount = static_cast<std::uint32_t>(std::max(l_Count, 0)); });
                 }
@@ -1319,7 +1320,7 @@ void SoundEventPanel::DrawEventSettings(const Trinity::SoundEventData& data)
 
     Row("Max Instances", "How many of it play at once, 0 for any number");
     int l_Instances = static_cast<int>(data.MaxInstances);
-    if (ImGui::DragInt("##MaxInstances", &l_Instances, 0.1f, 0, 1000, l_Instances == 0 ? "%d, no limit" : "%d", ImGuiSliderFlags_AlwaysClamp))
+    if (Trinity::Widgets::DragInt("##MaxInstances", &l_Instances, 0.1f, 0, 1000, l_Instances == 0 ? "%d, no limit" : "%d", ImGuiSliderFlags_AlwaysClamp))
     {
         a_Change("Set instance limit of the event", "MaxInstances", [l_Instances](Trinity::SoundEventData& changed) { changed.MaxInstances = static_cast<std::uint32_t>(std::max(l_Instances, 0)); });
     }
@@ -1353,7 +1354,7 @@ void SoundEventPanel::DrawEventSettings(const Trinity::SoundEventData& data)
 
     Row("Min Distance", "Closer than this it is at full volume");
     float l_Nearest = data.MinDistance;
-    if (ImGui::DragFloat("##MinDistance", &l_Nearest, 0.05f, 0.01f, 100000.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic))
+    if (Trinity::Widgets::DragFloat("##MinDistance", &l_Nearest, 0.05f, 0.01f, 100000.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic))
     {
         a_Change("Set nearest distance of the event", "MinDistance", [l_Nearest](Trinity::SoundEventData& changed)
         {
@@ -1364,7 +1365,7 @@ void SoundEventPanel::DrawEventSettings(const Trinity::SoundEventData& data)
 
     Row("Max Distance", "Beyond this it falls no further");
     float l_Farthest = data.MaxDistance;
-    if (ImGui::DragFloat("##MaxDistance", &l_Farthest, 0.5f, data.MinDistance, 100000.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic))
+    if (Trinity::Widgets::DragFloat("##MaxDistance", &l_Farthest, 0.5f, data.MinDistance, 100000.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_Logarithmic))
     {
         a_Change("Set farthest distance of the event", "MaxDistance", [l_Farthest](Trinity::SoundEventData& changed) { changed.MaxDistance = std::max(l_Farthest, changed.MinDistance); });
     }
@@ -1517,14 +1518,14 @@ void SoundEventPanel::DrawParameterDetails(const Trinity::SoundEventData& data, 
     {
         Row("Minimum");
         float l_Lowest = parameter.Minimum;
-        if (ImGui::DragFloat("##Minimum", &l_Lowest, 0.01f, -100000.0f, std::nextafter(parameter.Maximum, -FLT_MAX), "%.3f", ImGuiSliderFlags_AlwaysClamp))
+        if (Trinity::Widgets::DragFloat("##Minimum", &l_Lowest, 0.01f, -100000.0f, std::nextafter(parameter.Maximum, -FLT_MAX), "%.3f", ImGuiSliderFlags_AlwaysClamp))
         {
             a_Change(std::format("Set minimum of {}", l_Name), std::format("Minimum {}", parameter.ID), [l_Lowest](Trinity::SoundParameter& changed) { changed.Minimum = std::min(l_Lowest, std::nextafter(changed.Maximum, -FLT_MAX)); });
         }
 
         Row("Maximum");
         float l_Highest = parameter.Maximum;
-        if (ImGui::DragFloat("##Maximum", &l_Highest, 0.01f, std::nextafter(parameter.Minimum, FLT_MAX), 100000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
+        if (Trinity::Widgets::DragFloat("##Maximum", &l_Highest, 0.01f, std::nextafter(parameter.Minimum, FLT_MAX), 100000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp))
         {
             a_Change(std::format("Set maximum of {}", l_Name), std::format("Maximum {}", parameter.ID), [l_Highest](Trinity::SoundParameter& changed) { changed.Maximum = std::max(l_Highest, std::nextafter(changed.Minimum, FLT_MAX)); });
         }
@@ -1538,7 +1539,7 @@ void SoundEventPanel::DrawParameterDetails(const Trinity::SoundEventData& data, 
 
         Row("Seek Speed", "How fast it moves towards each value it is given, in its own units a second, as an engine's RPM climbs. 0 jumps at once");
         float l_Speed = parameter.SeekSpeed;
-        if (ImGui::DragFloat("##SeekSpeed", &l_Speed, 0.01f, 0.0f, 100000.0f, l_Speed == 0.0f ? "%.3f, at once" : "%.3f / s", ImGuiSliderFlags_AlwaysClamp))
+        if (Trinity::Widgets::DragFloat("##SeekSpeed", &l_Speed, 0.01f, 0.0f, 100000.0f, l_Speed == 0.0f ? "%.3f, at once" : "%.3f / s", ImGuiSliderFlags_AlwaysClamp))
         {
             a_Change(std::format("Set seek speed of {}", l_Name), std::format("SeekSpeed {}", parameter.ID), [l_Speed](Trinity::SoundParameter& changed) { changed.SeekSpeed = std::max(l_Speed, 0.0f); });
         }
@@ -1891,7 +1892,7 @@ void SoundEventPanel::DrawPointFields(const Trinity::SoundEventData& data, const
     else
     {
         float l_At = l_Point.x;
-        if (ImGui::DragFloat("##At", &l_At, (parameter.GetMaximum() - parameter.GetMinimum()) * 0.001f, l_Lowest, std::max(l_Lowest, l_Highest), std::format("{} %.3f", EscapeFormat(std::string_view(parameter.Name))).c_str(), ImGuiSliderFlags_AlwaysClamp))
+        if (Trinity::Widgets::DragFloat("##At", &l_At, (parameter.GetMaximum() - parameter.GetMinimum()) * 0.001f, l_Lowest, std::max(l_Lowest, l_Highest), std::format("{} %.3f", EscapeFormat(std::string_view(parameter.Name))).c_str(), ImGuiSliderFlags_AlwaysClamp))
         {
             a_Set(glm::vec2(std::clamp(l_At, l_Lowest, std::max(l_Lowest, l_Highest)), l_Point.y), "along");
         }
@@ -1901,7 +1902,7 @@ void SoundEventPanel::DrawPointFields(const Trinity::SoundEventData& data, const
     ImGui::SameLine();
     ImGui::SetNextItemWidth(l_FieldWidth);
     float l_Value = l_Point.y;
-    if (ImGui::DragFloat("##Value", &l_Value, (l_Target.Maximum - l_Target.Minimum) * 0.001f, l_Target.Minimum, l_Target.Maximum, l_Target.Format, ImGuiSliderFlags_AlwaysClamp | (l_Target.Target == Trinity::SoundCurveTarget::Cutoff ? ImGuiSliderFlags_Logarithmic : ImGuiSliderFlags_None)))
+    if (Trinity::Widgets::DragFloat("##Value", &l_Value, (l_Target.Maximum - l_Target.Minimum) * 0.001f, l_Target.Minimum, l_Target.Maximum, l_Target.Format, ImGuiSliderFlags_AlwaysClamp | (l_Target.Target == Trinity::SoundCurveTarget::Cutoff ? ImGuiSliderFlags_Logarithmic : ImGuiSliderFlags_None)))
     {
         a_Set(glm::vec2(l_Point.x, std::clamp(l_Value, l_Target.Minimum, l_Target.Maximum)), "up or down");
     }

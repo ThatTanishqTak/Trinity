@@ -34,6 +34,7 @@ namespace
     {
         ImGui::AlignTextToFramePadding();
         ImGui::TextUnformatted(label);
+        Trinity::Widgets::ScrubWithLastItem();
         ImGui::SameLine(ImGui::GetFontSize() * c_LabelWidthInFonts);
         ImGui::SetNextItemWidth(std::max(ImGui::GetContentRegionAvail().x - reserve, 1.0f));
     }
@@ -549,7 +550,7 @@ void BuildPanel::DrawWindow(const Trinity::ExportSettings& settings)
     constexpr int c_MaxSize = static_cast<int>(Trinity::WindowSettings::c_MaxSize);
     Label("Width");
     int l_Width = static_cast<int>(settings.Window.Width);
-    if (ImGui::DragInt("##Width", &l_Width, 1.0f, 1, c_MaxSize, "%d px", ImGuiSliderFlags_AlwaysClamp))
+    if (Trinity::Widgets::DragInt("##Width", &l_Width, 1.0f, 1, c_MaxSize, "%d px", ImGuiSliderFlags_AlwaysClamp))
     {
         Edit("window width", [l_Width](Trinity::ExportSettings& changed) { changed.Window.Width = static_cast<std::uint32_t>(l_Width); });
     }
@@ -558,7 +559,7 @@ void BuildPanel::DrawWindow(const Trinity::ExportSettings& settings)
 
     Label("Height");
     int l_Height = static_cast<int>(settings.Window.Height);
-    if (ImGui::DragInt("##Height", &l_Height, 1.0f, 1, c_MaxSize, "%d px", ImGuiSliderFlags_AlwaysClamp))
+    if (Trinity::Widgets::DragInt("##Height", &l_Height, 1.0f, 1, c_MaxSize, "%d px", ImGuiSliderFlags_AlwaysClamp))
     {
         Edit("window height", [l_Height](Trinity::ExportSettings& changed) { changed.Window.Height = static_cast<std::uint32_t>(l_Height); });
     }

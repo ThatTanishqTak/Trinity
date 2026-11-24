@@ -30,7 +30,15 @@ namespace Trinity
         // The same panel, behind what is drawn over a scene's image by hand
         TRINITY_API void DrawOverlay(ImDrawList& drawList, const ImVec2& minimum, const ImVec2& maximum);
 
-        // ImGui's DragFloat2, 3 and 4 with each field behind its axis's letter in that axis's colour. Given a reset value, a click on a letter sets its field to it
+        // After a row's label, which then drags the first of the drag fields below that follows it on the row, from its left end to the field's
+        TRINITY_API void ScrubWithLastItem();
+
+        // ImGui's DragScalar, DragFloat and DragInt, dragged from the row's label as from the field itself where ScrubWithLastItem came after the label
+        TRINITY_API bool DragScalar(const char* label, ImGuiDataType type, void* value, float speed = 1.0f, const void* minimum = nullptr, const void* maximum = nullptr, const char* format = nullptr, ImGuiSliderFlags flags = ImGuiSliderFlags_None);
+        TRINITY_API bool DragFloat(const char* label, float* value, float speed = 1.0f, float minimum = 0.0f, float maximum = 0.0f, const char* format = "%.3f", ImGuiSliderFlags flags = ImGuiSliderFlags_None);
+        TRINITY_API bool DragInt(const char* label, int* value, float speed = 1.0f, int minimum = 0, int maximum = 0, const char* format = "%d", ImGuiSliderFlags flags = ImGuiSliderFlags_None);
+
+        // ImGui's DragFloat2, 3 and 4 with each field behind its axis's letter in that axis's colour, which drags the field as the field itself does. Given a reset value, a click on a letter sets its field to it
         TRINITY_API bool DragFloat2(const char* label, float* values, float speed = 1.0f, float minimum = 0.0f, float maximum = 0.0f, const char* format = "%.3f", ImGuiSliderFlags flags = ImGuiSliderFlags_None, std::optional<float> reset = std::nullopt);
         TRINITY_API bool DragFloat3(const char* label, float* values, float speed = 1.0f, float minimum = 0.0f, float maximum = 0.0f, const char* format = "%.3f", ImGuiSliderFlags flags = ImGuiSliderFlags_None, std::optional<float> reset = std::nullopt);
         TRINITY_API bool DragFloat4(const char* label, float* values, float speed = 1.0f, float minimum = 0.0f, float maximum = 0.0f, const char* format = "%.3f", ImGuiSliderFlags flags = ImGuiSliderFlags_None, std::optional<float> reset = std::nullopt);
