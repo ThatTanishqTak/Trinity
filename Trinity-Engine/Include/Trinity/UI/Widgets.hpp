@@ -24,6 +24,12 @@ namespace Trinity
         // An icon over the right end of the last item, which has to allow overlap and stays the last item for what follows. True as it is pressed
         TRINITY_API bool OverlayButton(const char* id, const char* icon, const char* tooltip = nullptr);
 
+        // A child that sizes itself to what it holds, drawn over a scene's image on the theme's overlay with rounded corners and a hairline around it. EndOverlay follows whatever this returns
+        TRINITY_API bool BeginOverlay(const char* id, ImGuiWindowFlags flags = ImGuiWindowFlags_None);
+        TRINITY_API void EndOverlay();
+        // The same panel, behind what is drawn over a scene's image by hand
+        TRINITY_API void DrawOverlay(ImDrawList& drawList, const ImVec2& minimum, const ImVec2& maximum);
+
         // ImGui's DragFloat2, 3 and 4 with each field behind its axis's letter in that axis's colour. Given a reset value, a click on a letter sets its field to it
         TRINITY_API bool DragFloat2(const char* label, float* values, float speed = 1.0f, float minimum = 0.0f, float maximum = 0.0f, const char* format = "%.3f", ImGuiSliderFlags flags = ImGuiSliderFlags_None, std::optional<float> reset = std::nullopt);
         TRINITY_API bool DragFloat3(const char* label, float* values, float speed = 1.0f, float minimum = 0.0f, float maximum = 0.0f, const char* format = "%.3f", ImGuiSliderFlags flags = ImGuiSliderFlags_None, std::optional<float> reset = std::nullopt);

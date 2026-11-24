@@ -23,6 +23,8 @@ namespace Trinity
         constexpr float c_SelectionEdgeInFonts = 0.15f;
         // How far inside its square an overlay button's hovered fill is drawn, as a share of the item's height
         constexpr float c_OverlayInset = 0.1f;
+        // An overlay's corners, as a multiple of a frame's
+        constexpr float c_OverlayRounding = 1.5f;
 
         // An axis's letter and its colour, the fourth being no axis and so the dimmed text's
         constexpr std::array<const char*, 4> c_AxisLetters{ "X", "Y", "Z", "W" };
@@ -233,6 +235,33 @@ namespace Trinity
             l_Context.LastItemData = l_Under;
 
             return l_Pressed;
+        }
+
+        bool BeginOverlay(const char* id, ImGuiWindowFlags flags)
+        {
+            // Popped as soon as the child has begun, which is when it reads them, so a tooltip opened inside keeps its own padding
+            const ImGuiStyle& l_Style = ImGui::GetStyle();
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, Theme::GetColor(ThemeColor::Overlay));
+            ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, l_Style.FrameRounding * c_OverlayRounding);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, l_Style.FramePadding);
+            const bool l_Open = ImGui::BeginChild(id, ImVec2(0.0f, 0.0f), ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_Borders, flags);
+            ImGui::PopStyleVar(2);
+            ImGui::PopStyleColor();
+
+            return l_Open;
+        }
+
+        void EndOverlay()
+        {
+            ImGui::EndChild();
+        }
+
+        void DrawOverlay(ImDrawList& drawList, const ImVec2& minimum, const ImVec2& maximum)
+        {
+            const ImGuiStyle& l_Style = ImGui::GetStyle();
+            const float l_Rounding = l_Style.FrameRounding * c_OverlayRounding;
+            drawList.AddRectFilled(minimum, maximum, Theme::GetColorU32(ThemeColor::Overlay), l_Rounding);
+            drawList.AddRect(minimum, maximum, ImGui::GetColorU32(ImGuiCol_Border), l_Rounding, l_Style.ChildBorderSize);
         }
 
         bool DragFloat2(const char* label, float* values, float speed, float minimum, float maximum, const char* format, ImGuiSliderFlags flags, std::optional<float> reset)

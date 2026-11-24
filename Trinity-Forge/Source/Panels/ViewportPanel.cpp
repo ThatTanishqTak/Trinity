@@ -676,7 +676,7 @@ void ViewportPanel::OnImGuiRender()
         const ImVec2 l_Min(l_ImageMin.x + c_StatsMargin, l_ImageMin.y + l_ViewportSize.y - c_StatsMargin - l_TextSize.y - l_Padding.y * 2.0f);
         const ImVec2 l_Max(l_Min.x + l_TextSize.x + l_Padding.x * 2.0f, l_Min.y + l_TextSize.y + l_Padding.y * 2.0f);
         ImDrawList& l_Foot = *ImGui::GetWindowDrawList();
-        l_Foot.AddRectFilled(l_Min, l_Max, Trinity::Theme::GetColorU32(Trinity::ThemeColor::Overlay), ImGui::GetStyle().ChildRounding);
+        Trinity::Widgets::DrawOverlay(l_Foot, l_Min, l_Max);
         l_Foot.AddText(ImVec2(l_Min.x + l_Padding.x, l_Min.y + l_Padding.y), ImGui::GetColorU32(ImGuiCol_Text), l_Text.c_str());
     }
 
@@ -1758,10 +1758,7 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
 
     const ImVec2 l_Start = ImGui::GetCursorStartPos();
     ImGui::SetCursorPos(ImVec2(l_Start.x + c_StatsMargin, l_Start.y + m_BreadcrumbHeight + c_StatsMargin));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, Trinity::Theme::GetColor(Trinity::ThemeColor::Overlay));
-    const ImGuiChildFlags l_ChildFlags = ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding;
-    const ImGuiWindowFlags l_WindowFlags = ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings;
-    if (ImGui::BeginChild("##Stats", ImVec2(0.0f, 0.0f), l_ChildFlags, l_WindowFlags))
+    if (Trinity::Widgets::BeginOverlay("##Stats", ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
     {
         TextLine(std::format("{:.0f} fps, {:.2f} ms", l_IO.Framerate, l_IO.Framerate > 0.0f ? 1000.0f / l_IO.Framerate : 0.0f));
         TextLine(std::format("{} on {}", Trinity::ToString(l_Device.API), l_Device.AdapterName.empty() ? "no adapter" : l_Device.AdapterName));
@@ -1851,8 +1848,7 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
         TextLine(l_Selected ? std::format("Selected: {}", std::string_view(l_Selected.Get<Trinity::TagComponent>().Tag)) : std::string("Nothing selected"));
     }
 
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
+    Trinity::Widgets::EndOverlay();
 }
 
 // Edits the transform relative to its parent, so children follow. The drag is one command
@@ -2266,10 +2262,7 @@ void ViewportPanel::DrawToolbar()
 {
     const ImVec2 l_Start = ImGui::GetCursorStartPos();
     ImGui::SetCursorPos(ImVec2(std::max(l_Start.x + c_StatsMargin, ImGui::GetWindowWidth() - m_ToolbarWidth - c_StatsMargin), l_Start.y + m_BreadcrumbHeight + c_StatsMargin));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, Trinity::Theme::GetColor(Trinity::ThemeColor::Overlay));
-
-    const ImGuiChildFlags l_ChildFlags = ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding;
-    if (ImGui::BeginChild("##Toolbar", ImVec2(0.0f, 0.0f), l_ChildFlags, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
+    if (Trinity::Widgets::BeginOverlay("##Toolbar", ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
     {
         if (ImGui::Button(std::format("{}###ViewMode", m_Mode3D ? "3D" : "2D").c_str()))
         {
@@ -2364,8 +2357,7 @@ void ViewportPanel::DrawToolbar()
         m_ToolbarHeight = ImGui::GetWindowHeight();
     }
 
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
+    Trinity::Widgets::EndOverlay();
 }
 
 // In prefab mode, as Unity heads it: the way back to the scene, the prefab's name, and Save
