@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <compare>
 #include <cstdint>
 #include <format>
@@ -24,6 +25,9 @@ namespace
     constexpr const char* c_OfferPopup = "Version Not Installed###HubOffer";
     constexpr const char* c_UpgradePopup = "Open in a Newer Version###HubUpgrade";
     constexpr const char* c_OpenWithPopup = "##OpenWith";
+    constexpr const char* c_RowMenuPopup = "##RowMenu";
+    // The room above and below what a project's row holds
+    constexpr float c_RowPaddingInFonts = 0.5f;
 
     // The files Forge saves again as it moves a project, by the format each manifest names for them
     struct FormatKind
@@ -449,21 +453,47 @@ void ProjectsPage::DrawList()
     Order();
     ImGui::TableHeadersRow();
 
+    // The rows below the header are taller: the table puts this much above and below what a cell holds
+    const ImGuiStyle& l_Style = ImGui::GetStyle();
+    const float l_RowPadding = std::round(ImGui::GetFontSize() * c_RowPaddingInFonts);
+    const float l_RowHeight = ImGui::GetFrameHeight() + l_RowPadding * 2.0f;
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(l_Style.CellPadding.x, l_RowPadding));
+
     const std::vector<HubProject>& l_Projects = m_Projects.GetProjects();
     std::optional<std::filesystem::path> l_Open;
     std::optional<Choice> l_OpenWith;
     std::optional<std::filesystem::path> l_Remove;
     ImGuiListClipper l_Clipper;
-    l_Clipper.Begin(static_cast<int>(m_Order.size()), ImGui::GetFrameHeightWithSpacing());
+    l_Clipper.Begin(static_cast<int>(m_Order.size()), l_RowHeight);
     while (l_Clipper.Step())
     {
         for (int it_Row = l_Clipper.DisplayStart; it_Row < l_Clipper.DisplayEnd; ++it_Row)
         {
             const HubProject& l_Project = l_Projects[m_Order[static_cast<std::size_t>(it_Row)]];
             ImGui::PushID(it_Row);
-            ImGui::TableNextRow(ImGuiTableRowFlags_None, ImGui::GetFrameHeightWithSpacing());
+            ImGui::TableNextRow(ImGuiTableRowFlags_None, l_RowHeight);
 
+            // Under the whole row and the buttons at its end, which keep their clicks. A Selectable reaches half the item spacing past its size, so this spacing takes it over the row's padding
             ImGui::TableNextColumn();
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(l_Style.ItemSpacing.x, l_RowPadding * 2.0f));
+            const bool l_Pressed = ImGui::Selectable("##Row", false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap | ImGuiSelectableFlags_AllowDoubleClick, ImVec2(0.0f, ImGui::GetFrameHeight()));
+            ImGui::PopStyleVar();
+
+            // A double-click opens it, and so does Enter, which presses the row with no mouse button let go. One click alone does nothing
+            if (l_Pressed && (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) || !ImGui::IsMouseReleased(ImGuiMouseButton_Left)))
+            {
+                if (const std::string_view l_Refusal = GetOpenRefusal(l_Project); l_Refusal.empty())
+                {
+                    l_Open = l_Project.Entry.File;
+                }
+                else
+                {
+                    Report(std::string(l_Refusal), true);
+                }
+            }
+
+            DrawRowMenu(l_Project, l_Open, l_OpenWith, l_Remove);
+            ImGui::SameLine(0.0f, 0.0f);
             ImGui::AlignTextToFramePadding();
             ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), 0.0f);
             if (l_Project.Missing)
@@ -532,6 +562,7 @@ void ProjectsPage::DrawList()
         }
     }
 
+    ImGui::PopStyleVar();
     ImGui::EndTable();
 
     if (m_Order.empty() && !m_OrderedSearch.empty())
@@ -644,6 +675,48 @@ void ProjectsPage::DrawActions(const HubProject& project, std::optional<std::fil
     {
         ImGui::SetTooltip("Remove from List, leaving its files as they are");
     }
+}
+
+// What the row's buttons do, by name, for those who right-click a row before they read its icons
+void ProjectsPage::DrawRowMenu(const HubProject& project, std::optional<std::filesystem::path>& open, std::optional<Choice>& openWith, std::optional<std::filesystem::path>& remove)
+{
+    if (!ImGui::BeginPopupContextItem(c_RowMenuPopup))
+    {
+        return;
+    }
+
+    if (ImGui::MenuItem("Open", nullptr, false, GetOpenRefusal(project).empty()))
+    {
+        open = project.Entry.File;
+    }
+
+    if (ImGui::BeginMenu("Open With", GetOpenWithRefusal(project).empty()))
+    {
+        DrawVersions(project, openWith);
+        ImGui::EndMenu();
+    }
+
+    if (ImGui::MenuItem("Run Build", nullptr, false, project.Build.has_value()))
+    {
+        HubLauncher::Report l_Report = HubLauncher::RunBuild(project);
+        Report(std::move(l_Report.Message), l_Report.Failed);
+    }
+
+    ImGui::Separator();
+    if (ImGui::MenuItem("Show in the File Manager", nullptr, false, !project.Missing))
+    {
+        if (const Trinity::Expected<void, std::string> l_Opened = Trinity::Process::OpenWithSystem(project.Entry.File.parent_path()); !l_Opened)
+        {
+            Report(l_Opened.GetError(), true);
+        }
+    }
+
+    if (ImGui::MenuItem("Remove from List"))
+    {
+        remove = project.Entry.File;
+    }
+
+    ImGui::EndPopup();
 }
 
 // The offer closes by itself once the list is read again without the project

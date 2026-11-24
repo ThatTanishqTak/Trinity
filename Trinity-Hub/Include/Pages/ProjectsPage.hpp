@@ -71,6 +71,8 @@ private:
     void DrawList();
     // Open with Open With beside it, Run Build, Show in the file manager and Remove from List
     void DrawActions(const HubProject& project, std::optional<std::filesystem::path>& open, std::optional<Choice>& openWith, std::optional<std::filesystem::path>& remove);
+    // The same on a right-click of the last item, which is the project's row
+    void DrawRowMenu(const HubProject& project, std::optional<std::filesystem::path>& open, std::optional<Choice>& openWith, std::optional<std::filesystem::path>& remove);
     // Each usable version to open the project in: its own, a newer one, which asks, an older one greyed
     void DrawVersions(const HubProject& project, std::optional<Choice>& chosen) const;
     // When Open finds the project's version is not here: Download, or the versions here instead
