@@ -46,6 +46,7 @@ public:
 private:
     void ReadShortcuts();
     void DrawMenuBar();
+    void DrawToolbar();
     void DrawPlayControls();
     void DrawBuildStatus();
     void PushPlayTint();

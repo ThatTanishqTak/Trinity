@@ -303,7 +303,7 @@ void ForgeLayer::OnBuildFrameGraph(Trinity::FrameGraph& graph, [[maybe_unused]] 
     m_ImportTest.OnBuildFrameGraph(graph);
 }
 
-// The menu bar comes first, so the dock space fits below it. Shortcuts are read from ImGui
+// The menu bar and the toolbar come first, so the dock space fits below them. Shortcuts are read from ImGui
 void ForgeLayer::OnImGuiRender()
 {
     const bool l_Playing = m_Session.IsPlaying();
@@ -333,6 +333,7 @@ void ForgeLayer::OnImGuiRender()
 
     ReadShortcuts();
     DrawMenuBar();
+    DrawToolbar();
     DrawStatusBar();
     DrawDockSpace();
 
@@ -841,10 +842,60 @@ void ForgeLayer::DrawMenuBar()
         ImGui::EndMenu();
     }
 
-    DrawPlayControls();
-    DrawBuildStatus();
-
     ImGui::EndMainMenuBar();
+}
+
+// Unity's and Unreal's strip under the menu bar: Save, Undo and Redo at the left, the play controls in the middle and the build status at the right
+void ForgeLayer::DrawToolbar()
+{
+    const ImGuiStyle& l_Style = ImGui::GetStyle();
+    const float l_Button = ImGui::GetFrameHeight();
+    const ImGuiWindowFlags l_Flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollWithMouse;
+
+    // A frame's padding above and below the buttons, and no border, which would box the strip in
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(l_Style.WindowPadding.x, l_Style.FramePadding.y));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    const bool l_Open = ImGui::BeginViewportSideBar("##ForgeToolbar", ImGui::GetMainViewport(), ImGuiDir_Up, l_Button + l_Style.FramePadding.y * 2.0f, l_Flags);
+    ImGui::PopStyleVar(2);
+    if (l_Open)
+    {
+        const auto a_Button = [l_Button](const char* icon, const char* id, bool enabled, const std::string& tooltip)
+        {
+            ImGui::BeginDisabled(!enabled);
+            const bool l_Pressed = ImGui::Button(std::format("{}###{}", icon, id).c_str(), ImVec2(l_Button, 0.0f));
+            ImGui::EndDisabled();
+
+            ImGui::SetItemTooltip("%s", tooltip.c_str());
+            ImGui::SameLine();
+
+            return l_Pressed;
+        };
+
+        // In prefab mode Save is the prefab's, as it is in the File menu
+        const bool l_PrefabMode = static_cast<bool>(m_Session.GetOpenPrefab());
+        if (a_Button(Trinity::Icons::c_Save, "Save", m_Session.HasProject(), l_PrefabMode ? "Save Prefab (Ctrl+S)" : "Save (Ctrl+S)"))
+        {
+            m_Session.Request(EditorSession::Command::SaveScene);
+        }
+
+        CommandStack& l_History = m_Session.GetHistory();
+        const bool l_CanUndo = l_History.CanUndo();
+        const bool l_CanRedo = l_History.CanRedo();
+        if (a_Button(Trinity::Icons::c_Undo, "Undo", l_CanUndo, l_CanUndo ? std::format("Undo {} (Ctrl+Z)", l_History.GetCommand(l_History.GetPosition() - 1).GetName()) : std::string("Undo (Ctrl+Z)")))
+        {
+            l_History.Undo();
+        }
+
+        if (a_Button(Trinity::Icons::c_Redo, "Redo", l_CanRedo, l_CanRedo ? std::format("Redo {} (Ctrl+Y)", l_History.GetCommand(l_History.GetPosition()).GetName()) : std::string("Redo (Ctrl+Y)")))
+        {
+            l_History.Redo();
+        }
+
+        DrawPlayControls();
+        DrawBuildStatus();
+    }
+
+    ImGui::End();
 }
 
 // One for each kind of script: a spinner while building, red with its error count, else green
@@ -875,7 +926,7 @@ void ForgeLayer::DrawBuildStatus()
         l_Indicators.push_back({ "C#", "C# scripts", m_Session.GetAssembly().GetStatus(), &m_Session.GetAssembly().GetErrorLines() });
     }
 
-    // A project without scripts has none. Moving the cursor for nothing would stretch the menu bar
+    // A project without scripts has none. Moving the cursor for nothing would stretch the toolbar
     if (l_Indicators.empty())
     {
         return;
@@ -973,7 +1024,7 @@ void ForgeLayer::DrawBuildStatus()
     }
 }
 
-// Centred in the menu bar: Play, which resumes a paused copy, Pause, Step and Stop
+// Centred in the toolbar: Play, which resumes a paused copy, Pause, Step and Stop
 void ForgeLayer::DrawPlayControls()
 {
     const bool l_Playing = m_Session.IsPlaying();
