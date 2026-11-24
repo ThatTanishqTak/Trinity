@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Trinity/UI/Theme.hpp>
+
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -12,17 +14,10 @@ struct HubSettings
     static constexpr std::uint32_t c_FormatVersion = 1;
     static constexpr std::string_view c_Path = "/saves/Settings.yaml";
 
-    struct Theme
-    {
-        std::string_view Key;
-        const char* Name;
-    };
-
-    // ImGui's own three themes, and the sizes Forge's preferences offer over the monitor's scale
-    static constexpr std::array<Theme, 3> c_Themes{ { { "dark", "Dark" },{ "light", "Light" },{ "classic", "Classic" } } };
+    // The sizes Forge's preferences offer over the monitor's scale
     static constexpr std::array<float, 10> c_ScalePresets{ 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f, 4.0f };
 
-    std::string ThemeKey{ c_Themes[0].Key };
+    std::string ThemeKey{ Trinity::Theme::c_Dark };
     float Scale = 1.0f;
     // Where versions are unpacked, as UTF-8. Empty for Hub's default. Installed versions stay put
     std::string InstallsDirectory;

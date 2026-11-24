@@ -2,7 +2,6 @@
 
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
-#include "Panels/ConsolePanel.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -103,15 +102,6 @@ namespace
 HierarchyPanel::HierarchyPanel(EditorSession& session) : Panel("Hierarchy", Trinity::Icons::c_Sitemap, DockSlot::Left), m_Session(session)
 {
 
-}
-
-// Told by how bright the windows' background is, as the Console tells it
-ImVec4 HierarchyPanel::GetPrefabColor()
-{
-    const ImVec4 l_Background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
-    const bool l_Light = l_Background.x * 0.2126f + l_Background.y * 0.7152f + l_Background.z * 0.0722f > 0.5f;
-
-    return l_Light ? ImVec4(0.1f, 0.35f, 0.8f, 1.0f) : ImVec4(0.45f, 0.7f, 1.0f, 1.0f);
 }
 
 // Edits wait until the tree is drawn, since they can destroy the entities it is walking
@@ -569,7 +559,7 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
     const bool l_Colored = l_Dimmed || l_Instance || l_PrefabRoot;
     if (l_Colored)
     {
-        ImGui::PushStyleColor(ImGuiCol_Text, l_Dimmed ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : l_Instance && IsMissingPrefab(l_Instance) ? ConsolePanel::GetLevelColor(Trinity::LogLevel::Error) : GetPrefabColor());
+        ImGui::PushStyleColor(ImGuiCol_Text, l_Dimmed ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : l_Instance && IsMissingPrefab(l_Instance) ? Trinity::Theme::GetColor(Trinity::ThemeColor::Error) : Trinity::Theme::GetColor(Trinity::ThemeColor::Prefab));
     }
 
     const Trinity::UUID l_Shown = l_InstanceRoot ? l_Nearest.Prefab : m_Session.GetOpenPrefab();
@@ -597,7 +587,7 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
     {
         ImGui::PopFont();
         const float l_Left = ImGui::GetCurrentWindow()->InnerClipRect.Min.x;
-        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(l_Left, ImGui::GetItemRectMin().y), ImVec2(l_Left + 3.0f, ImGui::GetItemRectMax().y), ImGui::GetColorU32(GetPrefabColor()));
+        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(l_Left, ImGui::GetItemRectMin().y), ImVec2(l_Left + 3.0f, ImGui::GetItemRectMax().y), Trinity::Theme::GetColorU32(Trinity::ThemeColor::Prefab));
     }
 
     if (l_Colored)

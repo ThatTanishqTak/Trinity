@@ -922,28 +922,28 @@ void ForgeLayer::DrawBuildStatus()
         {
             case BuildState::Pending:
             {
-                l_Color = ImVec4(1.0f, 0.8f, 0.3f, 1.0f);
+                l_Color = Trinity::Theme::GetColor(Trinity::ThemeColor::Warning);
                 l_Tooltip = std::format("The {} builds once its changes settle", it_Indicator.Name);
 
                 break;
             }
             case BuildState::Building:
             {
-                l_Color = ImVec4(1.0f, 0.8f, 0.3f, 1.0f);
+                l_Color = Trinity::Theme::GetColor(Trinity::ThemeColor::Warning);
                 l_Tooltip = std::format("The {} is building", it_Indicator.Name);
 
                 break;
             }
             case BuildState::Failed:
             {
-                l_Color = ImVec4(1.0f, 0.45f, 0.4f, 1.0f);
+                l_Color = Trinity::Theme::GetColor(Trinity::ThemeColor::Error);
                 l_Tooltip = std::format("The {} failed to build, with {} error(s) and {} warning(s), and what ran before it runs on. Click to see the errors in the Console", it_Indicator.Name, l_Status.Errors, l_Status.Warnings);
 
                 break;
             }
             case BuildState::UpToDate:
             {
-                l_Color = ImVec4(0.45f, 0.85f, 0.45f, 1.0f);
+                l_Color = Trinity::Theme::GetColor(Trinity::ThemeColor::Success);
                 l_Tooltip = std::format("The {} is up to date, built with {} warning(s)", it_Indicator.Name, l_Status.Warnings);
 
                 break;
@@ -1572,7 +1572,7 @@ void ForgeLayer::DrawStartScreen()
         const std::string l_When = l_Project.Missing ? std::string("Missing") : EditorSession::FormatAge(l_Project.OpenedAt);
         const float l_WhenWidth = ImGui::CalcTextSize(l_When.c_str()).x;
         l_DrawList.AddText(l_Min, l_NameColor, l_Name.c_str());
-        l_DrawList.AddText(ImVec2(l_Min.x + l_RowWidth - l_WhenWidth, l_Min.y), l_Project.Missing ? ImGui::GetColorU32(ConsolePanel::GetLevelColor(Trinity::LogLevel::Warn)) : l_DimColor, l_When.c_str());
+        l_DrawList.AddText(ImVec2(l_Min.x + l_RowWidth - l_WhenWidth, l_Min.y), l_Project.Missing ? ImGui::GetColorU32(Trinity::Theme::GetColor(Trinity::ThemeColor::Warning)) : l_DimColor, l_When.c_str());
         l_DrawList.AddText(ImVec2(l_Min.x + ImGui::GetFontSize() * 1.5f, l_Min.y + l_Line + l_Style.ItemSpacing.y), l_DimColor, ToUtf8(l_Project.Path.parent_path()).c_str());
         ImGui::PopID();
     }

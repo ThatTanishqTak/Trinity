@@ -544,7 +544,7 @@ void GamePanel::DrawStats(ImVec2 start, ImVec2 available) const
 
     ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
     l_DrawList.PushClipRect(start, ImVec2(start.x + available.x, start.y + available.y), true);
-    l_DrawList.AddRectFilled(l_Min, ImVec2(l_Min.x + l_Box.x, l_Min.y + l_Box.y), ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.55f)), l_Style.ChildRounding);
+    l_DrawList.AddRectFilled(l_Min, ImVec2(l_Min.x + l_Box.x, l_Min.y + l_Box.y), Trinity::Theme::GetColorU32(Trinity::ThemeColor::Overlay), l_Style.ChildRounding);
     for (std::size_t it_Line = 0; it_Line < l_Lines.size(); ++it_Line)
     {
         l_DrawList.AddText(ImVec2(l_Min.x + l_Style.WindowPadding.x, l_Min.y + l_Style.WindowPadding.y + static_cast<float>(it_Line) * l_LineHeight), ImGui::GetColorU32(ImGuiCol_Text), l_Lines[it_Line].c_str());

@@ -3,7 +3,6 @@
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
 #include "ImGuizmoInclude.hpp"
-#include "Panels/HierarchyPanel.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -78,8 +77,8 @@ namespace
     constexpr float c_OrientationCube = 0.2f;
     constexpr float c_OrientationConeBase = 0.42f;
     constexpr float c_OrientationConeWidth = 0.23f;
-    // Unity's handle colours for X, Y and Z, its grey for negative axes, and its yellow for hover
-    constexpr std::array<ImU32, 3> c_AxisColors{ IM_COL32(219, 62, 29, 255), IM_COL32(154, 243, 72, 255), IM_COL32(58, 122, 248, 255) };
+    // The theme's colours for X, Y and Z, Unity's grey for negative axes, and its yellow for hover
+    constexpr std::array<Trinity::ThemeColor, 3> c_AxisColors{ Trinity::ThemeColor::AxisX, Trinity::ThemeColor::AxisY, Trinity::ThemeColor::AxisZ };
     constexpr ImU32 c_NegativeAxisColor = IM_COL32(170, 170, 170, 255);
     constexpr ImU32 c_HoveredAxisColor = IM_COL32(246, 242, 50, 255);
 
@@ -675,7 +674,7 @@ void ViewportPanel::OnImGuiRender()
         const ImVec2 l_Min(l_ImageMin.x + c_StatsMargin, l_ImageMin.y + l_ViewportSize.y - c_StatsMargin - l_TextSize.y - l_Padding.y * 2.0f);
         const ImVec2 l_Max(l_Min.x + l_TextSize.x + l_Padding.x * 2.0f, l_Min.y + l_TextSize.y + l_Padding.y * 2.0f);
         ImDrawList& l_Foot = *ImGui::GetWindowDrawList();
-        l_Foot.AddRectFilled(l_Min, l_Max, IM_COL32(0, 0, 0, 140), ImGui::GetStyle().ChildRounding);
+        l_Foot.AddRectFilled(l_Min, l_Max, Trinity::Theme::GetColorU32(Trinity::ThemeColor::Overlay), ImGui::GetStyle().ChildRounding);
         l_Foot.AddText(ImVec2(l_Min.x + l_Padding.x, l_Min.y + l_Padding.y), ImGui::GetColorU32(ImGuiCol_Text), l_Text.c_str());
     }
 
@@ -1757,7 +1756,7 @@ void ViewportPanel::DrawStats(glm::vec2 viewportSize) const
 
     const ImVec2 l_Start = ImGui::GetCursorStartPos();
     ImGui::SetCursorPos(ImVec2(l_Start.x + c_StatsMargin, l_Start.y + m_BreadcrumbHeight + c_StatsMargin));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.55f));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, Trinity::Theme::GetColor(Trinity::ThemeColor::Overlay));
     const ImGuiChildFlags l_ChildFlags = ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding;
     const ImGuiWindowFlags l_WindowFlags = ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings;
     if (ImGui::BeginChild("##Stats", ImVec2(0.0f, 0.0f), l_ChildFlags, l_WindowFlags))
@@ -2061,7 +2060,7 @@ void ViewportPanel::DrawOrientation(glm::vec2 imageMin, glm::vec2 viewportSize)
     const auto a_DrawCone = [&](const Cone& cone)
     {
         const SideView& l_View = c_SideViews[cone.View];
-        const ImU32 l_Color = l_HoveredCone == cone.View ? c_HoveredAxisColor : (l_View.Sign > 0.0f ? c_AxisColors[static_cast<std::size_t>(l_View.Axis)] : c_NegativeAxisColor);
+        const ImU32 l_Color = l_HoveredCone == cone.View ? c_HoveredAxisColor : (l_View.Sign > 0.0f ? Trinity::Theme::GetColorU32(c_AxisColors[static_cast<std::size_t>(l_View.Axis)]) : c_NegativeAxisColor);
         const float l_Length = glm::length(cone.Screen);
         const glm::vec2 l_Side = l_Length > 1e-4f ? glm::vec2(-cone.Screen.y, cone.Screen.x) / l_Length * l_Width : glm::vec2(l_Width, 0.0f);
         const glm::vec2 l_Tip = l_Center + cone.Screen * l_Radius;
@@ -2137,8 +2136,8 @@ void ViewportPanel::DrawOrientation(glm::vec2 imageMin, glm::vec2 viewportSize)
     }
 
     const ImVec2 l_Padding = ImGui::GetStyle().FramePadding;
-    l_DrawList.AddRectFilled(ImVec2(l_NameMin.x - l_Padding.x, l_NameMin.y - l_Padding.y * 0.5f), ImVec2(l_NameMin.x + l_NameSize.x + l_Padding.x, l_NameMin.y + l_NameSize.y + l_Padding.y * 0.5f), IM_COL32(0, 0, 0, 140), ImGui::GetStyle().FrameRounding);
-    l_DrawList.AddText(ToImVec2(l_NameMin), l_HoveredName || l_HoveredCube ? c_HoveredAxisColor : ImGui::GetColorU32(ImGuiCol_Text), l_Name);
+    l_DrawList.AddRectFilled(ImVec2(l_NameMin.x - l_Padding.x, l_NameMin.y - l_Padding.y * 0.5f), ImVec2(l_NameMin.x + l_NameSize.x + l_Padding.x, l_NameMin.y + l_NameSize.y + l_Padding.y * 0.5f), Trinity::Theme::GetColorU32(Trinity::ThemeColor::Overlay), ImGui::GetStyle().FrameRounding);
+    l_DrawList.AddText(ToImVec2(l_NameMin), l_HoveredName || l_HoveredCube ? ImGui::GetColorU32(ImGuiCol_CheckMark) : ImGui::GetColorU32(ImGuiCol_Text), l_Name);
 
     if (ImGui::BeginPopup("##ViewMenu"))
     {
@@ -2446,7 +2445,7 @@ void ViewportPanel::DrawBreadcrumb()
         ImGui::SameLine();
 
         const bool l_Dirty = m_Session.IsPrefabDirty();
-        ImGui::PushStyleColor(ImGuiCol_Text, HierarchyPanel::GetPrefabColor());
+        ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Prefab));
         ImGui::TextUnformatted(std::format("{} {}{}", Trinity::Icons::c_PackageVariantClosed, m_Session.GetOpenPrefabName(), l_Dirty ? "*" : "").c_str());
         ImGui::PopStyleColor();
 

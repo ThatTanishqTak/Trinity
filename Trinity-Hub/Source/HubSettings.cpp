@@ -74,13 +74,13 @@ HubSettings HubSettings::Load()
     }
 
     const std::string l_Theme = ReadScalar(l_Root, "Theme");
-    if (std::ranges::find(c_Themes, std::string_view(l_Theme), &Theme::Key) != c_Themes.end())
+    if (Trinity::Theme::IsKnown(l_Theme))
     {
         l_Settings.ThemeKey = l_Theme;
     }
     else if (!l_Theme.empty())
     {
-        TR_WARN("Hub: {} names a theme {}, not dark, light or classic, so Hub is drawn {}", c_Path, l_Theme, l_Settings.ThemeKey);
+        TR_WARN("Hub: {} names a theme {}, not dark or light, so Hub is drawn {}", c_Path, l_Theme, l_Settings.ThemeKey);
     }
 
     const std::string l_ScaleText = ReadScalar(l_Root, "Scale");

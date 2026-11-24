@@ -43,15 +43,6 @@ namespace
     // ui.scale's choices, as Unity offers its UI scaling's
     constexpr std::array<float, 10> c_ScalePresets{ 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f, 4.0f };
 
-    struct ThemeInfo
-    {
-        std::string_view Key;
-        const char* Name;
-    };
-
-    // ui.theme's, ImGui's own three
-    constexpr std::array<ThemeInfo, 3> c_Themes{ { { "dark", "Dark" },{ "light", "Light" },{ "classic", "Classic" } } };
-
     bool ContainsIgnoringCase(std::string_view text, std::string_view part)
     {
         const auto a_Lower = [](char character) { return static_cast<char>(std::tolower(static_cast<unsigned char>(character))); };
@@ -258,11 +249,11 @@ void PreferencesWindow::DrawGeneral()
     if (Shows(Section::General, "Theme"))
     {
         const std::string l_Theme = GetVariableText("ui.theme");
-        const auto a_Known = std::ranges::find(c_Themes, std::string_view(l_Theme), &ThemeInfo::Key);
+        const auto a_Known = std::ranges::find(Trinity::Theme::c_Themes, std::string_view(l_Theme), &Trinity::Theme::Entry::Key);
         Label("Theme");
-        if (ImGui::BeginCombo("##Theme", a_Known != c_Themes.end() ? a_Known->Name : l_Theme.c_str()))
+        if (ImGui::BeginCombo("##Theme", a_Known != Trinity::Theme::c_Themes.end() ? a_Known->Name : l_Theme.c_str()))
         {
-            for (const ThemeInfo& it_Theme : c_Themes)
+            for (const Trinity::Theme::Entry& it_Theme : Trinity::Theme::c_Themes)
             {
                 if (ImGui::Selectable(it_Theme.Name, it_Theme.Key == l_Theme))
                 {
@@ -273,7 +264,7 @@ void PreferencesWindow::DrawGeneral()
             ImGui::EndCombo();
         }
 
-        Tooltip("The colours the editor is drawn in, ImGui's own three. While a scene plays, the backgrounds lean towards the Play Mode Tint over any of them");
+        Tooltip("The colours the editor is drawn in. While a scene plays, the backgrounds lean towards the Play Mode Tint over either of them");
     }
 
     if (Shows(Section::General, "Multi-viewport"))

@@ -792,7 +792,7 @@ bool ExportCommand::CopyFiles()
         }
     }
 
-    // The faces a Development player's overlay draws with, and their licence, which must go with them
+    // The faces a Development player's overlay draws with, and their licences, which must go with them
     if (m_Development)
     {
         const std::filesystem::path l_Fonts = l_Trinity / "Engine" / "fonts";
@@ -800,7 +800,7 @@ bool ExportCommand::CopyFiles()
         for (std::filesystem::directory_iterator it_Entry(l_Fonts, l_Error), it_End; !l_Error && it_Entry != it_End; it_Entry.increment(l_Error))
         {
             const std::filesystem::path& l_Path = it_Entry->path();
-            if (it_Entry->is_regular_file() && (l_Path.extension() == ".ttf" || l_Path.filename() == "OFL.txt"))
+            if (it_Entry->is_regular_file() && (l_Path.extension() == ".ttf" || l_Path.extension() == ".txt"))
             {
                 l_Faces.push_back(l_Path);
             }

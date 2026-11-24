@@ -48,11 +48,11 @@ void SettingsPage::DrawAppearance()
     HubPages::DrawSection("Appearance");
 
     HubPages::DrawLabel("Theme");
-    const auto a_Theme = std::ranges::find(HubSettings::c_Themes, std::string_view(m_Settings.ThemeKey), &HubSettings::Theme::Key);
+    const auto a_Theme = std::ranges::find(Trinity::Theme::c_Themes, std::string_view(m_Settings.ThemeKey), &Trinity::Theme::Entry::Key);
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-    if (ImGui::BeginCombo("##Theme", a_Theme != HubSettings::c_Themes.end() ? a_Theme->Name : m_Settings.ThemeKey.c_str()))
+    if (ImGui::BeginCombo("##Theme", a_Theme != Trinity::Theme::c_Themes.end() ? a_Theme->Name : m_Settings.ThemeKey.c_str()))
     {
-        for (const HubSettings::Theme& it_Theme : HubSettings::c_Themes)
+        for (const Trinity::Theme::Entry& it_Theme : Trinity::Theme::c_Themes)
         {
             if (ImGui::Selectable(it_Theme.Name, it_Theme.Key == m_Settings.ThemeKey))
             {

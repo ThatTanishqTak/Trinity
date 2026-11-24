@@ -150,6 +150,7 @@ function(trinity_write_notices path)
 
     # Not submodules: fonts, the .NET host, and on Windows D3D12, GameInput and the C++ runtime
     trinity_notice("JetBrains Mono Nerd Font Propo" OFL-1.1 "Trinity-Engine/Assets/Fonts, in Engine/fonts" "Trinity-Engine/Assets/Fonts" OFL.txt)
+    trinity_notice("Inter" OFL-1.1 "Trinity-Engine/Assets/Fonts, in Engine/fonts" "Trinity-Engine/Assets/Fonts" Inter-OFL.txt)
 
     file(STRINGS "${build_tree}/CMakeCache.txt" dotnet_line REGEX "^TRINITY_DOTNET:FILEPATH=")
     string(REGEX REPLACE "^TRINITY_DOTNET:FILEPATH=" "" dotnet "${dotnet_line}")

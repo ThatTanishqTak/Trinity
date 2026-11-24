@@ -1,7 +1,5 @@
 #include "Panels/AudioMixerPanel.hpp"
 
-#include "Panels/ConsolePanel.hpp"
-
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
@@ -45,14 +43,6 @@ namespace
         }
 
         return std::string(text.substr(l_First, text.find_last_not_of(" \t") - l_First + 1));
-    }
-
-    // Whether the windows are drawn light, by how bright their background is
-    bool IsLightTheme()
-    {
-        const ImVec4 l_Background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
-
-        return l_Background.x * 0.2126f + l_Background.y * 0.7152f + l_Background.z * 0.0722f > 0.5f;
     }
 
     // A column's title, with its add button at the right when it has one. Whether that was pressed
@@ -223,10 +213,9 @@ namespace
         ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
         l_DrawList.AddRectFilled(l_Min, ImVec2(l_Min.x + size.x, l_Min.y + size.y), ImGui::GetColorU32(ImGuiCol_FrameBg));
 
-        const bool l_Light = IsLightTheme();
-        const ImU32 l_Green = ImGui::GetColorU32(l_Light ? ImVec4(0.1f, 0.55f, 0.15f, 1.0f) : ImVec4(0.35f, 0.85f, 0.4f, 1.0f));
-        const ImU32 l_Yellow = ImGui::GetColorU32(ConsolePanel::GetLevelColor(Trinity::LogLevel::Warn));
-        const ImU32 l_Red = ImGui::GetColorU32(ConsolePanel::GetLevelColor(Trinity::LogLevel::Error));
+        const ImU32 l_Green = Trinity::Theme::GetColorU32(Trinity::ThemeColor::Success);
+        const ImU32 l_Yellow = Trinity::Theme::GetColorU32(Trinity::ThemeColor::Warning);
+        const ImU32 l_Red = Trinity::Theme::GetColorU32(Trinity::ThemeColor::Error);
         const float l_Bottom = l_Min.y + size.y;
         const auto a_Height = [&size](float decibels) { return size.y * std::clamp((decibels - Trinity::AudioMixerData::c_MinimumVolume) / (Trinity::AudioMixerData::c_MaximumVolume - Trinity::AudioMixerData::c_MinimumVolume), 0.0f, 1.0f); };
         const auto a_Color = [&](float decibels) { return decibels >= c_MeterHot ? l_Red : (decibels >= c_MeterWarm ? l_Yellow : l_Green); };
@@ -340,7 +329,7 @@ void AudioMixerPanel::OnImGuiRender()
     if (!l_File->Data)
     {
         m_Renaming = Chosen::None;
-        ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Error));
+        ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Error));
         ImGui::TextWrapped("%s", l_File->Error.c_str());
         ImGui::PopStyleColor();
         ImGui::TextDisabled("Once the file is fixed, it is read again as Forge gets the focus back, or at F5");
@@ -523,7 +512,7 @@ void AudioMixerPanel::DrawRenameError(Chosen chosen)
 {
     if (m_RenameErrorIn == chosen && !m_RenameError.empty())
     {
-        ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Error));
+        ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Error));
         ImGui::TextWrapped("%s", m_RenameError.c_str());
         ImGui::PopStyleColor();
     }
@@ -915,13 +904,13 @@ void AudioMixerPanel::DrawToggles(const Trinity::AudioMixerData& data, const Tri
         Edit(std::move(l_After), std::move(what));
     };
 
-    if (ToggleButton("M", group.Mute, ConsolePanel::GetLevelColor(Trinity::LogLevel::Error), l_Width, "Mute: silences the group and every group below it"))
+    if (ToggleButton("M", group.Mute, Trinity::Theme::GetColor(Trinity::ThemeColor::Error), l_Width, "Mute: silences the group and every group below it"))
     {
         a_Toggle(&Trinity::AudioMixerGroup::Mute, std::format("{} {}", group.Mute ? "Unmute" : "Mute", l_Name));
     }
 
     ImGui::SameLine();
-    if (ToggleButton("S", group.Solo, ConsolePanel::GetLevelColor(Trinity::LogLevel::Warn), l_Width, "Solo: while any group is soloed, only the soloed groups are heard, with the groups below them"))
+    if (ToggleButton("S", group.Solo, Trinity::Theme::GetColor(Trinity::ThemeColor::Warning), l_Width, "Solo: while any group is soloed, only the soloed groups are heard, with the groups below them"))
     {
         a_Toggle(&Trinity::AudioMixerGroup::Solo, std::format("{} {}", group.Solo ? "Unsolo" : "Solo", l_Name));
     }

@@ -1,7 +1,6 @@
 #include "Panels/InputActionsPanel.hpp"
 
 #include "EditorPayloads.hpp"
-#include "Panels/ConsolePanel.hpp"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -313,7 +312,7 @@ void InputActionsPanel::OnImGuiRender()
     if (!l_File->Data)
     {
         m_Listening.reset();
-        ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Error));
+        ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Error));
         ImGui::TextWrapped("%s", l_File->Error.c_str());
         ImGui::PopStyleColor();
         ImGui::TextDisabled("Once the file is fixed, it is read again as Forge gets the focus back, or at F5");
@@ -456,7 +455,7 @@ void InputActionsPanel::DrawHeader(Trinity::UUID asset, const Trinity::AssetReco
 
     if (m_Listening)
     {
-        ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Warn));
+        ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Warning));
         ImGui::TextWrapped("Listening: press a key, a mouse button but the left, or a gamepad button, or push a stick. Escape or a click stops it");
         ImGui::PopStyleColor();
     }
@@ -1193,7 +1192,7 @@ void InputActionsPanel::DrawName(const Trinity::InputActionsData& data, std::str
 
     if (!m_NameError.empty())
     {
-        ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Error));
+        ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Error));
         ImGui::TextWrapped("%s", m_NameError.c_str());
         ImGui::PopStyleColor();
     }

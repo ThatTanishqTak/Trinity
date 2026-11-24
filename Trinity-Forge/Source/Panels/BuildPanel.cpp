@@ -1,7 +1,6 @@
 #include "Panels/BuildPanel.hpp"
 
 #include "EditorPayloads.hpp"
-#include "Panels/ConsolePanel.hpp"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -309,7 +308,7 @@ void BuildPanel::DrawScenes(const Trinity::ExportSettings& settings)
                 const SceneText l_Text = DescribeScene(l_Registry, l_Scene.Scene);
                 if (l_Text.Broken)
                 {
-                    ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Warn));
+                    ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Warning));
                 }
 
                 ImGui::AlignTextToFramePadding();
@@ -448,7 +447,7 @@ void BuildPanel::DrawIcon(const Trinity::ExportSettings& settings)
     Label("Icon", l_ClearWidth + ImGui::GetStyle().ItemSpacing.x);
     if (l_Broken)
     {
-        ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Warn));
+        ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Warning));
     }
 
     if (ImGui::Button(std::format("{}###Icon", l_Text).c_str(), ImVec2(ImGui::CalcItemWidth(), 0.0f)))
@@ -748,7 +747,7 @@ void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
 
     const std::vector<std::string> l_Problems = ExportCommand::CheckSettings(l_Project, *m_Session.GetRegistry());
     m_Refused = !l_Problems.empty();
-    ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Error));
+    ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Error));
     for (const std::string& it_Problem : l_Problems)
     {
         ImGui::TextWrapped("%s %s", Trinity::Icons::c_Warning, it_Problem.c_str());

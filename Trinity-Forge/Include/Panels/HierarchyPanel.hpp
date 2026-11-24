@@ -30,8 +30,6 @@ public:
     [[nodiscard]] const std::unordered_set<Trinity::UUID>* GetSearchMatches() const { return m_Search.empty() ? nullptr : &m_Matched; }
     // Starts typing a new name in the entity's row, as F2 does, and Create Empty for its entity
     void Rename(Trinity::UUID entity);
-    // Unity's blue for a prefab's instance, darker on a light theme so it reads there
-    [[nodiscard]] static ImVec4 GetPrefabColor();
 
 protected:
     void OnImGuiRender() override;

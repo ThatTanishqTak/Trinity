@@ -17,10 +17,14 @@ namespace Trinity
     class TextureAsset;
     class Window;
 
+    // Regular and Bold are Inter, with the Nerd Font's icons. Mono is for logs, code and columns of figures
     enum class UIFont : std::uint8_t
     {
-        Regular,
-        Bold
+        Regular = 0,
+        Bold,
+        Mono,
+
+        Count
     };
 
     // A flag in the upper half of an ImGui texture ID: ImGui.slang encodes the sample back to sRGB
@@ -56,6 +60,7 @@ namespace Trinity
 
         void SetSceneInput(bool mouse, bool keyboard);
 
+        // Regular where the face is missing, and nullptr, which PushFont takes as the current font, before any is loaded
         [[nodiscard]] static ImFont* GetFont(UIFont font);
 
     private:

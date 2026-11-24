@@ -20,14 +20,6 @@ namespace
     constexpr std::size_t c_CountLimit = 999;
     constexpr const char* c_ClearOptionsPopup = "##ClearOptions";
 
-    // Whether the windows are drawn light, by how bright their background is
-    bool IsLightTheme()
-    {
-        const ImVec4 l_Background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
-
-        return l_Background.x * 0.2126f + l_Background.y * 0.7152f + l_Background.z * 0.0722f > 0.5f;
-    }
-
     // The line's text up to its end of line, without a carriage return a tool left
     std::string_view TrimLine(std::string_view line)
     {
@@ -143,7 +135,6 @@ ConsolePanel::ConsolePanel() : Panel("Console", Trinity::Icons::c_Terminal, Dock
 
 ImVec4 ConsolePanel::GetLevelColor(Trinity::LogLevel level)
 {
-    const bool l_Light = IsLightTheme();
     switch (level)
     {
         case Trinity::LogLevel::Trace:
@@ -152,26 +143,21 @@ ImVec4 ConsolePanel::GetLevelColor(Trinity::LogLevel level)
         }
         case Trinity::LogLevel::Warn:
         {
-            return l_Light ? ImVec4(0.65f, 0.4f, 0.0f, 1.0f) : ImVec4(1.0f, 0.8f, 0.3f, 1.0f);
+            return Trinity::Theme::GetColor(Trinity::ThemeColor::Warning);
         }
         case Trinity::LogLevel::Error:
         {
-            return l_Light ? ImVec4(0.8f, 0.15f, 0.1f, 1.0f) : ImVec4(1.0f, 0.45f, 0.4f, 1.0f);
+            return Trinity::Theme::GetColor(Trinity::ThemeColor::Error);
         }
         case Trinity::LogLevel::Critical:
         {
-            return l_Light ? ImVec4(0.65f, 0.0f, 0.0f, 1.0f) : ImVec4(1.0f, 0.2f, 0.2f, 1.0f);
+            return Trinity::Theme::GetColor(Trinity::ThemeColor::Critical);
         }
         default:
         {
             return ImGui::GetStyleColorVec4(ImGuiCol_Text);
         }
     }
-}
-
-ImVec4 ConsolePanel::GetSuccessColor()
-{
-    return IsLightTheme() ? ImVec4(0.1f, 0.5f, 0.15f, 1.0f) : ImVec4(0.45f, 0.85f, 0.45f, 1.0f);
 }
 
 std::optional<std::pair<std::string_view, std::uint32_t>> ConsolePanel::FindLocation(std::string_view text)
@@ -525,6 +511,7 @@ void ConsolePanel::DrawLines(const Trinity::LogHistory::Reader& history, float h
                 ImGui::SameLine();
                 ImGui::SetCursorPosX(l_Left);
                 ImGui::PushClipRect(l_RowMin, ImVec2(l_TextRight, l_RowMax.y), true);
+                ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Mono), 0.0f);
                 const std::string l_Prefix = FormatPrefix(l_Entry);
                 ImGui::TextDisabled("%s", l_Prefix.c_str());
                 ImGui::SameLine(0.0f, 0.0f);
@@ -537,6 +524,7 @@ void ConsolePanel::DrawLines(const Trinity::LogHistory::Reader& history, float h
                     ImGui::TextDisabled(" ...");
                 }
 
+                ImGui::PopFont();
                 ImGui::PopClipRect();
 
                 if (m_Collapse)
@@ -583,9 +571,13 @@ void ConsolePanel::DrawDetail(const Trinity::LogHistory::Reader& history, float 
         }
         else
         {
+            // Pushed around the text alone, so the tooltips over its links keep the UI's font
+            ImFont* l_Mono = Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Mono);
             ImGui::PushTextWrapPos(0.0f);
             const std::string l_Prefix = FormatPrefix(*l_Entry);
+            ImGui::PushFont(l_Mono, 0.0f);
             ImGui::TextDisabled("%s", l_Prefix.c_str());
+            ImGui::PopFont();
 
             const std::string_view l_Text = l_Entry->Text;
             for (std::size_t l_Start = 0; l_Start < l_Text.size();)
@@ -593,9 +585,11 @@ void ConsolePanel::DrawDetail(const Trinity::LogHistory::Reader& history, float 
                 const std::size_t l_End = std::min(l_Text.find('\n', l_Start), l_Text.size());
                 const std::string_view l_Line = TrimLine(l_Text.substr(l_Start, l_End - l_Start));
                 const std::optional<std::pair<std::string_view, std::uint32_t>> l_Location = FindLocation(l_Line);
+                ImGui::PushFont(l_Mono, 0.0f);
                 ImGui::PushStyleColor(ImGuiCol_Text, l_Location ? ImGui::GetStyleColorVec4(ImGuiCol_TextLink) : l_Start == 0 ? GetLevelColor(l_Entry->Level) : ImGui::GetStyleColorVec4(ImGuiCol_Text));
                 ImGui::TextUnformatted(l_Line.data(), l_Line.data() + l_Line.size());
                 ImGui::PopStyleColor();
+                ImGui::PopFont();
                 if (l_Location && ImGui::IsItemHovered())
                 {
                     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
@@ -865,7 +859,10 @@ void ConsolePanel::DrawCommandLine()
     const ImGuiInputTextFlags l_Flags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_EscapeClearsAll | ImGuiInputTextFlags_CallbackHistory;
 
     ImGui::SetNextItemWidth(-1.0f);
-    if (ImGui::InputTextWithHint("##Command", "help, a variable name, or a name and a value", m_Command.data(), m_Command.size(), l_Flags, &ConsolePanel::OnCommandLineEdit, this))
+    ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Mono), 0.0f);
+    const bool l_Entered = ImGui::InputTextWithHint("##Command", "help, a variable name, or a name and a value", m_Command.data(), m_Command.size(), l_Flags, &ConsolePanel::OnCommandLineEdit, this);
+    ImGui::PopFont();
+    if (l_Entered)
     {
         const std::string l_Command(m_Command.data());
         if (!l_Command.empty())

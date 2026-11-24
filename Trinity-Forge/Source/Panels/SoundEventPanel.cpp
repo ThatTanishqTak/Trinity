@@ -1,7 +1,6 @@
 #include "Panels/SoundEventPanel.hpp"
 
 #include "EditorPayloads.hpp"
-#include "Panels/ConsolePanel.hpp"
 
 #include <ImCurveEdit.h>
 #include <imgui.h>
@@ -112,17 +111,9 @@ namespace
         return std::string(l_Name.substr(0, l_Name.find_last_of('.')));
     }
 
-    // Whether the windows are drawn light, by how bright their background is
-    bool IsLightTheme()
-    {
-        const ImVec4 l_Background = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
-
-        return l_Background.x * 0.2126f + l_Background.y * 0.7152f + l_Background.z * 0.0722f > 0.5f;
-    }
-
     ImVec4 GetTargetColor(const TargetInfo& target)
     {
-        return IsLightTheme() ? target.Light : target.Dark;
+        return Trinity::Theme::IsLight() ? target.Light : target.Dark;
     }
 
     std::string FormatTarget(const TargetInfo& target, float value)
@@ -523,7 +514,7 @@ void SoundEventPanel::OnImGuiRender()
     if (!l_File->Data)
     {
         m_TextKey.clear();
-        ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Error));
+        ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Error));
         ImGui::TextWrapped("%s", l_File->Error.c_str());
         ImGui::PopStyleColor();
         ImGui::TextDisabled("Once the file is fixed, it is read again as Forge gets the focus back, or at F5");
@@ -1067,7 +1058,7 @@ void SoundEventPanel::DrawContainerDetails(Trinity::UUID asset, const Trinity::S
 
         if (m_ErrorKey == l_Key && !m_Error.empty())
         {
-            ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Error));
+            ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Error));
             ImGui::TextWrapped("%s", m_Error.c_str());
             ImGui::PopStyleColor();
         }
@@ -1479,7 +1470,7 @@ void SoundEventPanel::DrawParameterDetails(const Trinity::SoundEventData& data, 
     {
         if (m_ErrorKey == key && !m_Error.empty())
         {
-            ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Error));
+            ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Error));
             ImGui::TextWrapped("%s", m_Error.c_str());
             ImGui::PopStyleColor();
         }

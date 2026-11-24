@@ -285,7 +285,10 @@ void ProjectSettingsPanel::DrawLayerNames(Trinity::PhysicsSettings settings)
     {
         ImGui::PushID(static_cast<int>(it_Layer));
         ImGui::AlignTextToFramePadding();
+        // Padded with a space, which is a digit wide only in a font of one width
+        ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Mono), 0.0f);
         TextLine(std::format("{:>2}", it_Layer));
+        ImGui::PopFont();
         ImGui::SameLine(ImGui::GetFontSize() * 2.5f);
         ImGui::SetNextItemWidth(-FLT_MIN);
 

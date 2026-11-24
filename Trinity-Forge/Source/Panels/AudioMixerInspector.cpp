@@ -130,7 +130,10 @@ void AudioMixerInspector::Draw()
     ImGui::Spacing();
     const bool l_Newly = l_Selection.Item != m_Shown;
     m_Shown = l_Selection.Item;
-    if (ImGui::CollapsingHeader("Group###Group", ImGuiTreeNodeFlags_DefaultOpen))
+    Trinity::Theme::PushHeaderColors();
+    const bool l_GroupOpen = ImGui::CollapsingHeader("Group###Group", ImGuiTreeNodeFlags_DefaultOpen);
+    Trinity::Theme::PopHeaderColors();
+    if (l_GroupOpen)
     {
         DrawValue(l_View, { l_Group->ID, Trinity::AudioMixerValue::c_Pitch }, l_Name);
     }
@@ -148,7 +151,9 @@ void AudioMixerInspector::Draw()
             ImGui::SetNextItemOpen(true);
         }
 
+        Trinity::Theme::PushHeaderColors();
         const bool l_Open = ImGui::CollapsingHeader(std::format("{}###Unit", l_Type).c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+        Trinity::Theme::PopHeaderColors();
         if (l_Newly && l_Chosen)
         {
             ImGui::SetScrollHereY(0.0f);

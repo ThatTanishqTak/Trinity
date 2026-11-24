@@ -39,10 +39,8 @@ public:
 
     // A build line's "path(line,column)", or else the first .NET stack frame that names its source
     [[nodiscard]] static std::optional<std::pair<std::string_view, std::uint32_t>> FindLocation(std::string_view text);
-    // A level's colour, as the Console and the status bar show it, darker on a light theme
+    // A level's colour from the theme, as the Console and the status bar show it
     [[nodiscard]] static ImVec4 GetLevelColor(Trinity::LogLevel level);
-    // Green, as the menu bar shows a build that worked, darker on a light theme too
-    [[nodiscard]] static ImVec4 GetSuccessColor();
 
 protected:
     void OnImGuiRender() override;

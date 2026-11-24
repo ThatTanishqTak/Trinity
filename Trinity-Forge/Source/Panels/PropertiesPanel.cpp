@@ -2,8 +2,6 @@
 
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
-#include "Panels/ConsolePanel.hpp"
-#include "Panels/HierarchyPanel.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -161,7 +159,7 @@ namespace
     void DrawOverrideBar(float top)
     {
         const float l_Left = ImGui::GetCurrentWindow()->InnerClipRect.Min.x;
-        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(l_Left, top), ImVec2(l_Left + 3.0f, top + ImGui::GetFrameHeight()), ImGui::GetColorU32(HierarchyPanel::GetPrefabColor()));
+        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(l_Left, top), ImVec2(l_Left + 3.0f, top + ImGui::GetFrameHeight()), Trinity::Theme::GetColorU32(Trinity::ThemeColor::Prefab));
     }
 
     // A prefab the changes can be made the own of, by name, and whether it is a model, which takes none
@@ -255,7 +253,9 @@ namespace
             const std::string_view l_Label = GetComponentLabel(it_Override.Component);
             const float l_Top = ImGui::GetCursorScreenPos().y;
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            Trinity::Theme::PushHeaderColors();
             ImGui::CollapsingHeader(std::format("{} (Removed)###Removed{}", l_Label, it_Override.Component).c_str(), ImGuiTreeNodeFlags_Leaf);
+            Trinity::Theme::PopHeaderColors();
             ImGui::PopStyleColor();
             DrawOverrideBar(l_Top);
             OverrideMenu(std::format("##Removed{}", it_Override.Component).c_str(), { it_Override }, std::format("removal of {} from {}", l_Label, GetEntityLabel(entity)));
@@ -304,7 +304,11 @@ namespace
     // A section with the name of the component it shows, or its own, open by default
     bool BeginSection(std::string_view name, const char* icon)
     {
-        return ImGui::CollapsingHeader(std::format("{} {}###{}", icon, GetComponentLabel(name), name).c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+        Trinity::Theme::PushHeaderColors();
+        const bool l_Open = ImGui::CollapsingHeader(std::format("{} {}###{}", icon, GetComponentLabel(name), name).c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+        Trinity::Theme::PopHeaderColors();
+
+        return l_Open;
     }
 
     std::string GetAssetName(const Trinity::AssetRecord& record)
@@ -420,7 +424,7 @@ namespace
     {
         if (slot.Broken)
         {
-            ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Warn));
+            ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Warning));
         }
     }
 
@@ -1419,7 +1423,7 @@ void PropertiesPanel::OnImGuiRender()
     }
     else if (l_Missing)
     {
-        ImGui::PushStyleColor(ImGuiCol_Text, ConsolePanel::GetLevelColor(Trinity::LogLevel::Warn));
+        ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Warning));
         ImGui::TextWrapped("%s", std::format("{} Stands in for an instance whose prefab is missing. It returns with the prefab, and can only be moved or deleted", Trinity::Icons::c_Warning).c_str());
         ImGui::PopStyleColor();
     }
@@ -4126,7 +4130,7 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
         {
             const std::string l_Badge = std::format("{} Stopped###Stopped", Trinity::Icons::c_TimesCircle);
             const float l_Width = ImGui::CalcTextSize(l_Badge.c_str(), nullptr, true).x + 2.0f * ImGui::GetStyle().FramePadding.x;
-            const ImVec4 l_Color = ConsolePanel::GetLevelColor(Trinity::LogLevel::Error);
+            const ImVec4 l_Color = Trinity::Theme::GetColor(Trinity::ThemeColor::Error);
             ImGui::SameLine();
             ImGui::SetCursorPosX(std::max(l_RowRight - l_Width, ImGui::GetCursorPosX()));
             ImGui::PushStyleColor(ImGuiCol_Text, l_Color);

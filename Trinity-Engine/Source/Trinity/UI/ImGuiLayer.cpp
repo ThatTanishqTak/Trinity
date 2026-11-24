@@ -15,6 +15,7 @@
 #include "Trinity/Input/Input.hpp"
 #include "Trinity/Renderer/Renderer.hpp"
 #include "Trinity/UI/ImGuiRenderer.hpp"
+#include "Trinity/UI/Theme.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -36,7 +37,9 @@ namespace Trinity
     namespace
     {
         constexpr std::string_view c_SettingsPath = "/saves/imgui.ini";
-        constexpr float c_FontSize = 15.0f;
+        constexpr float c_FontSize = 14.0f;
+        // The Nerd Font's line is taller than Inter's at one size, so its icons are drawn this much larger to sit level with Inter's capitals
+        constexpr float c_IconScale = 1.09f;
 
         struct FontFile
         {
@@ -44,16 +47,16 @@ namespace Trinity
             std::string_view Name;
         };
 
-        // In UIFont order
-        constexpr std::array<FontFile, 2> c_FontFiles
-        { {
-            { "/engine/fonts/JetBrainsMonoNLNerdFontPropo-Regular.ttf", "JetBrains Mono Regular" },
-            { "/engine/fonts/JetBrainsMonoNLNerdFontPropo-Bold.ttf", "JetBrains Mono Bold" }
-        } };
+        constexpr FontFile c_RegularFile{ "/engine/fonts/Inter-Regular.ttf", "Inter Regular" };
+        constexpr FontFile c_BoldFile{ "/engine/fonts/Inter-SemiBold.ttf", "Inter SemiBold" };
+        constexpr FontFile c_MonoFile{ "/engine/fonts/JetBrainsMonoNLNerdFontPropo-Regular.ttf", "JetBrains Mono Regular" };
+
+        // In UIFont order, and nullptr for a face that did not load
+        std::array<ImFont*, std::to_underlying(UIFont::Count)> s_Fonts{};
 
         ConsoleVariable<float> s_UserScaleVariable("ui.scale", 1.0f, "UI size on top of the monitor's DPI scale, from 0.5 to 4");
         ConsoleVariable<bool> s_ViewportsVariable("ui.viewports", true, "Lets ImGui windows leave the main window as windows of their own, where the platform has windows");
-        ConsoleVariable<std::string> s_ThemeVariable("ui.theme", "dark", "The UI's colours: dark, light or classic, ImGui's own three");
+        ConsoleVariable<std::string> s_ThemeVariable("ui.theme", std::string(Theme::c_Dark), "The UI's colours: dark or light");
 
         constexpr std::array<float, 4> c_ViewportClearColor{ 0.0f, 0.0f, 0.0f, 1.0f };
 
@@ -67,15 +70,15 @@ namespace Trinity
             Memory::Free(memory);
         }
 
-        // The atlas keeps its own copy of the file for its whole life, and frees it through FreeUI
-        bool LoadFont(const FontFile& file)
+        // The atlas keeps its own copy of the file for its whole life, and frees it through FreeUI. Merged, it gives the font loaded before it the glyphs that one lacks
+        ImFont* LoadFont(const FontFile& file, bool merge, float scale = 1.0f)
         {
             const Expected<FileBuffer, FileError> l_File = FileSystem::ReadFile(file.Path);
             if (!l_File)
             {
                 TR_CORE_WARN("ImGui: cannot read {}: {}", file.Path, ToString(l_File.GetError()));
 
-                return false;
+                return nullptr;
             }
 
             // ImGui asserts on fewer than 100 bytes, which no font has
@@ -83,7 +86,7 @@ namespace Trinity
             {
                 TR_CORE_WARN("ImGui: {} is {} bytes, too small or too large for a font", file.Path, l_File->size());
 
-                return false;
+                return nullptr;
             }
 
             void* l_Data = ImGui::MemAlloc(l_File->size());
@@ -91,36 +94,55 @@ namespace Trinity
             {
                 TR_CORE_WARN("ImGui: no memory for {}", file.Path);
 
-                return false;
+                return nullptr;
             }
 
             std::memcpy(l_Data, l_File->data(), l_File->size());
 
             ImFontConfig l_Config;
+            l_Config.MergeMode = merge;
+            l_Config.ExtraSizeScale = scale;
             std::format_to_n(l_Config.Name, sizeof(l_Config.Name) - 1, "{}", file.Name);
-            if (ImGui::GetIO().Fonts->AddFontFromMemoryTTF(l_Data, static_cast<int>(l_File->size()), c_FontSize, &l_Config) == nullptr)
+            ImFont* l_Font = ImGui::GetIO().Fonts->AddFontFromMemoryTTF(l_Data, static_cast<int>(l_File->size()), c_FontSize, &l_Config);
+            if (l_Font == nullptr)
             {
                 TR_CORE_WARN("ImGui: FreeType cannot read {}", file.Path);
-
-                return false;
             }
 
-            return true;
+            return l_Font;
         }
 
-        // Bold is skipped when Regular fails, so GetFont gives the default for both
+        // Inter with the Nerd Font's icons merged in, or without them where the Nerd Font is missing
+        ImFont* LoadTextFont(const FontFile& file)
+        {
+            ImFont* l_Font = LoadFont(file, false);
+            if (l_Font != nullptr)
+            {
+                LoadFont(c_MonoFile, true, c_IconScale);
+            }
+
+            return l_Font;
+        }
+
+        // The rest is skipped when Regular fails, so GetFont gives the default for every face
         void LoadFonts()
         {
-            if (!LoadFont(c_FontFiles[std::to_underlying(UIFont::Regular)]))
+            s_Fonts = {};
+            s_Fonts[std::to_underlying(UIFont::Regular)] = LoadTextFont(c_RegularFile);
+            if (s_Fonts[std::to_underlying(UIFont::Regular)] == nullptr)
             {
-                ImGui::GetIO().Fonts->AddFontDefault();
+                s_Fonts[std::to_underlying(UIFont::Regular)] = ImGui::GetIO().Fonts->AddFontDefault();
                 TR_CORE_INFO("ImGui: drawing with its default font");
 
                 return;
             }
 
-            const bool l_Bold = LoadFont(c_FontFiles[std::to_underlying(UIFont::Bold)]);
-            TR_CORE_INFO("ImGui: {} loaded at {} px", l_Bold ? "JetBrains Mono Regular and Bold" : "JetBrains Mono Regular", c_FontSize);
+            s_Fonts[std::to_underlying(UIFont::Bold)] = LoadTextFont(c_BoldFile);
+            s_Fonts[std::to_underlying(UIFont::Mono)] = LoadFont(c_MonoFile, false);
+
+            const bool l_Bold = s_Fonts[std::to_underlying(UIFont::Bold)] != nullptr;
+            const bool l_Mono = s_Fonts[std::to_underlying(UIFont::Mono)] != nullptr;
+            TR_CORE_INFO("ImGui: {}{}{} loaded at {} px", c_RegularFile.Name, l_Bold ? ", Inter SemiBold" : "", l_Mono ? ", JetBrains Mono" : "", c_FontSize);
         }
 
         // ImGui keeps the returned text until the next call, in the layer's own string
@@ -499,6 +521,7 @@ namespace Trinity
 
         ImGui::DestroyContext(m_Context);
         m_Context = nullptr;
+        s_Fonts = {};
         Application::Get().GetWindow().SetCursorShape(CursorShape::Arrow);
 
         const MemoryTagStats l_Stats = Memory::GetStats(MemoryTag::UI);
@@ -827,9 +850,9 @@ namespace Trinity
 
     ImFont* ImGuiLayer::GetFont(UIFont font)
     {
-        const ImVector<ImFont*>& l_Fonts = ImGui::GetIO().Fonts->Fonts;
+        ImFont* l_Font = s_Fonts[std::min(static_cast<std::size_t>(font), s_Fonts.size() - 1)];
 
-        return l_Fonts[std::min(static_cast<int>(std::to_underlying(font)), l_Fonts.Size - 1)];
+        return l_Font != nullptr ? l_Font : s_Fonts[std::to_underlying(UIFont::Regular)];
     }
 
     // The style is rebuilt from ImGui's defaults, as ScaleAllSizes rounds down and cannot be undone
@@ -859,22 +882,16 @@ namespace Trinity
         m_AppliedUserScale = l_UserScale;
         m_AppliedTheme = l_Theme;
 
+        // The theme's metrics are unscaled, so they go in before the sizes are scaled
         ImGuiStyle l_Style;
+        Theme::Apply(l_Style, l_Theme);
         l_Style.FontSizeBase = c_FontSize;
         l_Style.FontScaleMain = l_UserScale;
         l_Style.FontScaleDpi = m_DpiScale;
         l_Style.ScaleAllSizes(m_DpiScale * l_UserScale);
-        if (l_Theme == "light")
+        if (!Theme::IsKnown(l_Theme) && l_Rethemed)
         {
-            ImGui::StyleColorsLight(&l_Style);
-        }
-        else if (l_Theme == "classic")
-        {
-            ImGui::StyleColorsClassic(&l_Style);
-        }
-        else if (l_Theme != "dark" && l_Rethemed)
-        {
-            TR_CORE_WARN("ImGui: ui.theme takes dark, light or classic, not {}, so the UI is drawn dark", l_Theme);
+            TR_CORE_WARN("ImGui: ui.theme takes dark or light, not {}, so the UI is drawn dark", l_Theme);
         }
 
         ImGui::GetStyle() = l_Style;
@@ -886,7 +903,7 @@ namespace Trinity
 
         if (l_Rethemed)
         {
-            TR_CORE_INFO("ImGui: drawn with the {} theme", l_Theme);
+            TR_CORE_INFO("ImGui: drawn with the {} theme", Theme::IsLight() ? Theme::c_Light : Theme::c_Dark);
         }
     }
 

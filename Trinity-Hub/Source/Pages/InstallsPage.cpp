@@ -501,7 +501,7 @@ void InstallsPage::DrawNeeds(const HubInstall& install)
     }
 
     const bool l_Ready = l_Missing.empty();
-    ImGui::PushStyleColor(ImGuiCol_Text, l_Ready ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : ImGui::GetStyleColorVec4(ImGuiCol_PlotHistogram));
+    ImGui::PushStyleColor(ImGuiCol_Text, l_Ready ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : Trinity::Theme::GetColor(Trinity::ThemeColor::Warning));
     const std::string l_Label = l_Ready ? std::format("{} Ready", Trinity::Icons::c_CheckCircle) : std::format("{} {}", Trinity::Icons::c_Warning, JoinNames(l_Missing));
     if (ImGui::Selectable(std::format("{}##Needs", l_Label).c_str(), false, ImGuiSelectableFlags_None, ImVec2(ImGui::CalcTextSize(l_Label.c_str()).x, 0.0f)))
     {

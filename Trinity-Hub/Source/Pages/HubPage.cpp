@@ -66,7 +66,7 @@ namespace HubPages
 
     void DrawWarning(std::string_view text)
     {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_PlotHistogram));
+        ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Warning));
         ImGui::TextWrapped("%.*s", static_cast<int>(text.size()), text.data());
         ImGui::PopStyleColor();
     }
