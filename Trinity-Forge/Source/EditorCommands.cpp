@@ -1177,6 +1177,32 @@ void GroupCommand::Undo(Trinity::Scene& scene)
     }
 }
 
+// Two groups of the same commands on the same entities merge pair by pair, as two frames of one drag across several entities are
+bool GroupCommand::MergeWith(const EditorCommand& next)
+{
+    const GroupCommand* l_Next = dynamic_cast<const GroupCommand*>(&next);
+    if (l_Next == nullptr || l_Next->m_Label != m_Label || l_Next->m_Commands.size() != m_Commands.size())
+    {
+        return false;
+    }
+
+    for (std::size_t it_Index = 0; it_Index < m_Commands.size(); ++it_Index)
+    {
+        if (m_Commands[it_Index]->GetSubject() != l_Next->m_Commands[it_Index]->GetSubject())
+        {
+            return false;
+        }
+    }
+
+    bool l_Merged = true;
+    for (std::size_t it_Index = 0; it_Index < m_Commands.size(); ++it_Index)
+    {
+        l_Merged = m_Commands[it_Index]->MergeWith(*l_Next->m_Commands[it_Index]) && l_Merged;
+    }
+
+    return l_Merged;
+}
+
 std::vector<Trinity::UUID> GroupCommand::GetSubjects() const
 {
     std::vector<Trinity::UUID> l_Subjects;
@@ -1448,9 +1474,22 @@ std::size_t RemoveComponentCommand::GetMemorySize() const
     return sizeof(*this) + m_Component.capacity() + m_Text.capacity() + m_Label.capacity();
 }
 
-SetComponentTextCommand::SetComponentTextCommand(Trinity::UUID entity, std::string component, std::string text, std::string label) : m_Entity(entity), m_Component(std::move(component)), m_New(std::move(text)), m_Label(std::move(label))
+SetComponentTextCommand::SetComponentTextCommand(Trinity::UUID entity, std::string component, std::string text, std::string label, std::string field) : m_Entity(entity), m_Component(std::move(component)), m_New(std::move(text)), m_Label(std::move(label)), m_Field(std::move(field))
 {
 
+}
+
+bool SetComponentTextCommand::MergeWith(const EditorCommand& next)
+{
+    const SetComponentTextCommand* l_Next = dynamic_cast<const SetComponentTextCommand*>(&next);
+    if (l_Next == nullptr || m_Field.empty() || l_Next->m_Field != m_Field || l_Next->m_Entity != m_Entity || l_Next->m_Component != m_Component)
+    {
+        return false;
+    }
+
+    m_New = l_Next->m_New;
+
+    return true;
 }
 
 // The old text is kept, so undo restores its values through its own serializer, a module's too
@@ -1504,7 +1543,7 @@ void SetComponentTextCommand::Undo(Trinity::Scene& scene)
 
 std::size_t SetComponentTextCommand::GetMemorySize() const
 {
-    return sizeof(*this) + m_Component.capacity() + m_New.capacity() + m_Old.capacity() + m_Label.capacity();
+    return sizeof(*this) + m_Component.capacity() + m_New.capacity() + m_Old.capacity() + m_Label.capacity() + m_Field.capacity();
 }
 
 SetNativeFieldCommand::SetNativeFieldCommand(Trinity::UUID entity, std::string component, std::string field, Trinity::ScriptFieldValue value) : m_Entity(entity), m_Component(std::move(component)), m_Field(std::move(field)), m_New(std::move(value))

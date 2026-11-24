@@ -3365,6 +3365,66 @@ namespace Trinity
 
             return l_Loaded;
         }
+
+        // Whether two nodes hold the same, by how each is written
+        bool IsSameYaml(const YAML::Node& left, const YAML::Node& right)
+        {
+            return YAML::Dump(left) == YAML::Dump(right);
+        }
+
+        // Gives the target what after has and before had otherwise, a map key by key. A sequence goes over element by element where all three are as long, though one of four whole, as a quaternion's parts mean nothing apart. True if the target changed
+        bool MergeYaml(const YAML::Node& before, const YAML::Node& after, YAML::Node target)
+        {
+            // Read through a const view, as looking a missing key up in the target itself would leave it there
+            const YAML::Node& l_Read = target;
+            bool l_Changed = false;
+            for (const auto& it_Field : after)
+            {
+                const std::string l_Key = it_Field.first.Scalar();
+                const YAML::Node l_After = it_Field.second;
+                const YAML::Node l_Before = before[l_Key];
+                if (l_Before.IsDefined() && IsSameYaml(l_Before, l_After))
+                {
+                    continue;
+                }
+
+                const YAML::Node l_Target = l_Read[l_Key];
+                if (l_Before.IsDefined() && l_Before.IsMap() && l_After.IsMap() && l_Target.IsDefined() && l_Target.IsMap())
+                {
+                    l_Changed = MergeYaml(l_Before, l_After, target[l_Key]) || l_Changed;
+                }
+                else if (l_Before.IsDefined() && l_Before.IsSequence() && l_After.IsSequence() && l_Target.IsDefined() && l_Target.IsSequence() && l_Before.size() == l_After.size() && l_Target.size() == l_After.size() && l_After.size() != 4)
+                {
+                    YAML::Node l_Elements = target[l_Key];
+                    for (std::size_t it_Index = 0; it_Index < l_After.size(); ++it_Index)
+                    {
+                        if (!IsSameYaml(l_Before[it_Index], l_After[it_Index]) && !IsSameYaml(l_Target[it_Index], l_After[it_Index]))
+                        {
+                            l_Elements[it_Index] = YAML::Clone(l_After[it_Index]);
+                            l_Changed = true;
+                        }
+                    }
+                }
+                else if (!l_Target.IsDefined() || !IsSameYaml(l_Target, l_After))
+                {
+                    target[l_Key] = YAML::Clone(l_After);
+                    l_Changed = true;
+                }
+            }
+
+            // What after no longer has, the target loses too
+            for (const auto& it_Field : before)
+            {
+                const std::string l_Key = it_Field.first.Scalar();
+                if (!after[l_Key].IsDefined() && l_Read[l_Key].IsDefined())
+                {
+                    target.remove(l_Key);
+                    l_Changed = true;
+                }
+            }
+
+            return l_Changed;
+        }
     }
 
     ComponentWriter::ComponentWriter(std::string& output, std::uint32_t indent) : m_Output(&output), m_Indent(indent)
@@ -4835,6 +4895,27 @@ namespace Trinity
             LoadComponent(entity, *FindSerializer(name), *l_Storage, l_Value);
 
             return {};
+        }
+
+        // Any YAML that will not parse leaves the target as it is, as nothing differing does, so its text stays what SaveComponentToText gave
+        std::string MergeComponentText(std::string_view before, std::string_view after, std::string_view target)
+        {
+            try
+            {
+                const YAML::Node l_Before = YAML::Load(std::string(before));
+                const YAML::Node l_After = YAML::Load(std::string(after));
+                YAML::Node l_Target = YAML::Load(std::string(target));
+                if (!l_Before.IsMap() || !l_After.IsMap() || !l_Target.IsMap() || !MergeYaml(l_Before, l_After, l_Target))
+                {
+                    return std::string(target);
+                }
+
+                return YAML::Dump(l_Target) + "\n";
+            }
+            catch (const YAML::Exception&)
+            {
+                return std::string(target);
+            }
         }
 
         // Any thread: it reads no scene, and uses only the engine's own serializers

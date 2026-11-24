@@ -402,6 +402,7 @@ public:
 
     [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
     void Undo(Trinity::Scene& scene) override;
+    [[nodiscard]] bool MergeWith(const EditorCommand& next) override;
 
     [[nodiscard]] std::string GetName() const override { return m_Label; }
     [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Commands.empty() ? Trinity::UUID() : m_Commands.back()->GetSubject(); }
@@ -498,14 +499,15 @@ private:
     std::string m_Label;
 };
 
-// As Reset and Paste Component set them. Adds the component if missing. Refused if nothing changes
+// As Reset and Paste Component set them. Adds the component if missing. Refused if nothing changes. Given a field, edits of that one field in a row become one
 class SetComponentTextCommand final : public EditorCommand
 {
 public:
-    SetComponentTextCommand(Trinity::UUID entity, std::string component, std::string text, std::string label);
+    SetComponentTextCommand(Trinity::UUID entity, std::string component, std::string text, std::string label, std::string field = {});
 
     [[nodiscard]] bool Execute(Trinity::Scene& scene) override;
     void Undo(Trinity::Scene& scene) override;
+    [[nodiscard]] bool MergeWith(const EditorCommand& next) override;
 
     [[nodiscard]] std::string GetName() const override { return m_Label; }
     [[nodiscard]] Trinity::UUID GetSubject() const override { return m_Entity; }
@@ -517,6 +519,7 @@ private:
     std::string m_New;
     std::string m_Old;
     std::string m_Label;
+    std::string m_Field;
     bool m_Added = false;
     bool m_Executed = false;
 };

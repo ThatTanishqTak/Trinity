@@ -206,6 +206,8 @@ namespace Trinity
         TRINITY_API bool RemoveComponent(Entity entity, std::string_view name);
         [[nodiscard]] TRINITY_API std::string SaveComponentToText(Entity entity, std::string_view name);
         [[nodiscard]] TRINITY_API Expected<void, std::string> LoadComponentFromText(Entity entity, std::string_view name, std::string_view text);
+        // A component's text with what differs between two texts of another one carried over to it: an edit of one entity's field, made to a second entity's. The target's own text where nothing differs
+        [[nodiscard]] TRINITY_API std::string MergeComponentText(std::string_view before, std::string_view after, std::string_view target);
 
         // The subtree under local IDs told back from its UUIDs, so its entities keep them as an instance
         [[nodiscard]] TRINITY_API Expected<std::string, std::string> SavePrefabToText(Scene& scene, Entity root, UUID instance);

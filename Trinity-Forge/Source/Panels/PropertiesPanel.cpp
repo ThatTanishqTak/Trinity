@@ -114,6 +114,8 @@ namespace
 
     // Set while Properties draws an entity of an instance, so Label and the sections mark their rows
     OverrideMarks* s_Marks = nullptr;
+    // Set while Properties draws an entity, so an edit of it reaches the others selected with it
+    EditorSession* s_Session = nullptr;
 
     bool EqualsIgnoringCase(std::string_view left, std::string_view right)
     {
@@ -292,6 +294,50 @@ namespace
         ImGui::SetNextItemWidth(reserve > 0.0f ? -reserve : -FLT_MIN);
     }
 
+    // One entity's edit as one command. With several selected, what the edit changes goes to each of the others that has the component too, all of it as one command, the edited entity's last
+    template<Trinity::Component T>
+    void ExecuteEdit(CommandStack& history, Trinity::Entity entity, T value, std::string field)
+    {
+        std::vector<Trinity::Scope<EditorCommand>> l_Commands;
+        if (s_Session != nullptr && s_Session->GetSelected().GetCount() > 1)
+        {
+            // The component as text before the edit and after it, the after by holding the new value for as long as it takes to write
+            const std::string_view l_Name = T::c_TypeName;
+            const std::string l_Before = Trinity::SceneSerializer::SaveComponentToText(entity, l_Name);
+            T l_Kept = std::exchange(entity.Get<T>(), value);
+            const std::string l_After = Trinity::SceneSerializer::SaveComponentToText(entity, l_Name);
+            entity.Get<T>() = std::move(l_Kept);
+
+            Trinity::Scene& l_Scene = s_Session->GetEditedScene();
+            for (const Trinity::UUID it_Other : s_Session->GetSelected().GetEntities())
+            {
+                const Trinity::Entity l_Other = l_Scene.FindEntityByUUID(it_Other);
+                if (!l_Other || it_Other == entity.GetUUID() || !l_Other.Has<T>())
+                {
+                    continue;
+                }
+
+                const std::string l_Text = Trinity::SceneSerializer::SaveComponentToText(l_Other, l_Name);
+                std::string l_Merged = Trinity::SceneSerializer::MergeComponentText(l_Before, l_After, l_Text);
+                if (l_Merged != l_Text)
+                {
+                    l_Commands.push_back(Trinity::CreateScope<SetComponentTextCommand>(it_Other, std::string(l_Name), std::move(l_Merged), std::format("Edit {} {} of {}", GetComponentLabel(l_Name), field, GetEntityLabel(l_Other)), field));
+                }
+            }
+        }
+
+        if (l_Commands.empty())
+        {
+            history.Execute(Trinity::CreateScope<SetComponentCommand<T>>(entity.GetUUID(), std::move(value), std::move(field)));
+
+            return;
+        }
+
+        std::string l_Label = std::format("Edit {} {} of {} Entities", GetComponentLabel(T::c_TypeName), field, l_Commands.size() + 1);
+        l_Commands.push_back(Trinity::CreateScope<SetComponentCommand<T>>(entity.GetUUID(), std::move(value), std::move(field)));
+        history.Execute(Trinity::CreateScope<GroupCommand>(std::move(l_Label), std::move(l_Commands)));
+    }
+
     // The widget edits a copy, and a change becomes a command. While it stays active, commands merge
     template<Trinity::Component T, typename F>
     void EditField(CommandStack& history, Trinity::Entity entity, std::string_view field, F widget)
@@ -299,7 +345,7 @@ namespace
         T l_Value = entity.Get<T>();
         if (widget(l_Value))
         {
-            history.Execute(Trinity::CreateScope<SetComponentCommand<T>>(entity.GetUUID(), std::move(l_Value), std::string(field)));
+            ExecuteEdit<T>(history, entity, std::move(l_Value), std::string(field));
         }
     }
 
@@ -1432,6 +1478,11 @@ void PropertiesPanel::OnImGuiRender()
         ImGui::PopStyleColor();
     }
 
+    if (const std::size_t l_Count = m_Session.GetSelected().GetCount(); l_Count > 1 && !l_Playing)
+    {
+        ImGui::TextDisabled("%s", std::format("{} entities selected. This is the last one picked, and an edit of a field goes to every one of them that has its component", l_Count).c_str());
+    }
+
     // What the entity's instance changes of its prefab, read once a frame for every section to mark
     std::optional<OverrideMarks> l_Marks;
     if (const Trinity::Entity l_Root = Trinity::Prefab::FindInstanceRoot(l_Entity); l_Root && !l_Missing)
@@ -1442,6 +1493,7 @@ void PropertiesPanel::OnImGuiRender()
         s_Marks = &*l_Marks;
     }
 
+    s_Session = &m_Session;
     ImGui::BeginDisabled(l_Playing || l_Missing);
     ImGui::PushID(l_Entity.GetUUID().ToString().c_str());
     DrawName(l_Entity);
@@ -1469,6 +1521,7 @@ void PropertiesPanel::OnImGuiRender()
     ImGui::PopID();
     ImGui::EndDisabled();
     s_Marks = nullptr;
+    s_Session = nullptr;
 
     // A script dropped anywhere on the entity's sections is added to it, as on Unity's Inspector
     if (!l_Playing && !l_Missing && ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect, ImGui::GetID("##AddScriptDrop")))
@@ -1864,7 +1917,7 @@ void PropertiesPanel::DrawTransform(Trinity::Entity entity)
         l_Value.Rotation = glm::quat(glm::radians(l_Degrees));
         m_EulerDegrees = l_Degrees;
         m_EulerRotation = l_Value.Rotation;
-        l_History.Execute(Trinity::CreateScope<SetComponentCommand<Trinity::TransformComponent>>(entity.GetUUID(), std::move(l_Value), "Rotation"));
+        ExecuteEdit<Trinity::TransformComponent>(l_History, entity, std::move(l_Value), "Rotation");
     }
 
     Label("Scale");

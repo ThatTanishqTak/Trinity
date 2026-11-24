@@ -162,7 +162,7 @@ bool CommandStack::RefuseLocked(bool changesScene)
     return true;
 }
 
-// What the command touched, alone, of which what is still in the scene. A deleted entity leaves nothing selected
+// What the command touched, of which what is still in the scene. A deleted entity leaves nothing selected. If all of it is selected already, as when Properties edits one entity of several, the selection stays as it is
 void CommandStack::Select(const EditorCommand& command)
 {
     if (!command.SelectsSubject())
@@ -172,6 +172,11 @@ void CommandStack::Select(const EditorCommand& command)
 
     std::vector<Trinity::UUID> l_Subjects = command.GetSubjects();
     std::erase_if(l_Subjects, [this](Trinity::UUID subject) { return !m_Scene.FindEntityByUUID(subject); });
+    if (!l_Subjects.empty() && std::ranges::all_of(l_Subjects, [this](Trinity::UUID subject) { return m_Selection.Contains(subject); }))
+    {
+        return;
+    }
+
     m_Selection.Set(std::move(l_Subjects));
 }
 
