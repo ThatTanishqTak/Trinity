@@ -3,6 +3,7 @@
 #include "EditorCommands.hpp"
 #include "EditorPayloads.hpp"
 #include "ImGuizmoInclude.hpp"
+#include "Toasts.hpp"
 
 #include <Trinity/UI/Widgets.hpp>
 
@@ -217,6 +218,12 @@ namespace
     std::string GetCameraPath(Trinity::UUID scene)
     {
         return std::format("{}/Editor/Views/{}.view", Trinity::Project::c_CacheMount, scene);
+    }
+
+    // Beside the scene's camera, per user and per project as it is
+    std::string GetBookmarksPath(Trinity::UUID scene)
+    {
+        return std::format("{}/Editor/Views/{}.bookmarks", Trinity::Project::c_CacheMount, scene);
     }
 
     // The unit quad a sprite is drawn on, through its world transform, in X and Y
@@ -739,6 +746,7 @@ void ViewportPanel::FollowScene()
 
     const bool l_WasUntitled = !m_SceneID;
     m_SceneID = l_SceneID;
+    ReadBookmarks();
     m_CameraDirty = false;
     m_AutoOrthographic = false;
     StopGlide();
@@ -809,6 +817,212 @@ void ViewportPanel::MarkCameraChanged()
 {
     m_CameraDirty = true;
     m_CameraChangeTime = ImGui::GetTime();
+}
+
+// Where the camera is now, even part way through a glide, in the mode the panel is in
+void ViewportPanel::SaveBookmark(std::size_t index)
+{
+    if (index >= m_Bookmarks.size())
+    {
+        return;
+    }
+
+    // The Command Palette runs this with the panel closed too, where the scene may have changed unseen
+    FollowScene();
+    if (m_Mode3D)
+    {
+        m_Bookmarks[index] = Bookmark{ .Mode3D = true, .Focus = m_Camera3D.GetFocus(), .Distance = m_Camera3D.GetDistance(), .Angles = glm::vec2(m_Camera3D.GetYaw(), m_Camera3D.GetPitch()), .Orthographic = m_Camera3D.IsOrthographic() };
+    }
+    else
+    {
+        m_Bookmarks[index] = Bookmark{ .Mode3D = false, .Focus = glm::vec3(m_Camera.GetPosition(), 0.0f), .Distance = m_Camera.GetHeight() };
+    }
+
+    WriteBookmarks();
+    Toasts::Notify(std::format("Saved bookmark {}", index + 1));
+}
+
+// The glide framing uses, so the way there is seen. An empty one says so, and how it is saved
+void ViewportPanel::GoToBookmark(std::size_t index)
+{
+    if (index >= m_Bookmarks.size())
+    {
+        return;
+    }
+
+    FollowScene();
+    if (!m_Bookmarks[index])
+    {
+        const std::string l_Key = m_Session.GetShortcuts().GetKeyText(std::format("bookmark.save{}", index + 1));
+        Toasts::Notify(l_Key.empty() ? std::format("Bookmark {} is empty", index + 1) : std::format("Bookmark {} is empty. {} saves the view to it", index + 1, l_Key));
+
+        return;
+    }
+
+    const Bookmark& l_Bookmark = *m_Bookmarks[index];
+    if (l_Bookmark.Mode3D != m_Mode3D)
+    {
+        m_Mode3D = l_Bookmark.Mode3D;
+        m_Flying = false;
+        m_Orbiting = false;
+        MarkCameraChanged();
+    }
+
+    StopGlide();
+    if (l_Bookmark.Mode3D && l_Bookmark.Orthographic != m_Camera3D.IsOrthographic())
+    {
+        m_Camera3D.SetOrthographic(l_Bookmark.Orthographic);
+        m_AutoOrthographic = false;
+        MarkCameraChanged();
+    }
+
+    m_Glide = Glide{ .Focus = l_Bookmark.Focus, .Distance = l_Bookmark.Distance, .Mode3D = l_Bookmark.Mode3D, .Angles = l_Bookmark.Mode3D ? std::optional<glm::vec2>(l_Bookmark.Angles) : std::nullopt };
+}
+
+void ViewportPanel::ClearBookmark(std::size_t index)
+{
+    if (index < m_Bookmarks.size() && m_Bookmarks[index])
+    {
+        m_Bookmarks[index].reset();
+        WriteBookmarks();
+    }
+}
+
+// A line a bookmark: its number, 2D or 3D, the focus, the distance, the yaw and pitch, and Iso or Persp. A line that reads wrong is left out
+void ViewportPanel::ReadBookmarks()
+{
+    m_Bookmarks = {};
+    if (!m_SceneID || !m_Session.HasProject())
+    {
+        return;
+    }
+
+    const Trinity::Expected<std::string, Trinity::FileError> l_Text = Trinity::FileSystem::ReadText(GetBookmarksPath(m_SceneID));
+    if (!l_Text)
+    {
+        return;
+    }
+
+    std::string_view l_Rest = *l_Text;
+    while (!l_Rest.empty())
+    {
+        const std::size_t l_LineEnd = l_Rest.find('\n');
+        std::string_view l_Line = l_Rest.substr(0, l_LineEnd);
+        l_Rest.remove_prefix(l_LineEnd == std::string_view::npos ? l_Rest.size() : l_LineEnd + 1);
+
+        std::array<float, 1> l_Number{};
+        if (!ReadNumbers(l_Line, l_Number) || l_Number[0] < 1.0f || l_Number[0] > static_cast<float>(m_Bookmarks.size()) || l_Number[0] != std::floor(l_Number[0]))
+        {
+            continue;
+        }
+
+        l_Line.remove_prefix(std::min(l_Line.find_first_not_of(' '), l_Line.size()));
+        const bool l_Mode3D = l_Line.starts_with("3D");
+        if (!l_Mode3D && !l_Line.starts_with("2D"))
+        {
+            continue;
+        }
+
+        l_Line.remove_prefix(2);
+        std::array<float, 6> l_Values{};
+        if (!ReadNumbers(l_Line, l_Values) || l_Values[3] <= 0.0f)
+        {
+            continue;
+        }
+
+        m_Bookmarks[static_cast<std::size_t>(l_Number[0]) - 1] = Bookmark{ .Mode3D = l_Mode3D, .Focus = glm::vec3(l_Values[0], l_Values[1], l_Values[2]), .Distance = l_Values[3], .Angles = glm::vec2(l_Values[4], l_Values[5]), .Orthographic = l_Line.starts_with(" Iso") };
+    }
+}
+
+// An untitled scene's are not kept, as its camera is not
+void ViewportPanel::WriteBookmarks() const
+{
+    if (!m_SceneID || !m_Session.HasProject())
+    {
+        return;
+    }
+
+    std::string l_Text;
+    for (std::size_t it_Index = 0; it_Index < m_Bookmarks.size(); ++it_Index)
+    {
+        if (const std::optional<Bookmark>& l_Bookmark = m_Bookmarks[it_Index])
+        {
+            l_Text += std::format("{} {} {} {} {} {} {} {} {}\n", it_Index + 1, l_Bookmark->Mode3D ? "3D" : "2D", l_Bookmark->Focus.x, l_Bookmark->Focus.y, l_Bookmark->Focus.z, l_Bookmark->Distance, l_Bookmark->Angles.x, l_Bookmark->Angles.y, l_Bookmark->Orthographic ? "Iso" : "Persp");
+        }
+    }
+
+    const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(GetBookmarksPath(m_SceneID), l_Text);
+    if (!l_Written)
+    {
+        TR_WARN("Scene view: the bookmarks of scene {} could not be saved: {}", m_SceneID, Trinity::ToString(l_Written.GetError()));
+    }
+}
+
+void ViewportPanel::DrawBookmarks()
+{
+    if (ImGui::Button(std::format("{}###Bookmarks", Trinity::Icons::c_Bookmark).c_str()))
+    {
+        ImGui::OpenPopup("##BookmarkList");
+    }
+
+    ImGui::SetItemTooltip("Camera bookmarks: places the camera is kept at for this scene, and goes back to");
+    if (!ImGui::BeginPopup("##BookmarkList"))
+    {
+        return;
+    }
+
+    ImGui::TextDisabled("Camera Bookmarks");
+    ImGui::Separator();
+    const Shortcuts& l_Shortcuts = m_Session.GetShortcuts();
+    // A row is as tall as its buttons, and its name sits level with them
+    ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 0.5f));
+    if (ImGui::BeginTable("##Bookmarks", 3, ImGuiTableFlags_SizingFixedFit))
+    {
+        for (std::size_t it_Index = 0; it_Index < m_Bookmarks.size(); ++it_Index)
+        {
+            const std::optional<Bookmark>& l_Bookmark = m_Bookmarks[it_Index];
+            ImGui::PushID(static_cast<int>(it_Index));
+            ImGui::TableNextRow();
+
+            // The whole row goes there and closes the list. Its two buttons keep their clicks and leave it open
+            ImGui::TableNextColumn();
+            ImGui::BeginDisabled(!l_Bookmark);
+            const std::string l_Place = !l_Bookmark ? std::string("Empty") : l_Bookmark->Mode3D ? std::format("3D at {:.1f}, {:.1f}, {:.1f}", l_Bookmark->Focus.x, l_Bookmark->Focus.y, l_Bookmark->Focus.z) : std::format("2D at {:.1f}, {:.1f}", l_Bookmark->Focus.x, l_Bookmark->Focus.y);
+            if (ImGui::Selectable(std::format("{}   {}", it_Index + 1, l_Place).c_str(), false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap, ImVec2(0.0f, ImGui::GetFrameHeight())))
+            {
+                GoToBookmark(it_Index);
+            }
+
+            ImGui::EndDisabled();
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", l_Shortcuts.GetKeyText(std::format("bookmark.go{}", it_Index + 1)).c_str());
+
+            ImGui::TableNextColumn();
+            if (ImGui::Button(Trinity::Icons::c_Save))
+            {
+                SaveBookmark(it_Index);
+            }
+
+            const std::string l_SaveKey = l_Shortcuts.GetKeyText(std::format("bookmark.save{}", it_Index + 1));
+            ImGui::SetItemTooltip("%s", l_SaveKey.empty() ? "Save the view here" : std::format("Save the view here ({})", l_SaveKey).c_str());
+            ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+            ImGui::BeginDisabled(!l_Bookmark);
+            if (ImGui::Button(Trinity::Icons::c_TimesCircle))
+            {
+                ClearBookmark(it_Index);
+            }
+
+            ImGui::SetItemTooltip("Clear");
+            ImGui::EndDisabled();
+            ImGui::PopID();
+        }
+
+        ImGui::EndTable();
+    }
+
+    ImGui::PopStyleVar();
+    ImGui::EndPopup();
 }
 
 // Middle drag pans, the wheel zooms to the cursor, F frames, Shift+F follows, a left click picks
@@ -2379,6 +2593,8 @@ void ViewportPanel::DrawToolbar()
         }
 
         ImGui::SetItemTooltip("The editor's camera: 2D looks down -Z. In 3D the right button looks, W, A, S, D, Q and E fly, and Alt+left orbits");
+        ImGui::SameLine();
+        DrawBookmarks();
         ImGui::SameLine();
 
         if (Trinity::Widgets::ToggleButton(std::format("{}###LightHeatmap", Trinity::Icons::c_PaintBrush).c_str(), m_LightHeatmap))

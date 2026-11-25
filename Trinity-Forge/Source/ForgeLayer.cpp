@@ -803,6 +803,20 @@ void ForgeLayer::RegisterShortcuts()
     } });
     l_Shortcuts.Add({ .ID = "window.theme", .Category = "Window", .Label = "Toggle Theme", .Run = [this] { m_Session.SetPreferenceVariable("ui.theme", Trinity::Theme::IsLight() ? Trinity::Theme::c_Dark : Trinity::Theme::c_Light); } });
 
+    // Unreal's keys for them: a number goes to the bookmark and Ctrl with it saves one, while the mouse is over the Scene panel or it has the focus. Not while the Game panel has the focus of a scene that plays, whose own keys the numbers may be
+    const auto a_OverScene = [this] { return !(m_Session.IsPlaying() && m_GamePanel->IsWindowFocused()) && (m_ViewportPanel->IsWindowHovered() || m_ViewportPanel->IsWindowFocused()); };
+    for (std::size_t it_Index = 0; it_Index < ViewportPanel::c_BookmarkCount; ++it_Index)
+    {
+        const ImGuiKey l_Key = static_cast<ImGuiKey>(ImGuiKey_1 + static_cast<int>(it_Index));
+        l_Shortcuts.Add({ .ID = std::format("bookmark.go{}", it_Index + 1), .Category = "Bookmarks", .Label = std::format("Go to Bookmark {}", it_Index + 1), .Chord = l_Key, .IsEnabled = a_HasProject, .IsKeyInScope = a_OverScene, .Run = [this, it_Index] { m_ViewportPanel->GoToBookmark(it_Index); } });
+    }
+
+    for (std::size_t it_Index = 0; it_Index < ViewportPanel::c_BookmarkCount; ++it_Index)
+    {
+        const ImGuiKey l_Key = static_cast<ImGuiKey>(ImGuiKey_1 + static_cast<int>(it_Index));
+        l_Shortcuts.Add({ .ID = std::format("bookmark.save{}", it_Index + 1), .Category = "Bookmarks", .Label = std::format("Save Bookmark {}", it_Index + 1), .Chord = ImGuiMod_Ctrl | l_Key, .IsEnabled = a_HasProject, .IsKeyInScope = a_OverScene, .Run = [this, it_Index] { m_ViewportPanel->SaveBookmark(it_Index); } });
+    }
+
     // Last, so each key someone changed finds the command it was changed for
     l_Shortcuts.ReadKeys();
 }

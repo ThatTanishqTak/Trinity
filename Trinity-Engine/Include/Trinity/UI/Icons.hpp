@@ -26,6 +26,7 @@ namespace Trinity
         constexpr const char* c_Sitemap = "\uF0E8";
         constexpr const char* c_Sliders = "\uF1DE";
         constexpr const char* c_Book = "\uF02D";
+        constexpr const char* c_Bookmark = "\uF02E";
         constexpr const char* c_Refresh = "\uF021";
         constexpr const char* c_WindowRestore = "\uF2D2";
         constexpr const char* c_Undo = "\uF0E2";

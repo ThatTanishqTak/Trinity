@@ -28,6 +28,8 @@ public:
         bool Repeats = false;
         // Asked as its key is pressed. A command without it is always ready
         std::function<bool()> IsEnabled;
+        // Asked of its key alone, and not by the Command Palette: where the key acts, as over one panel. A command without it acts everywhere
+        std::function<bool()> IsKeyInScope;
         std::function<void()> Run;
         // The keys it was added with, which Add fills in and a reset puts back
         ImGuiKeyChord Default = ImGuiKey_None;
@@ -69,7 +71,7 @@ public:
     // Once every command is added, so each saved key finds its command
     void ReadKeys();
 
-    // Runs the first command in the list whose key was pressed this frame and that is ready. True if one ran
+    // Runs the first command in the list whose key was pressed this frame where it acts, and that is ready. True if one ran
     bool Dispatch() const;
 
 private:

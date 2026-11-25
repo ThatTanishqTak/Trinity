@@ -12,6 +12,8 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -26,6 +28,9 @@ struct ImGuiTextBuffer;
 class ViewportPanel final : public Panel
 {
 public:
+    // The places the camera can be kept at for a scene, numbered from 1 as their keys are
+    static constexpr std::size_t c_BookmarkCount = 9;
+
     ViewportPanel(Trinity::ImGuiLayer& imGui, EditorSession& session);
     ~ViewportPanel() override;
 
@@ -38,6 +43,10 @@ public:
 
     // Frames the selection, gliding there once the panel is next drawn. follow keeps it framed
     void RequestFrame(bool follow) { m_FrameRequest = follow; }
+    // The camera as it is, kept under the number for this scene. Each person's own, as the camera is
+    void SaveBookmark(std::size_t index);
+    // The camera glides to where the bookmark was saved, the panel turning 2D or 3D as it was then
+    void GoToBookmark(std::size_t index);
     // The entities outlined beside the selection, as the Hierarchy's search matches, or null for none
     void SetHighlighted(std::function<const std::unordered_set<Trinity::UUID>*()> highlighted) { m_Highlighted = std::move(highlighted); }
 
@@ -67,6 +76,21 @@ private:
         std::optional<glm::vec2> Angles;
     };
 
+    // The 2D camera's place and height, or the 3D camera's focus, distance and turn, as one was saved
+    struct Bookmark
+    {
+        bool Mode3D = false;
+        glm::vec3 Focus{ 0.0f };
+        float Distance = 1.0f;
+        glm::vec2 Angles{ 0.0f };
+        bool Orthographic = false;
+    };
+
+    void ClearBookmark(std::size_t index);
+    void ReadBookmarks();
+    void WriteBookmarks() const;
+    // The toolbar's button and its list: a click on one goes there, and each has Save Here and Clear
+    void DrawBookmarks();
     void FollowPanelSize(std::uint32_t width, std::uint32_t height);
     void FollowScene();
     void SaveCamera();
@@ -129,6 +153,8 @@ private:
     bool m_OrientationHovered = false;
     // Framing's glide, dropped once there or when the camera is moved. Then the entity Shift+F follows
     std::optional<Glide> m_Glide;
+    // This scene's, read as the scene is followed. An untitled scene's last until it closes
+    std::array<std::optional<Bookmark>, c_BookmarkCount> m_Bookmarks;
     Trinity::UUID m_Followed;
     std::optional<bool> m_FrameRequest;
     std::function<const std::unordered_set<Trinity::UUID>*()> m_Highlighted;

@@ -338,7 +338,7 @@ bool Shortcuts::Dispatch() const
     {
         const ImGuiInputFlags l_Flags = it_Command.Repeats ? ImGuiInputFlags_Repeat : ImGuiInputFlags_None;
         const bool l_Pressed = (it_Command.Chord != ImGuiKey_None && ImGui::IsKeyChordPressed(it_Command.Chord, l_Flags)) || (it_Command.Alternate != ImGuiKey_None && ImGui::IsKeyChordPressed(it_Command.Alternate, l_Flags));
-        if (l_Pressed && (!it_Command.IsEnabled || it_Command.IsEnabled()))
+        if (l_Pressed && (!it_Command.IsKeyInScope || it_Command.IsKeyInScope()) && (!it_Command.IsEnabled || it_Command.IsEnabled()))
         {
             it_Command.Run();
 
