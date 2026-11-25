@@ -26,7 +26,7 @@ namespace
     };
 
     // Each section's settings by the names its rows show, which the search goes through
-    constexpr std::array<std::string_view, 4> c_GeneralSettings{ "UI Scale", "Theme", "Multi-viewport", "Back Up Every" };
+    constexpr std::array<std::string_view, 5> c_GeneralSettings{ "UI Scale", "Theme", "Multi-viewport", "Custom Title Bar", "Back Up Every" };
     constexpr std::array<std::string_view, 2> c_AudioSettings{ "Output Device", "Mute When Unfocused" };
     constexpr std::array<std::string_view, 2> c_ExternalToolsSettings{ "Script Editor", "Wait for Debugger at Play" };
     constexpr std::array<std::string_view, 1> c_ColorsSettings{ "Play Mode Tint" };
@@ -287,6 +287,21 @@ void PreferencesWindow::DrawGeneral()
     }
 
     EditorPreferences l_Preferences = m_Session.GetPreferences();
+    if (Shows(Section::General, "Custom Title Bar"))
+    {
+        // Greyed out where it is asked for and the window still has the system's, which is a platform that keeps its own
+        const bool l_Supported = !l_Preferences.CustomTitleBar || Trinity::Application::Get().GetWindow().HasCustomTitleBar();
+        Label("Custom Title Bar");
+        ImGui::BeginDisabled(!l_Supported);
+        if (ImGui::Checkbox("##CustomTitleBar", &l_Preferences.CustomTitleBar))
+        {
+            m_Session.SetPreferences(l_Preferences);
+        }
+
+        ImGui::EndDisabled();
+        Tooltip(l_Supported ? "Forge's own title bar, with the menus in it, in place of the system's. Off, the system's title bar is back and the menus are a row under it" : "This platform keeps its own title bar");
+    }
+
     if (Shows(Section::General, "Back Up Every"))
     {
         Label("Back Up Every");
@@ -309,10 +324,11 @@ void PreferencesWindow::DrawGeneral()
         }
 
         l_Preferences.BackupMinutes = EditorPreferences::c_DefaultBackupMinutes;
+        l_Preferences.CustomTitleBar = true;
         m_Session.SetPreferences(l_Preferences);
     }
 
-    Tooltip("UI Scale 100%, the Dark theme, multi-viewport on, and a backup every 5 minutes");
+    Tooltip("UI Scale 100%, the Dark theme, multi-viewport on, Forge's own title bar, and a backup every 5 minutes");
 }
 
 // The outputs are listed as the menu opens. One chosen that is not connected stays, listed last

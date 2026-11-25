@@ -290,6 +290,7 @@ void ForgeLayer::OnUpdate(Trinity::Timestep timestep)
     m_Capture.Update();
     m_Thumbnail.Update();
     m_StartScreen.Update();
+    m_TitleBar.Update(Trinity::Application::Get().GetWindow(), m_Session.GetPreferences().CustomTitleBar);
     m_Session.UpdatePlay(timestep);
     m_Session.GetScene().UpdateWorldTransforms();
     m_GamePanel->ShowUI();
@@ -1032,9 +1033,10 @@ void ForgeLayer::ReadShortcuts()
     static_cast<void>(m_Session.GetShortcuts().Dispatch());
 }
 
+// On a window with Forge's own title bar, the menu bar is that bar: taller, and ended with what is open and the window's buttons
 void ForgeLayer::DrawMenuBar()
 {
-    if (!ImGui::BeginMainMenuBar())
+    if (!m_TitleBar.Begin())
     {
         return;
     }
@@ -1193,7 +1195,9 @@ void ForgeLayer::DrawMenuBar()
         ImGui::EndMenu();
     }
 
-    ImGui::EndMainMenuBar();
+    // The project and its scene, with an asterisk while it has unsaved changes, as the system's title bar named them
+    const std::string l_Title = m_Session.HasProject() ? std::format("{} - {}{}", m_Session.GetProject()->GetName(), m_Session.GetSceneName(), m_Session.IsDirty() ? "*" : "") : std::string("Trinity Forge");
+    m_TitleBar.End(Trinity::Application::Get().GetWindow(), l_Title, [this] { m_Session.Request(EditorSession::Command::Exit); });
 }
 
 // Unity's and Unreal's strip under the menu bar: Save, Undo and Redo at the left, the play controls in the middle and the build status at the right

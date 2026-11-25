@@ -34,6 +34,15 @@ namespace Trinity
         void Focus() override {}
         [[nodiscard]] bool IsFocused() const override { return false; }
         [[nodiscard]] bool IsMinimized() const override { return false; }
+        [[nodiscard]] bool IsMaximized() const override { return false; }
+        void SetMaximized(bool) override {}
+        void Minimize() override {}
+
+        // A headless window has no title bar of any kind
+        bool SetCustomTitleBar(bool) override { return false; }
+        [[nodiscard]] bool HasCustomTitleBar() const override { return false; }
+        void SetTitleBarControls(std::vector<WindowRect>) override {}
+        void BeginDrag() override {}
 
         void SetOpacity(float) override {}
         void SetTopMost(bool) override {}

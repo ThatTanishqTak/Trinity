@@ -2917,6 +2917,10 @@ void EditorSession::ReadPreferences(const Trinity::ApplicationCommandLineArgs& a
         {
             m_Preferences.BackupMinutes = std::clamp(l_Minutes, 0, EditorPreferences::c_MaximumBackupMinutes);
         }
+        else if (l_Key == "CustomTitleBar")
+        {
+            m_Preferences.CustomTitleBar = l_Value == "1";
+        }
     }
 
     TR_INFO("Forge: preferences read from {}", EditorPreferences::c_Path);
@@ -2945,7 +2949,7 @@ void EditorSession::WritePreferences()
     l_Text += std::format("PlayModeTint={} {} {}\n", m_Preferences.PlayModeTint.x, m_Preferences.PlayModeTint.y, m_Preferences.PlayModeTint.z);
     l_Text += std::format("CameraSpeed={}\nSnapSteps={} {} {}\n", m_Preferences.CameraSpeed, m_Preferences.SnapSteps.x, m_Preferences.SnapSteps.y, m_Preferences.SnapSteps.z);
     l_Text += std::format("AudioDevice={}\nMuteWhenUnfocused={}\n", m_Preferences.AudioDevice, m_Preferences.MuteWhenUnfocused ? 1 : 0);
-    l_Text += std::format("BackupMinutes={}\n", m_Preferences.BackupMinutes);
+    l_Text += std::format("BackupMinutes={}\nCustomTitleBar={}\n", m_Preferences.BackupMinutes, m_Preferences.CustomTitleBar ? 1 : 0);
     if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(EditorPreferences::c_Path, l_Text); !l_Written)
     {
         TR_WARN("Forge: the preferences could not be saved: {}", Trinity::ToString(l_Written.GetError()));

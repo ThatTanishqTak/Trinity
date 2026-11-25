@@ -589,13 +589,25 @@ namespace Trinity
         ::SetWindowPos(m_Handle, HWND_TOP, l_Area.left, l_Area.top, l_Area.right - l_Area.left, l_Area.bottom - l_Area.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
     }
 
-    // Borders are sized for the monitor the window is on
+    // Borders are sized for the monitor the window is on. With its own title bar the frame has nothing above the client area
     RECT WindowsWindow::GetFrame(const RECT& client) const
     {
         RECT l_Frame = client;
         ::AdjustWindowRectExForDpi(&l_Frame, static_cast<DWORD>(::GetWindowLongPtrW(m_Handle, GWL_STYLE)), FALSE, static_cast<DWORD>(::GetWindowLongPtrW(m_Handle, GWL_EXSTYLE)), ::GetDpiForWindow(m_Handle));
+        if (m_CustomTitleBar && !m_Fullscreen)
+        {
+            l_Frame.top = client.top;
+        }
 
         return l_Frame;
+    }
+
+    int WindowsWindow::GetFrameEdge() const
+    {
+        RECT l_Frame{};
+        ::AdjustWindowRectExForDpi(&l_Frame, static_cast<DWORD>(::GetWindowLongPtrW(m_Handle, GWL_STYLE)), FALSE, static_cast<DWORD>(::GetWindowLongPtrW(m_Handle, GWL_EXSTYLE)), ::GetDpiForWindow(m_Handle));
+
+        return static_cast<int>(l_Frame.right);
     }
 
     // Showing an owned window brings its owner forward, even with SW_SHOWNA, so it is detached first
@@ -632,6 +644,62 @@ namespace Trinity
     bool WindowsWindow::IsMinimized() const
     {
         return ::IsIconic(m_Handle) != FALSE;
+    }
+
+    bool WindowsWindow::IsMaximized() const
+    {
+        return ::IsZoomed(m_Handle) != FALSE;
+    }
+
+    void WindowsWindow::SetMaximized(bool maximized)
+    {
+        ::ShowWindow(m_Handle, maximized ? SW_MAXIMIZE : SW_RESTORE);
+    }
+
+    void WindowsWindow::Minimize()
+    {
+        ::ShowWindow(m_Handle, SW_MINIMIZE);
+    }
+
+    // Only a framed window has a title bar to give up. The frame is worked out again at once, so the client area has the bar's place before the next frame is drawn
+    bool WindowsWindow::SetCustomTitleBar(bool custom)
+    {
+        const LONG_PTR l_Style = m_Handle != nullptr ? (m_Fullscreen ? m_WindowedStyle : ::GetWindowLongPtrW(m_Handle, GWL_STYLE)) : 0;
+        if ((l_Style & WS_CAPTION) != WS_CAPTION)
+        {
+            return false;
+        }
+
+        if (custom != m_CustomTitleBar)
+        {
+            m_CustomTitleBar = custom;
+            m_TitleBarControls.clear();
+            ::SetWindowPos(m_Handle, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+        }
+
+        return m_CustomTitleBar;
+    }
+
+    // The press was the client area's, which holds the mouse until the button is let go, so it is ended for everything that heard of it. Then the system is told the title bar was pressed, which it hears as the next messages are read, and from there the move is its own
+    void WindowsWindow::BeginDrag()
+    {
+        if (m_Handle == nullptr)
+        {
+            return;
+        }
+
+        if (m_MouseButtonsDown > 0)
+        {
+            m_MouseButtonsDown = 0;
+            ::ReleaseCapture();
+
+            MouseButtonReleasedEvent l_Event(MouseCode::TR_LEFT);
+            Dispatch(l_Event);
+        }
+
+        POINT l_Cursor{};
+        ::GetCursorPos(&l_Cursor);
+        ::PostMessageW(m_Handle, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(l_Cursor.x, l_Cursor.y));
     }
 
     // A layered window only while it is see-through, since layering costs DWM a copy of every frame
@@ -797,11 +865,59 @@ namespace Trinity
 
                 break;
             }
+            case WM_NCCALCSIZE:
+            {
+                // As Windows Terminal does it: the system takes the frame's left, right and bottom from the client area as ever, and the top it took for the title bar is given back. Maximised, a window hangs off its monitor by the frame's thickness on every side, so the top comes in by as much
+                if (m_CustomTitleBar && !m_Fullscreen)
+                {
+                    RECT& l_Client = wParam == TRUE ? reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam)->rgrc[0] : *reinterpret_cast<RECT*>(lParam);
+                    const LONG l_Top = l_Client.top;
+                    const LRESULT l_Result = ::DefWindowProcW(m_Handle, message, wParam, lParam);
+                    l_Client.top = ::IsZoomed(m_Handle) ? l_Top + GetFrameEdge() : l_Top;
+
+                    return l_Result;
+                }
+
+                break;
+            }
             case WM_NCHITTEST:
             {
                 if (m_MousePassthrough)
                 {
                     return HTTRANSPARENT;
+                }
+
+                // The frame's own edges first, which resize as they always did. Then the top edge, which the frame gave up with its title bar
+                if (m_CustomTitleBar && !m_Fullscreen)
+                {
+                    const LRESULT l_Frame = ::DefWindowProcW(m_Handle, message, wParam, lParam);
+                    if (l_Frame != HTCLIENT)
+                    {
+                        return l_Frame;
+                    }
+
+                    POINT l_Point{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                    ::ScreenToClient(m_Handle, &l_Point);
+                    const bool l_Resizes = (::GetWindowLongPtrW(m_Handle, GWL_STYLE) & WS_THICKFRAME) != 0 && !::IsZoomed(m_Handle);
+                    switch (HitTestTitleBar(m_TitleBarControls, l_Point.x, l_Point.y, static_cast<std::int32_t>(m_Width), l_Resizes ? GetFrameEdge() : 0))
+                    {
+                        case TitleBarHit::Top:
+                        {
+                            return HTTOP;
+                        }
+                        case TitleBarHit::TopLeft:
+                        {
+                            return HTTOPLEFT;
+                        }
+                        case TitleBarHit::TopRight:
+                        {
+                            return HTTOPRIGHT;
+                        }
+                        default:
+                        {
+                            return HTCLIENT;
+                        }
+                    }
                 }
 
                 break;

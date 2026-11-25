@@ -20,6 +20,7 @@
 #include "SceneCapture.hpp"
 #include "ShortcutsWindow.hpp"
 #include "StartScreen.hpp"
+#include "TitleBar.hpp"
 #include "Toasts.hpp"
 
 #include <Trinity.hpp>
@@ -95,6 +96,7 @@ private:
     SceneCapture m_Capture{ m_Session };
     ProjectThumbnail m_Thumbnail{ m_Session };
     StartScreen m_StartScreen{ m_Session };
+    TitleBar m_TitleBar;
     Toasts m_Toasts;
     PreferencesWindow m_PreferencesWindow{ m_Session };
     ShortcutsWindow m_ShortcutsWindow{ m_Session };

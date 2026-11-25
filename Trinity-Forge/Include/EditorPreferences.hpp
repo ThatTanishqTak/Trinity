@@ -37,4 +37,6 @@ struct EditorPreferences
     bool MuteWhenUnfocused = false;
     // How often a scene with unsaved changes is backed up, for a crash to be recovered from. 0 backs it up only as Play starts
     int BackupMinutes = c_DefaultBackupMinutes;
+    // Forge's own title bar, holding the menus, in place of the system's. Off, or where the platform keeps its own, the menus are a row under the system's
+    bool CustomTitleBar = true;
 };

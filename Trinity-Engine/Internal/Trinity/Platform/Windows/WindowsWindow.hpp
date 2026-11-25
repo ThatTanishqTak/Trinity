@@ -6,6 +6,7 @@
 
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace Trinity
 {
@@ -40,6 +41,14 @@ namespace Trinity
         void Focus() override;
         [[nodiscard]] bool IsFocused() const override;
         [[nodiscard]] bool IsMinimized() const override;
+        [[nodiscard]] bool IsMaximized() const override;
+        void SetMaximized(bool maximized) override;
+        void Minimize() override;
+
+        bool SetCustomTitleBar(bool custom) override;
+        [[nodiscard]] bool HasCustomTitleBar() const override { return m_CustomTitleBar; }
+        void SetTitleBarControls(std::vector<WindowRect> controls) override { m_TitleBarControls = std::move(controls); }
+        void BeginDrag() override;
 
         void SetOpacity(float opacity) override;
         void SetTopMost(bool topMost) override;
@@ -60,6 +69,8 @@ namespace Trinity
         void OnMouseButton(MouseCode button, bool pressed);
         void ApplyCursor() const;
         [[nodiscard]] RECT GetFrame(const RECT& client) const;
+        // How thick the frame is on the sides a window with its own title bar keeps, on the monitor it is on
+        [[nodiscard]] int GetFrameEdge() const;
         void FitToMonitor();
 
         HWND m_Handle = nullptr;
@@ -80,5 +91,8 @@ namespace Trinity
         WINDOWPLACEMENT m_WindowedPlacement{};
         LONG_PTR m_WindowedStyle = 0;
         bool m_Fullscreen = false;
+        // The frame's top is the client area's, for the application's own title bar, whose parts that are clicked these are
+        bool m_CustomTitleBar = false;
+        std::vector<WindowRect> m_TitleBarControls;
     };
 }
