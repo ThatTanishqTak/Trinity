@@ -1379,13 +1379,13 @@ void ForgeLayer::DrawBuildStatus()
     }
 }
 
-// Centred in the toolbar: Play, which resumes a paused copy, Pause, Step and Stop
+// Centred in the toolbar: Play, which is Stop for as long as the scene plays, then Pause, which resumes a paused copy, and Step
 void ForgeLayer::DrawPlayControls()
 {
     const bool l_Playing = m_Session.IsPlaying();
     const bool l_Paused = m_Session.IsPaused();
     const float l_Button = ImGui::GetFrameHeight();
-    const float l_Width = l_Button * 4.0f + ImGui::GetStyle().ItemSpacing.x * 3.0f;
+    const float l_Width = l_Button * 3.0f + ImGui::GetStyle().ItemSpacing.x * 2.0f;
     ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), (ImGui::GetWindowWidth() - l_Width) * 0.5f));
 
     const auto a_Button = [l_Button](const char* icon, const char* id, bool enabled, bool held, const char* tooltip)
@@ -1400,20 +1400,28 @@ void ForgeLayer::DrawPlayControls()
         return l_Pressed;
     };
 
-    // Held down while it waits for the scripts to build, and saying why while a build has failed
+    // One button for both, as Unreal has it: Play in edit mode, and Stop, held down, while the scene plays. Held down too while it waits for the scripts to build, and saying why while a build has failed
     const bool l_Waiting = m_Session.IsWaitingForBuild();
     const std::string l_Failed = l_Playing ? std::string() : m_Session.GetFailedBuilds();
-    // Greyed in prefab mode, which has no scene to play
+    // Greyed in prefab mode, which has no scene to play, though a scene that plays can always be stopped
     const bool l_PrefabMode = static_cast<bool>(m_Session.GetOpenPrefab());
     const std::string l_PlayKey = GetKeyText("play.toggle");
     const std::string l_PauseKey = GetKeyText("play.pause");
-    const std::string l_PlayTip = l_PrefabMode ? "Play is disabled in prefab mode. Go back to the scene to play it" : l_Paused ? std::format("Resume ({})", l_PauseKey) : l_Waiting ? std::format("Plays once the scripts have built. Click to stop waiting ({})", l_PlayKey) : !l_Failed.empty() ? std::format("Play ({}). Build errors in {} stop it until they are fixed", l_PlayKey, l_Failed) : std::format("Play ({})", l_PlayKey);
-    if (a_Button(Trinity::Icons::c_Play, "Play", m_Session.HasProject() && !l_PrefabMode && (!l_Playing || l_Paused), (l_Playing && !l_Paused) || l_Waiting, l_PlayTip.c_str()))
+    const std::string l_PlayTip = l_Playing ? std::format("Stop ({})", l_PlayKey) : l_PrefabMode ? "Play is disabled in prefab mode. Go back to the scene to play it" : l_Waiting ? std::format("Plays once the scripts have built. Click to stop waiting ({})", l_PlayKey) : !l_Failed.empty() ? std::format("Play ({}). Build errors in {} stop it until they are fixed", l_PlayKey, l_Failed) : std::format("Play ({})", l_PlayKey);
+    if (a_Button(l_Playing ? Trinity::Icons::c_Stop : Trinity::Icons::c_Play, "Play", m_Session.HasProject() && (l_Playing || !l_PrefabMode), l_Playing || l_Waiting, l_PlayTip.c_str()))
     {
-        m_Session.RequestPlay();
+        if (l_Playing)
+        {
+            m_Session.RequestStop();
+        }
+        else
+        {
+            m_Session.RequestPlay();
+        }
     }
 
-    if (a_Button(Trinity::Icons::c_Pause, "Pause", l_Playing, l_Paused, std::format("Pause ({})", l_PauseKey).c_str()))
+    // Held down while paused, when it is what resumes
+    if (a_Button(Trinity::Icons::c_Pause, "Pause", l_Playing, l_Paused, std::format("{} ({})", l_Paused ? "Resume" : "Pause", l_PauseKey).c_str()))
     {
         m_Session.RequestPause();
     }
@@ -1421,11 +1429,6 @@ void ForgeLayer::DrawPlayControls()
     if (a_Button(Trinity::Icons::c_StepForward, "Step", l_Playing, false, std::format("Step ({})", GetKeyText("play.step")).c_str()))
     {
         m_Session.RequestStep();
-    }
-
-    if (a_Button(Trinity::Icons::c_Stop, "Stop", l_Playing, false, std::format("Stop ({})", l_PlayKey).c_str()))
-    {
-        m_Session.RequestStop();
     }
 }
 
