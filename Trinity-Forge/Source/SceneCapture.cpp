@@ -3,33 +3,80 @@
 #include <stb_image_write.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <format>
 #include <fstream>
 #include <vector>
 
 namespace
 {
-    // The first primary camera in hierarchy order, as the Game panel shows the scene through
-    Trinity::Entity FindPrimaryCamera(Trinity::Scene& scene)
-    {
-        const Trinity::SceneRegistry& l_Registry = scene.GetRegistry();
-        for (Trinity::Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
-        {
-            if (const Trinity::CameraComponent* l_Camera = l_Registry.try_get<Trinity::CameraComponent>(it_Entity.GetHandle()); l_Camera != nullptr && l_Camera->Primary)
-            {
-                return it_Entity;
-            }
-        }
-
-        return {};
-    }
-
     bool IsSettled(Trinity::UUID id)
     {
         const Trinity::AssetState l_State = id ? Trinity::AssetManager::GetState(id) : Trinity::AssetState::Ready;
 
         return l_State == Trinity::AssetState::Ready || l_State == Trinity::AssetState::Failed;
     }
+}
+
+Trinity::Entity SceneCapture::FindPrimaryCamera(Trinity::Scene& scene)
+{
+    const Trinity::SceneRegistry& l_Registry = scene.GetRegistry();
+    for (Trinity::Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
+    {
+        if (const Trinity::CameraComponent* l_Camera = l_Registry.try_get<Trinity::CameraComponent>(it_Entity.GetHandle()); l_Camera != nullptr && l_Camera->Primary)
+        {
+            return it_Entity;
+        }
+    }
+
+    return {};
+}
+
+// The textures sprites draw, the meshes and materials meshes draw, and the scene's environments
+bool SceneCapture::IsLoaded(Trinity::Scene& scene)
+{
+    Trinity::SceneRegistry& l_Registry = scene.GetRegistry();
+    for (const auto [it_Entity, it_Sprite] : l_Registry.view<Trinity::SpriteRendererComponent>().each())
+    {
+        if (!IsSettled(it_Sprite.Texture))
+        {
+            return false;
+        }
+    }
+
+    for (const auto [it_Entity, it_Mesh] : l_Registry.view<Trinity::MeshRendererComponent>().each())
+    {
+        if (!IsSettled(it_Mesh.Mesh) || !std::ranges::all_of(it_Mesh.Materials, IsSettled))
+        {
+            return false;
+        }
+    }
+
+    for (const auto [it_Entity, it_Environment] : l_Registry.view<Trinity::EnvironmentComponent>().each())
+    {
+        if (!IsSettled(it_Environment.Environment))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+std::size_t SceneCapture::WritePng(const Trinity::ViewCapture& capture, const std::filesystem::path& file)
+{
+    std::vector<char> l_Bytes;
+    stbi_write_png_to_func([](void* context, void* data, int length)
+    {
+        std::vector<char>& l_Out = *static_cast<std::vector<char>*>(context);
+        l_Out.insert(l_Out.end(), static_cast<const char*>(data), static_cast<const char*>(data) + length);
+    }, &l_Bytes, static_cast<int>(capture.Width), static_cast<int>(capture.Height), 4, capture.Pixels.data(), static_cast<int>(capture.Width * 4));
+
+    std::ofstream l_Stream(file, std::ios::binary | std::ios::trunc);
+    l_Stream.write(l_Bytes.data(), static_cast<std::streamsize>(l_Bytes.size()));
+    l_Stream.close();
+
+    return l_Stream ? l_Bytes.size() : 0;
 }
 
 SceneCapture::~SceneCapture()
@@ -61,17 +108,8 @@ void SceneCapture::Update()
     {
         if (std::optional<Trinity::ViewCapture> l_Capture = l_Renderer.TakeCapture(*m_View))
         {
-            std::vector<char> l_Bytes;
-            stbi_write_png_to_func([](void* context, void* data, int length)
-            {
-                std::vector<char>& l_Out = *static_cast<std::vector<char>*>(context);
-                l_Out.insert(l_Out.end(), static_cast<const char*>(data), static_cast<const char*>(data) + length);
-            }, &l_Bytes, static_cast<int>(l_Capture->Width), static_cast<int>(l_Capture->Height), 4, l_Capture->Pixels.data(), static_cast<int>(l_Capture->Width * 4));
-
-            std::ofstream l_Stream(*m_File, std::ios::binary | std::ios::trunc);
-            l_Stream.write(l_Bytes.data(), static_cast<std::streamsize>(l_Bytes.size()));
-            l_Stream.close();
-            if (!l_Stream || l_Bytes.empty())
+            const std::size_t l_Bytes = WritePng(*l_Capture, *m_File);
+            if (l_Bytes == 0)
             {
                 TR_ERROR("Capture: {} could not be written", m_File->string());
                 Finish(false);
@@ -79,7 +117,7 @@ void SceneCapture::Update()
                 return;
             }
 
-            TR_INFO("Capture: wrote {}, {}x{}, {} bytes", m_File->string(), l_Capture->Width, l_Capture->Height, l_Bytes.size());
+            TR_INFO("Capture: wrote {}, {}x{}, {} bytes", m_File->string(), l_Capture->Width, l_Capture->Height, l_Bytes);
             Finish(true);
         }
 
@@ -102,7 +140,7 @@ void SceneCapture::Update()
         return;
     }
 
-    m_Settled = !m_Session.IsImportingAssets() && IsSceneLoaded() ? m_Settled + 1 : 0;
+    m_Settled = !m_Session.IsImportingAssets() && IsLoaded(m_Session.GetMainScene()) ? m_Settled + 1 : 0;
     if (m_Settled >= c_SettleFrames)
     {
         l_Renderer.RequestCapture(*m_View);
@@ -135,37 +173,6 @@ void SceneCapture::Prepare()
     Trinity::Renderer& l_Renderer = Trinity::Application::Get().GetRenderer();
     l_Renderer.SetToneMapping(l_Component.GetToneMapping(), *m_View);
     l_Renderer.SubmitScene(l_Scene, Trinity::RenderView::FromCamera(l_Component, l_Camera.Get<Trinity::WorldTransformComponent>().Matrix, static_cast<float>(c_Width) / static_cast<float>(c_Height)), l_Options, *m_View);
-}
-
-// The textures sprites draw, the meshes and materials meshes draw, and the scene's environments
-bool SceneCapture::IsSceneLoaded() const
-{
-    Trinity::SceneRegistry& l_Registry = m_Session.GetMainScene().GetRegistry();
-    for (const auto [it_Entity, it_Sprite] : l_Registry.view<Trinity::SpriteRendererComponent>().each())
-    {
-        if (!IsSettled(it_Sprite.Texture))
-        {
-            return false;
-        }
-    }
-
-    for (const auto [it_Entity, it_Mesh] : l_Registry.view<Trinity::MeshRendererComponent>().each())
-    {
-        if (!IsSettled(it_Mesh.Mesh) || !std::ranges::all_of(it_Mesh.Materials, IsSettled))
-        {
-            return false;
-        }
-    }
-
-    for (const auto [it_Entity, it_Environment] : l_Registry.view<Trinity::EnvironmentComponent>().each())
-    {
-        if (!IsSettled(it_Environment.Environment))
-        {
-            return false;
-        }
-    }
-
-    return true;
 }
 
 void SceneCapture::Finish(bool written)

@@ -30,6 +30,8 @@ public:
     ~ViewportPanel() override;
 
     void PrepareScene();
+    // The editor camera, 3D or 2D as the panel is, as it would see through a viewport of this size
+    [[nodiscard]] Trinity::RenderView GetCamera(const glm::vec2& viewportSize) const;
     void RenderScene(Trinity::RHI::CommandList& commands);
     // Once a frame, before the game UI lays out
     void ShowUI();

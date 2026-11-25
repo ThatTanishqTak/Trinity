@@ -5657,6 +5657,11 @@ bool EditorSession::WriteScene(const std::string& assetPath)
         static_cast<void>(m_Registry->Scan());
     }
 
+    if (m_AfterSceneSave)
+    {
+        m_AfterSceneSave();
+    }
+
     return true;
 }
 

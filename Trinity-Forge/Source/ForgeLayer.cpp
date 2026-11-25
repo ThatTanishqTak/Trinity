@@ -209,6 +209,7 @@ void ForgeLayer::OnAttach()
             Trinity::LogHistory::Clear();
         }
     });
+    m_Session.SetAfterSceneSave([this] { m_Thumbnail.Request(); });
 
     // Beside the Console, wide enough for its three columns
     Trinity::Scope<InputActionsPanel> l_InputActions = Trinity::CreateScope<InputActionsPanel>(m_Session);
@@ -292,6 +293,7 @@ void ForgeLayer::OnUpdate(Trinity::Timestep timestep)
     m_ImportTest.Update();
     m_Export.Update();
     m_Capture.Update();
+    m_Thumbnail.Update();
     m_Session.UpdatePlay(timestep);
     m_Session.GetScene().UpdateWorldTransforms();
     m_GamePanel->ShowUI();
@@ -339,6 +341,11 @@ void ForgeLayer::OnPrepareRender([[maybe_unused]] Trinity::RHI::CommandList& com
     m_ViewportPanel->PrepareScene();
     m_GamePanel->PrepareScene();
     m_Capture.Prepare();
+    if (m_Thumbnail.IsDrawing())
+    {
+        m_Thumbnail.Prepare(m_ViewportPanel->GetCamera(glm::vec2(static_cast<float>(SceneCapture::c_Width), static_cast<float>(SceneCapture::c_Height))));
+    }
+
     m_ContentBrowser->PrepareThumbnails();
 }
 

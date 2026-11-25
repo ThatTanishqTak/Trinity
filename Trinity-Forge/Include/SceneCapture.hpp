@@ -5,6 +5,7 @@
 #include <Trinity.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -18,6 +19,13 @@ public:
     // Frames drawn with everything loaded before the capture, so what was uploaded last is drawn too
     static constexpr std::uint32_t c_SettleFrames = 30;
     static constexpr std::chrono::seconds c_Timeout{ 120 };
+
+    // The first primary camera in hierarchy order, as the Game panel shows the scene through, or none
+    [[nodiscard]] static Trinity::Entity FindPrimaryCamera(Trinity::Scene& scene);
+    // Every asset the scene draws has loaded, or failed to
+    [[nodiscard]] static bool IsLoaded(Trinity::Scene& scene);
+    // The capture as a PNG in the file. The bytes written, or 0 where it could not be
+    [[nodiscard]] static std::size_t WritePng(const Trinity::ViewCapture& capture, const std::filesystem::path& file);
 
     explicit SceneCapture(EditorSession& session) : m_Session(session) {}
     // Layers are destroyed before the Renderer, so the view can still go
@@ -33,8 +41,6 @@ public:
     void Prepare();
 
 private:
-    // Every asset the scene draws has loaded, or failed to
-    [[nodiscard]] bool IsSceneLoaded() const;
     void Finish(bool written);
 
     EditorSession& m_Session;

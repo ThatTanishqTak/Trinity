@@ -289,6 +289,8 @@ public:
     // Just before a scene plays or a build starts, before either logs, as the Console's Clear needs
     void SetBeforePlay(std::function<void()> beforePlay) { m_BeforePlay = std::move(beforePlay); }
     void SetBeforeBuild(std::function<void()> beforeBuild) { m_BeforeBuild = std::move(beforeBuild); }
+    // Once a scene is written, which the project's picture for Hub is taken after
+    void SetAfterSceneSave(std::function<void()> afterSceneSave) { m_AfterSceneSave = std::move(afterSceneSave); }
 
     void RequestOpenScene(std::string assetPath);
     // Newest first, the projects kept per user and the scenes per project, ten of each
@@ -738,6 +740,7 @@ private:
     std::function<void(Action)> m_SettleUnappliedEdits;
     std::function<void()> m_BeforePlay;
     std::function<void()> m_BeforeBuild;
+    std::function<void()> m_AfterSceneSave;
     std::uint64_t m_NextCloseListener = 1;
     std::uint64_t m_ScanCount = 0;
     std::uint64_t m_ModelImportCount = 0;

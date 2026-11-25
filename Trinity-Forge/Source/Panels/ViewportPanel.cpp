@@ -559,18 +559,6 @@ void ViewportPanel::PrepareScene()
         m_Colliders.Release();
     }
 
-    Trinity::RenderView l_View;
-    if (m_Mode3D)
-    {
-        l_View = Trinity::RenderView::FromMatrices(m_Camera3D.GetView(), m_Camera3D.GetProjection(l_ViewportSize), m_Camera3D.IsOrthographic());
-    }
-    else
-    {
-        // The editor camera's projection holds its place, so its view is the world's own axes
-        l_View = Trinity::RenderView::FromMatrices(glm::mat4(1.0f), m_Camera.GetViewProjection(l_ViewportSize), true);
-        l_View.Position = glm::vec3(m_Camera.GetPosition(), 0.0f);
-    }
-
     Trinity::SceneOptions l_Options;
     l_Options.LightHeatmap = m_LightHeatmap;
     l_Options.SampleCount = Trinity::Renderer3D::c_SampleCount;
@@ -593,7 +581,21 @@ void ViewportPanel::PrepareScene()
     {
         l_Options.Overlay = [this](Trinity::RHI::CommandList& commands, const Trinity::RenderView& view, Trinity::RHI::Format colorFormat, std::uint32_t sampleCount) { m_Grid3D.Draw(commands, view, colorFormat, sampleCount); };
     }
-    Trinity::Application::Get().GetRenderer().SubmitScene(l_Scene, l_View, l_Options);
+    Trinity::Application::Get().GetRenderer().SubmitScene(l_Scene, GetCamera(l_ViewportSize), l_Options);
+}
+
+Trinity::RenderView ViewportPanel::GetCamera(const glm::vec2& viewportSize) const
+{
+    if (m_Mode3D)
+    {
+        return Trinity::RenderView::FromMatrices(m_Camera3D.GetView(), m_Camera3D.GetProjection(viewportSize), m_Camera3D.IsOrthographic());
+    }
+
+    // The editor camera's projection holds its place, so its view is the world's own axes
+    Trinity::RenderView l_View = Trinity::RenderView::FromMatrices(glm::mat4(1.0f), m_Camera.GetViewProjection(viewportSize), true);
+    l_View.Position = glm::vec3(m_Camera.GetPosition(), 0.0f);
+
+    return l_View;
 }
 
 // Into the main view's scene target: the 2D grid then the sprites, or in 3D the sprites alone

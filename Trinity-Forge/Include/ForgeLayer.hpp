@@ -16,6 +16,7 @@
 #include "Panels/SoundEventPanel.hpp"
 #include "Panels/ViewportPanel.hpp"
 #include "PreferencesWindow.hpp"
+#include "ProjectThumbnail.hpp"
 #include "SceneCapture.hpp"
 #include "ShortcutsWindow.hpp"
 #include "Toasts.hpp"
@@ -92,6 +93,7 @@ private:
     ImportTest m_ImportTest{ m_Session };
     ExportCommand m_Export{ m_Session };
     SceneCapture m_Capture{ m_Session };
+    ProjectThumbnail m_Thumbnail{ m_Session };
     Toasts m_Toasts;
     PreferencesWindow m_PreferencesWindow{ m_Session };
     ShortcutsWindow m_ShortcutsWindow{ m_Session };
