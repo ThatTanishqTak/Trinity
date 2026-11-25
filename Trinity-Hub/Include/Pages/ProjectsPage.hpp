@@ -6,8 +6,9 @@
 #include "HubProjects.hpp"
 #include "HubReleases.hpp"
 #include "HubSettings.hpp"
-#include "HubThumbnails.hpp"
 #include "Pages/HubPage.hpp"
+
+#include <Trinity/Tools/Thumbnails.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -127,7 +128,7 @@ private:
     bool m_Reorder = true;
 
     // Each project's Cache/Thumbnail.png, which Forge writes, read as its tile is first shown
-    HubThumbnails m_Thumbnails;
+    Trinity::Tools::Thumbnails m_Thumbnails;
 
     std::string m_Message;
     bool m_MessageFailed = false;

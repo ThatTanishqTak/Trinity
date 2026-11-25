@@ -1,6 +1,7 @@
 #include "ForgeLayer.hpp"
 
 #include "EditorCommands.hpp"
+#include "HelpLinks.hpp"
 #include "Layouts.hpp"
 #include "Panels/ContentBrowserPanel.hpp"
 #include "Panels/HierarchyPanel.hpp"
@@ -74,13 +75,6 @@ namespace
     void TextLine(std::string_view text)
     {
         ImGui::TextUnformatted(text.data(), text.data() + text.size());
-    }
-
-    std::string ToUtf8(const std::filesystem::path& path)
-    {
-        const std::u8string l_Text = path.u8string();
-
-        return std::string(l_Text.begin(), l_Text.end());
     }
 
     // A scene's name and its folder, as Main and Scenes for /assets/Scenes/Main.trscene
@@ -294,6 +288,7 @@ void ForgeLayer::OnUpdate(Trinity::Timestep timestep)
     m_Export.Update();
     m_Capture.Update();
     m_Thumbnail.Update();
+    m_StartScreen.Update();
     m_Session.UpdatePlay(timestep);
     m_Session.GetScene().UpdateWorldTransforms();
     m_GamePanel->ShowUI();
@@ -423,7 +418,7 @@ void ForgeLayer::OnImGuiRender()
 
     m_ContentBrowser->EndFrame();
     m_PropertiesPanel->DrawPopups();
-    DrawStartScreen();
+    m_StartScreen.Draw();
     m_PreferencesWindow.Draw();
     m_ShortcutsWindow.Draw();
     m_CommandPalette.Draw();
@@ -748,6 +743,9 @@ void ForgeLayer::RegisterShortcuts()
         m_ShowDemoWindow = !m_ShowDemoWindow;
         TR_INFO("Forge: demo window {}", m_ShowDemoWindow ? "shown" : "hidden");
     } });
+    l_Shortcuts.Add({ .ID = "help.documentation", .Category = "Help", .Label = "Documentation", .Run = [] { HelpLinks::Open(HelpLinks::c_Documentation); } });
+    l_Shortcuts.Add({ .ID = "help.releaseNotes", .Category = "Help", .Label = "Release Notes", .Run = [] { HelpLinks::Open(HelpLinks::c_ReleaseNotes); } });
+    l_Shortcuts.Add({ .ID = "help.reportBug", .Category = "Help", .Label = "Report a Bug", .Run = [] { HelpLinks::Open(HelpLinks::c_ReportBug); } });
 
     // What a menu does and no key has had, which the Command Palette runs by name, and which can be given a key as the rest can
     l_Shortcuts.Add({ .ID = "file.newProject", .Category = "File", .Label = "New Project", .Run = a_Request(EditorSession::Command::NewProject) });
@@ -1146,18 +1144,35 @@ void ForgeLayer::DrawMenuBar()
 
     if (ImGui::BeginMenu("Help"))
     {
-        ImGui::MenuItem(WithIcon(Trinity::Icons::c_Book, "ImGui Demo").c_str(), GetKeyText("help.demo").c_str(), &m_ShowDemoWindow);
+        // What a newcomer looks for first, then what opens in the browser, then what is about Forge itself
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Book, "Documentation").c_str(), GetKeyText("help.documentation").c_str()))
+        {
+            HelpLinks::Open(HelpLinks::c_Documentation);
+        }
+
         if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Search, "Command Palette...").c_str(), GetKeyText("help.palette").c_str()))
         {
             m_CommandPalette.Open();
         }
 
-        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Book, "Keyboard Shortcuts...").c_str(), GetKeyText("help.shortcuts").c_str()))
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Keyboard, "Keyboard Shortcuts...").c_str(), GetKeyText("help.shortcuts").c_str()))
         {
             m_ShortcutsWindow.Open();
         }
 
         ImGui::Separator();
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Globe, "Release Notes").c_str(), GetKeyText("help.releaseNotes").c_str()))
+        {
+            HelpLinks::Open(HelpLinks::c_ReleaseNotes);
+        }
+
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Bug, "Report a Bug").c_str(), GetKeyText("help.reportBug").c_str()))
+        {
+            HelpLinks::Open(HelpLinks::c_ReportBug);
+        }
+
+        ImGui::Separator();
+        ImGui::MenuItem(WithIcon(Trinity::Icons::c_Terminal, "ImGui Demo").c_str(), GetKeyText("help.demo").c_str(), &m_ShowDemoWindow);
         ImGui::MenuItem(WithIcon(Trinity::Icons::c_InfoCircle, "About").c_str(), nullptr, &m_ShowAbout);
 
         ImGui::EndMenu();
@@ -1840,116 +1855,6 @@ void ForgeLayer::BuildDefaultLayout(std::uint32_t dockSpace)
     m_ViewportPanel->RequestFocus();
     m_PropertiesPanel->RequestFocus();
     TR_INFO("Forge: default layout built");
-}
-
-// With no project open: recent projects, newest first, under New Project and Open Project
-void ForgeLayer::DrawStartScreen()
-{
-    if (m_Session.HasProject())
-    {
-        return;
-    }
-
-    const ImGuiViewport* l_Viewport = ImGui::GetMainViewport();
-    const float l_Width = ImGui::GetFontSize() * 36.0f;
-    ImGui::SetNextWindowPos(l_Viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSizeConstraints(ImVec2(l_Width, 0.0f), ImVec2(l_Width, FLT_MAX));
-    ImGui::SetNextWindowViewport(l_Viewport->ID);
-    const ImGuiWindowFlags l_Flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize;
-    if (!ImGui::Begin("###StartScreen", nullptr, l_Flags))
-    {
-        ImGui::End();
-
-        return;
-    }
-
-    const ImGuiStyle& l_Style = ImGui::GetStyle();
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Projects");
-    const float l_NewWidth = ImGui::CalcTextSize(WithIcon(Trinity::Icons::c_File, "New Project...").c_str()).x + l_Style.FramePadding.x * 2.0f;
-    const float l_OpenWidth = ImGui::CalcTextSize(WithIcon(Trinity::Icons::c_FolderOpen, "Open Project...").c_str()).x + l_Style.FramePadding.x * 2.0f;
-    ImGui::SameLine();
-    const float l_RowRight = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
-    ImGui::SetCursorPosX(std::max(l_RowRight - l_NewWidth - l_OpenWidth - l_Style.ItemSpacing.x, ImGui::GetCursorPosX()));
-    if (ImGui::Button(WithIcon(Trinity::Icons::c_File, "New Project...").c_str()))
-    {
-        m_Session.Request(EditorSession::Command::NewProject);
-    }
-
-    ImGui::SameLine();
-    if (ImGui::Button(WithIcon(Trinity::Icons::c_FolderOpen, "Open Project...").c_str()))
-    {
-        m_Session.Request(EditorSession::Command::OpenProject);
-    }
-
-    ImGui::Separator();
-    const std::vector<EditorSession::RecentProject>& l_Projects = m_Session.GetRecentProjects();
-    if (l_Projects.empty())
-    {
-        ImGui::PushTextWrapPos(0.0f);
-        ImGui::TextDisabled("No project opened yet. New Project makes one in an empty folder, and Open Project opens a .trproj file, or the folder holding one");
-        ImGui::PopTextWrapPos();
-    }
-
-    std::optional<std::filesystem::path> l_Removed;
-    ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
-    const float l_Line = ImGui::GetTextLineHeight();
-    for (std::size_t it_Index = 0; it_Index < l_Projects.size(); ++it_Index)
-    {
-        const EditorSession::RecentProject& l_Project = l_Projects[it_Index];
-        ImGui::PushID(static_cast<int>(it_Index));
-        const ImVec2 l_Min = ImGui::GetCursorScreenPos();
-        if (ImGui::Selectable("##Project", false, ImGuiSelectableFlags_None, ImVec2(0.0f, l_Line * 2.0f + l_Style.ItemSpacing.y)))
-        {
-            if (l_Project.Missing)
-            {
-                ImGui::OpenPopup("##ProjectMenu");
-            }
-            else
-            {
-                m_Session.RequestOpenProject(l_Project.Path);
-            }
-        }
-
-        const float l_RowWidth = ImGui::GetItemRectSize().x;
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
-        {
-            ImGui::SetTooltip("%s", (l_Project.Missing ? std::format("{} is gone, moved or deleted since it was opened. Click to take it off the list", ToUtf8(l_Project.Path)) : ToUtf8(l_Project.Path)).c_str());
-        }
-
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
-        {
-            ImGui::OpenPopup("##ProjectMenu");
-        }
-
-        if (ImGui::BeginPopup("##ProjectMenu"))
-        {
-            if (ImGui::MenuItem(std::format("{} Remove from List", Trinity::Icons::c_TimesCircle).c_str()))
-            {
-                l_Removed = l_Project.Path;
-            }
-
-            ImGui::EndPopup();
-        }
-
-        // The name over its folder, with when it was opened, or that it is missing, at the row's end
-        const ImU32 l_NameColor = ImGui::GetColorU32(l_Project.Missing ? ImGuiCol_TextDisabled : ImGuiCol_Text);
-        const ImU32 l_DimColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
-        const std::string l_Name = std::format("{} {}", l_Project.Missing ? Trinity::Icons::c_Warning : Trinity::Icons::c_FolderOpen, l_Project.Name);
-        const std::string l_When = l_Project.Missing ? std::string("Missing") : EditorSession::FormatAge(l_Project.OpenedAt);
-        const float l_WhenWidth = ImGui::CalcTextSize(l_When.c_str()).x;
-        l_DrawList.AddText(l_Min, l_NameColor, l_Name.c_str());
-        l_DrawList.AddText(ImVec2(l_Min.x + l_RowWidth - l_WhenWidth, l_Min.y), l_Project.Missing ? ImGui::GetColorU32(Trinity::Theme::GetColor(Trinity::ThemeColor::Warning)) : l_DimColor, l_When.c_str());
-        l_DrawList.AddText(ImVec2(l_Min.x + ImGui::GetFontSize() * 1.5f, l_Min.y + l_Line + l_Style.ItemSpacing.y), l_DimColor, ToUtf8(l_Project.Path.parent_path()).c_str());
-        ImGui::PopID();
-    }
-
-    if (l_Removed)
-    {
-        m_Session.RemoveRecentProject(*l_Removed);
-    }
-
-    ImGui::End();
 }
 
 // The version and commit, the graphics backend and adapter, and the UI's fonts and scale

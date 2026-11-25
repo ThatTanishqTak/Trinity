@@ -19,6 +19,7 @@
 #include "ProjectThumbnail.hpp"
 #include "SceneCapture.hpp"
 #include "ShortcutsWindow.hpp"
+#include "StartScreen.hpp"
 #include "Toasts.hpp"
 
 #include <Trinity.hpp>
@@ -72,7 +73,6 @@ private:
     void BuildDefaultLayout(std::uint32_t dockSpace);
     void DockNewPanels();
     void DrawAboutWindow();
-    void DrawStartScreen();
     void DrawNotice();
     void DrawExportPopup();
     void DrawLayoutMenu();
@@ -94,6 +94,7 @@ private:
     ExportCommand m_Export{ m_Session };
     SceneCapture m_Capture{ m_Session };
     ProjectThumbnail m_Thumbnail{ m_Session };
+    StartScreen m_StartScreen{ m_Session };
     Toasts m_Toasts;
     PreferencesWindow m_PreferencesWindow{ m_Session };
     ShortcutsWindow m_ShortcutsWindow{ m_Session };

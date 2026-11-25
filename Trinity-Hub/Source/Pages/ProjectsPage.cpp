@@ -725,7 +725,7 @@ void ProjectsPage::DrawTile(const HubProject& project, bool favorite, const ImVe
     ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
     l_DrawList.AddRect(l_Start, ImVec2(l_Start.x + size.x, l_Start.y + size.y), ImGui::GetColorU32(ImGuiCol_Border), l_Style.FrameRounding);
     const ImTextureData* l_Picture = project.Missing ? nullptr : m_Thumbnails.Get(Trinity::Project::GetThumbnailFile(project.Entry.File.parent_path()));
-    HubThumbnails::Draw(l_Picture, Trinity::Icons::c_Cube, ImVec2(l_Start.x + l_Padding, l_Start.y + l_Padding), ImVec2(l_Start.x + size.x - l_Padding, l_Start.y + l_Padding + l_PictureHeight));
+    Trinity::Tools::Thumbnails::Draw(l_Picture, Trinity::Icons::c_Cube, ImVec2(l_Start.x + l_Padding, l_Start.y + l_Padding), ImVec2(l_Start.x + size.x - l_Padding, l_Start.y + l_Padding + l_PictureHeight));
 
     // The star and the menu's button end the name's line, and the name is cut where they begin
     const float l_NameTop = l_Start.y + l_PictureHeight + l_Padding * 2.0f;

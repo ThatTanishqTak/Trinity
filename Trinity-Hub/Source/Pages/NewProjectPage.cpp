@@ -1,7 +1,8 @@
 #include "Pages/NewProjectPage.hpp"
 
 #include "HubText.hpp"
-#include "HubThumbnails.hpp"
+
+#include <Trinity/Tools/Thumbnails.hpp>
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -423,7 +424,7 @@ void NewProjectPage::DrawSettings()
 
 void NewProjectPage::DrawPicture(const Card& card, const ImVec2& minimum, const ImVec2& maximum)
 {
-    HubThumbnails::Draw(card.Thumbnail, card.Template ? Trinity::Icons::c_FileImage : Trinity::Icons::c_File, minimum, maximum);
+    Trinity::Tools::Thumbnails::Draw(card.Thumbnail, card.Template ? Trinity::Icons::c_FileImage : Trinity::Icons::c_File, minimum, maximum);
 }
 
 // Each reason in the order the page is filled in, the language last, as it is picked last
@@ -546,7 +547,7 @@ void NewProjectPage::ReadTemplates()
             Card l_Card{ std::move(it_Template), nullptr };
             if (!l_Card.Template->Thumbnail.empty())
             {
-                if (std::unique_ptr<ImTextureData> l_Texture = HubThumbnails::Load(l_Card.Template->Thumbnail))
+                if (std::unique_ptr<ImTextureData> l_Texture = Trinity::Tools::Thumbnails::Load(l_Card.Template->Thumbnail))
                 {
                     l_Card.Thumbnail = l_Texture.get();
                     m_Thumbnails.push_back(std::move(l_Texture));

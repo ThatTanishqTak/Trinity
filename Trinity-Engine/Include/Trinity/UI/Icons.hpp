@@ -59,6 +59,7 @@ namespace Trinity
         constexpr const char* c_Magnet = "\uF076";
         constexpr const char* c_Link = "\uF0C1";
         constexpr const char* c_Gamepad = "\uF11B";
+        constexpr const char* c_Keyboard = "\uF11C";
         constexpr const char* c_Play = "\uF04B";
         constexpr const char* c_Stop = "\uF04D";
         constexpr const char* c_Pause = "\uF04C";
