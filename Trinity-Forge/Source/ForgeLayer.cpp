@@ -114,6 +114,9 @@ ForgeLayer::ForgeLayer(Trinity::ImGuiLayer& imGui) : Layer("Forge"), m_ImGui(imG
 
 void ForgeLayer::OnAttach()
 {
+    // Files dragged in from the system's file manager are imported, which OnEvent hears of
+    Trinity::Application::Get().GetWindow().SetAcceptsFiles(true);
+
     const Trinity::ApplicationCommandLineArgs& l_Args = Trinity::Application::Get().GetSpecification().CommandLineArgs;
     if (const auto it_Directory = l_Args.GetOption("import-test"))
     {
@@ -279,6 +282,20 @@ void ForgeLayer::OnEvent(Trinity::Event& event)
     if (event.GetEventType() == Trinity::EventType::WindowFocus)
     {
         m_Session.Request(EditorSession::Command::Refresh);
+    }
+    else if (event.GetEventType() == Trinity::EventType::FilesDropped && m_Session.HasProject())
+    {
+        // Let go anywhere over Forge, they go into the folder the Content Browser has open, which then shows them
+        m_Session.RequestImportFiles(static_cast<const Trinity::FilesDroppedEvent&>(event).GetPaths(), m_ContentBrowser->GetFolder(), [this](const std::vector<std::string>& imported)
+        {
+            m_ContentBrowser->RevealImported(imported);
+            m_ContentBrowser->SetOpen(true);
+            m_ContentBrowser->RequestFocus();
+        });
+    }
+    else if (event.GetEventType() == Trinity::EventType::FilesDropped)
+    {
+        TR_WARN("Forge: files can be dropped in once a project is open");
     }
 }
 

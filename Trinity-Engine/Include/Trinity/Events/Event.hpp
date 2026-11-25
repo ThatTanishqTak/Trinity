@@ -12,7 +12,7 @@ namespace Trinity
     enum class EventType : std::uint8_t
     {
         None = 0,
-        WindowClose, WindowResize, WindowMoved, WindowFocus, WindowLostFocus, WindowDpiChanged, MonitorsChanged,
+        WindowClose, WindowResize, WindowMoved, WindowFocus, WindowLostFocus, WindowDpiChanged, MonitorsChanged, FilesDropped,
         KeyPressed, KeyReleased, KeyTyped,
         MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled, MouseLeft,
         GamepadConnected, GamepadDisconnected

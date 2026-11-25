@@ -2,6 +2,10 @@
 
 #include "Trinity/Events/Event.hpp"
 
+#include <filesystem>
+#include <utility>
+#include <vector>
+
 namespace Trinity
 {
     class TRINITY_API WindowCloseEvent final : public Event
@@ -103,5 +107,28 @@ namespace Trinity
     public:
         TR_EVENT_CLASS_TYPE(MonitorsChanged)
             TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+    };
+
+    // Files and folders dragged from the system's file manager and let go over a window that accepts them
+    class TRINITY_API FilesDroppedEvent final : public Event
+    {
+    public:
+        explicit FilesDroppedEvent(std::vector<std::filesystem::path> paths) : m_Paths(std::move(paths))
+        {
+
+        }
+
+        [[nodiscard]] const std::vector<std::filesystem::path>& GetPaths() const { return m_Paths; }
+
+        [[nodiscard]] std::string ToString() const override
+        {
+            return std::format("FilesDropped: {}", m_Paths.size());
+        }
+
+        TR_EVENT_CLASS_TYPE(FilesDropped)
+            TR_EVENT_CLASS_CATEGORY(EventCategoryApplication)
+
+    private:
+        std::vector<std::filesystem::path> m_Paths;
     };
 }

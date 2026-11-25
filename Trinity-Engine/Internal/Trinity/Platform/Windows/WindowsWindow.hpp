@@ -45,6 +45,7 @@ namespace Trinity
         void SetTopMost(bool topMost) override;
         void SetFocusOnClick(bool focus) override { m_FocusOnClick = focus; }
         void SetMousePassthrough(bool passthrough) override { m_MousePassthrough = passthrough; }
+        void SetAcceptsFiles(bool accepts) override;
 
         [[nodiscard]] float GetDpiScale() const override;
 

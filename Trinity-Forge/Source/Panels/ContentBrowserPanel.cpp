@@ -2176,6 +2176,19 @@ bool ContentBrowserPanel::Reveal(Trinity::UUID asset)
     return true;
 }
 
+void ContentBrowserPanel::RevealImported(const std::vector<std::string>& paths)
+{
+    if (paths.empty())
+    {
+        return;
+    }
+
+    // Listed again first, so the last of them is found for Properties to show
+    m_Listings.clear();
+    RevealPath(paths.back());
+    SetSelectedPaths(paths);
+}
+
 // The file's folder opened with the file selected alone and scrolled to. No filter is kept, which could leave the file out of what is shown
 void ContentBrowserPanel::RevealPath(const std::string& path)
 {

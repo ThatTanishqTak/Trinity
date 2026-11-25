@@ -95,6 +95,8 @@ namespace Trinity
         virtual void SetTopMost(bool topMost) = 0;
         virtual void SetFocusOnClick(bool focus) = 0;
         virtual void SetMousePassthrough(bool passthrough) = 0;
+        // Whether files dragged from the system's file manager may be let go over it, which it tells of in a FilesDroppedEvent. An editor's window takes them, a game's does not
+        virtual void SetAcceptsFiles(bool accepts) = 0;
 
         [[nodiscard]] virtual float GetDpiScale() const = 0;
 

@@ -5,6 +5,8 @@
 #include "Trinity/Events/KeyEvent.hpp"
 #include "Trinity/Events/MouseEvent.hpp"
 
+#include <shellapi.h>
+
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -647,6 +649,11 @@ namespace Trinity
         }
     }
 
+    void WindowsWindow::SetAcceptsFiles(bool accepts)
+    {
+        ::DragAcceptFiles(m_Handle, accepts ? TRUE : FALSE);
+    }
+
     void WindowsWindow::SetTopMost(bool topMost)
     {
         const bool l_TopMost = (::GetWindowLongPtrW(m_Handle, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
@@ -1013,6 +1020,30 @@ namespace Trinity
             case WM_MBUTTONUP:
             {
                 OnMouseButton(MouseCode::TR_MIDDLE, false);
+
+                return 0;
+            }
+            case WM_DROPFILES:
+            {
+                // Only sent once SetAcceptsFiles has asked for it. The handle is the system's to free, whatever is read from it
+                const HDROP l_Drop = reinterpret_cast<HDROP>(wParam);
+                const UINT l_Count = ::DragQueryFileW(l_Drop, 0xFFFFFFFF, nullptr, 0);
+                std::vector<std::filesystem::path> l_Paths;
+                for (UINT it_File = 0; it_File < l_Count; ++it_File)
+                {
+                    std::wstring l_Path(::DragQueryFileW(l_Drop, it_File, nullptr, 0), L'\0');
+                    if (!l_Path.empty() && ::DragQueryFileW(l_Drop, it_File, l_Path.data(), static_cast<UINT>(l_Path.size() + 1)) != 0)
+                    {
+                        l_Paths.emplace_back(std::move(l_Path));
+                    }
+                }
+
+                ::DragFinish(l_Drop);
+                if (!l_Paths.empty())
+                {
+                    FilesDroppedEvent l_Event(std::move(l_Paths));
+                    Dispatch(l_Event);
+                }
 
                 return 0;
             }

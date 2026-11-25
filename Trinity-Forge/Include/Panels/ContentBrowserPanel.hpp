@@ -42,6 +42,10 @@ public:
     [[nodiscard]] bool IsFocused() const { return m_Focused; }
     // Opens the asset's folder with its file selected and scrolled to, and leaves Properties showing what it shows. A sub-asset's file is the one it was imported from. False for an asset in none of the browser's folders
     bool Reveal(Trinity::UUID asset);
+    // The folder that is open, which is where files dropped on Forge are imported
+    [[nodiscard]] const std::string& GetFolder() const { return m_Folder; }
+    // What was just imported, by path: its folder opened with all of it selected, the last scrolled to
+    void RevealImported(const std::vector<std::string>& paths);
     // Shows what in the open scene uses an asset or script, through the Hierarchy's ref: search
     void SetFindReferences(std::function<void(std::string search)> find) { m_FindReferences = std::move(find); }
     // Where an input actions asset opens, as a double-click or Open asks

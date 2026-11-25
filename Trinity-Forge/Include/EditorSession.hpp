@@ -316,6 +316,8 @@ public:
     [[nodiscard]] std::optional<std::string> DuplicateAsset(std::string_view path);
     // Chosen in a dialog at the next Update, so it never blocks mid-frame. Numbered if its name is used
     void RequestImportAsset(std::string folder);
+    // Files and folders copied into the folder at the next Update, as a drop from the system's file manager asks, a folder with all that is in it. Then is told the paths they were given, where any were
+    void RequestImportFiles(std::vector<std::filesystem::path> files, std::string folder, std::function<void(const std::vector<std::string>& imported)> then = {});
     // Cooks everything from the file or folder again. Refused, logged, while imports run
     bool ReimportAssets(std::string_view path);
     [[nodiscard]] bool IsImportingAssets() const { return IsImportRunning() || m_ImportAgain; }
@@ -624,6 +626,7 @@ private:
     void HoldMixer();
     void SaveProject();
     void ImportAsset(const std::filesystem::path& file, const std::string& folder);
+    [[nodiscard]] std::optional<std::string> CopyIntoProject(const std::filesystem::path& source, const std::string& folder);
     bool WritePhysicsSettings(const Trinity::PhysicsSettings& settings);
     bool WriteAudioSettings(const Trinity::AudioSettings& settings);
     bool WriteExportSettings(const Trinity::ExportSettings& settings);

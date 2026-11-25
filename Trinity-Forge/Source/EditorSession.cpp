@@ -4123,35 +4123,113 @@ void EditorSession::RequestImportAsset(std::string folder)
     });
 }
 
+void EditorSession::RequestImportFiles(std::vector<std::filesystem::path> files, std::string folder, std::function<void(const std::vector<std::string>& imported)> then)
+{
+    m_Pending.push_back([this, l_Files = std::move(files), l_Folder = std::move(folder), l_Then = std::move(then)]
+    {
+        if (!m_Project)
+        {
+            return;
+        }
+
+        // Scanned once for them all, as each scan reads the whole project
+        std::vector<std::string> l_Imported;
+        for (const std::filesystem::path& it_File : l_Files)
+        {
+            if (std::optional<std::string> l_Path = CopyIntoProject(it_File, l_Folder))
+            {
+                l_Imported.push_back(std::move(*l_Path));
+            }
+        }
+
+        if (l_Imported.empty())
+        {
+            return;
+        }
+
+        ScanAssets();
+        if (l_Then)
+        {
+            l_Then(l_Imported);
+        }
+    });
+}
+
 // Unity copies too, leaving the file where it was
 void EditorSession::ImportAsset(const std::filesystem::path& file, const std::string& folder)
 {
-    std::error_code l_Error;
-    if (!m_Project || !std::filesystem::is_regular_file(file, l_Error))
+    if (CopyIntoProject(file, folder))
     {
-        TR_ERROR("Forge: {} is not a file, so nothing was imported", ToUtf8(file));
+        ScanAssets();
+    }
+}
 
-        return;
+// A file, or a folder with what is in it, under a name that is free. Left out of a folder are what a dot hides and its .meta files, which are another project's, so each file is imported as new. The path it was given, or nothing once the error is logged
+std::optional<std::string> EditorSession::CopyIntoProject(const std::filesystem::path& source, const std::string& folder)
+{
+    std::error_code l_Error;
+    const bool l_IsFolder = std::filesystem::is_directory(source, l_Error);
+    if (!m_Project || source.filename().empty() || (!l_IsFolder && !std::filesystem::is_regular_file(source, l_Error)))
+    {
+        TR_ERROR("Forge: {} is not a file or a folder with a name, so nothing was imported", ToUtf8(source));
+
+        return std::nullopt;
     }
 
     if (!std::filesystem::is_directory(m_Project->ToNativePath(folder), l_Error))
     {
-        TR_ERROR("Forge: {} is no longer there, so {} was not imported", folder, ToUtf8(file));
+        TR_ERROR("Forge: {} is no longer there, so {} was not imported", folder, ToUtf8(source));
 
-        return;
+        return std::nullopt;
     }
 
-    const std::string l_Path = GetFreePath(*m_Project, folder, ToUtf8(file.stem()), ToUtf8(file.extension()), false);
-    std::filesystem::copy_file(file, m_Project->ToNativePath(l_Path), l_Error);
+    const std::string l_Path = GetFreePath(*m_Project, folder, ToUtf8(l_IsFolder ? source.filename() : source.stem()), l_IsFolder ? std::string() : ToUtf8(source.extension()), false);
+    const std::filesystem::path l_Target = m_Project->ToNativePath(l_Path);
+    if (!l_IsFolder)
+    {
+        std::filesystem::copy_file(source, l_Target, l_Error);
+    }
+    else
+    {
+        // A folder the project is inside would be copied into itself without end
+        const std::filesystem::path l_Inside = std::filesystem::weakly_canonical(l_Target, l_Error).lexically_relative(std::filesystem::weakly_canonical(source, l_Error));
+        if (!l_Inside.empty() && *l_Inside.begin() != "..")
+        {
+            TR_ERROR("Forge: {} holds the project, so it was not imported into it", ToUtf8(source));
+
+            return std::nullopt;
+        }
+
+        l_Error.clear();
+        std::filesystem::create_directories(l_Target, l_Error);
+        for (std::filesystem::recursive_directory_iterator it_Entry(source, std::filesystem::directory_options::skip_permission_denied, l_Error); !l_Error && it_Entry != std::filesystem::recursive_directory_iterator(); it_Entry.increment(l_Error))
+        {
+            const std::filesystem::path l_To = l_Target / it_Entry->path().lexically_relative(source);
+            if (ToUtf8(it_Entry->path().filename()).starts_with('.'))
+            {
+                it_Entry.disable_recursion_pending();
+            }
+            else if (it_Entry->is_directory(l_Error))
+            {
+                std::filesystem::create_directories(l_To, l_Error);
+            }
+            else if (ToUtf8(it_Entry->path().extension()) != Trinity::AssetRegistry::c_MetaExtension)
+            {
+                std::filesystem::copy_file(it_Entry->path(), l_To, l_Error);
+            }
+        }
+    }
+
     if (l_Error)
     {
-        TR_ERROR("Forge: {} could not be copied to {}: {}", ToUtf8(file), l_Path, l_Error.message());
+        TR_ERROR("Forge: {} could not be copied to {}: {}", ToUtf8(source), l_Path, l_Error.message());
 
-        return;
+        return std::nullopt;
     }
 
-    TR_INFO("Forge: imported {} as {}", ToUtf8(file), l_Path);
-    ScanAssets();
+    TR_INFO("Forge: imported {} as {}", ToUtf8(source), l_Path);
+
+    return l_Path;
 }
 
 // Refused while imports run, since a batch writes its keys as it ends and would undo the reimport
