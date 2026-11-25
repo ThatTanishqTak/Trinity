@@ -38,6 +38,7 @@ public:
     explicit ForgeLayer(Trinity::ImGuiLayer& imGui);
 
     void OnAttach() override;
+    void OnDetach() override;
     void OnUpdate(Trinity::Timestep timestep) override;
     void OnEvent(Trinity::Event& event) override;
     void OnPrepareRender(Trinity::RHI::CommandList& commands) override;
@@ -48,6 +49,8 @@ public:
 
 private:
     void RegisterShortcuts();
+    void ToggleMaximized();
+    void SetMaximized(Panel* panel);
     // The command's key as its menu item and its button's tip show it
     [[nodiscard]] std::string GetKeyText(std::string_view id) const { return m_Session.GetShortcuts().GetKeyText(id); }
     void ReadShortcuts();
@@ -88,6 +91,11 @@ private:
     ShortcutsWindow m_ShortcutsWindow{ m_Session };
     CommandPalette m_CommandPalette{ m_Session };
     std::vector<Trinity::Scope<Panel>> m_Panels;
+    // The panel that fills the dock space alone, the others not drawn until it is restored, or null
+    Panel* m_Maximized = nullptr;
+    // While a panel outside the centre is maximised: the dock node that is the centre, and the panel's own, which is lent its place
+    std::uint32_t m_CentralNode = 0;
+    std::uint32_t m_LentNode = 0;
     ViewportPanel* m_ViewportPanel = nullptr;
     HierarchyPanel* m_HierarchyPanel = nullptr;
     GamePanel* m_GamePanel = nullptr;

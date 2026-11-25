@@ -21,10 +21,18 @@ void Panel::SetOpen(bool open)
     }
 }
 
+void Panel::Skip()
+{
+    m_WindowHovered = false;
+    m_WindowFocused = false;
+}
+
 void Panel::Draw()
 {
     if (!m_Open)
     {
+        Skip();
+
         return;
     }
 
@@ -48,6 +56,10 @@ void Panel::Draw()
     {
         ImGui::PopStyleVar();
     }
+
+    // Over its children too, and while something in it is dragged
+    m_WindowHovered = l_Visible && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
+    m_WindowFocused = l_Visible && ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
 
     if (l_Visible)
     {

@@ -113,6 +113,15 @@ ForgeLayer::ForgeLayer(Trinity::ImGuiLayer& imGui) : Layer("Forge"), m_ImGui(imG
 
 }
 
+// Before the layout is saved for the last time, so it is saved with the centre where it belongs
+void ForgeLayer::OnDetach()
+{
+    if (ImGui::GetCurrentContext() != nullptr)
+    {
+        SetMaximized(nullptr);
+    }
+}
+
 void ForgeLayer::OnAttach()
 {
     // Files dragged in from the system's file manager are imported, which OnEvent hears of
@@ -364,9 +373,29 @@ void ForgeLayer::OnImGuiRender()
     DrawStatusBar();
     DrawDockSpace();
 
+    // A maximised panel is restored as it is closed, and as another is asked to come forward, which it could not do unseen
+    if (m_Maximized != nullptr && (!m_Maximized->IsOpen() || std::ranges::any_of(m_Panels, [this](const Trinity::Scope<Panel>& panel) { return panel.get() != m_Maximized && panel->IsFocusRequested(); })))
+    {
+        SetMaximized(nullptr);
+    }
+
+    // The layout is not saved while a panel is maximised, so a crash then leaves the file as it was before
+    if (m_Maximized != nullptr)
+    {
+        ImGui::GetIO().WantSaveIniSettings = false;
+    }
+
+    // While one is maximised the others are left out, so its dock node has the whole dock space, and each is back in its own once drawn again
     for (const Trinity::Scope<Panel>& it_Panel : m_Panels)
     {
-        it_Panel->Draw();
+        if (m_Maximized == nullptr || it_Panel.get() == m_Maximized)
+        {
+            it_Panel->Draw();
+        }
+        else
+        {
+            it_Panel->Skip();
+        }
     }
 
     m_Toasts.Draw();
@@ -745,11 +774,87 @@ void ForgeLayer::RegisterShortcuts()
         } });
     }
 
-    l_Shortcuts.Add({ .ID = "window.resetLayout", .Category = "Window", .Label = "Reset Layout", .Run = [this] { m_ResetLayout = true; } });
+    // Unity's key for it. Not while the Game panel has the focus of a scene that plays, whose own keys these may be
+    l_Shortcuts.Add({ .ID = "window.maximize", .Category = "Window", .Label = "Maximize or Restore Panel", .Chord = ImGuiMod_Shift | ImGuiKey_Space, .IsEnabled = [this] { return !(m_Session.IsPlaying() && m_GamePanel->IsWindowFocused()); }, .Run = [this] { ToggleMaximized(); } });
+    l_Shortcuts.Add({ .ID = "window.resetLayout", .Category = "Window", .Label = "Reset Layout", .Run = [this]
+    {
+        SetMaximized(nullptr);
+        m_ResetLayout = true;
+    } });
     l_Shortcuts.Add({ .ID = "window.theme", .Category = "Window", .Label = "Toggle Theme", .Run = [this] { m_Session.SetPreferenceVariable("ui.theme", Trinity::Theme::IsLight() ? Trinity::Theme::c_Dark : Trinity::Theme::c_Light); } });
 
     // Last, so each key someone changed finds the command it was changed for
     l_Shortcuts.ReadKeys();
+}
+
+// The panel under the mouse, or else the one with the focus, fills the dock space alone until this is asked again
+void ForgeLayer::ToggleMaximized()
+{
+    if (m_Maximized != nullptr)
+    {
+        SetMaximized(nullptr);
+
+        return;
+    }
+
+    const auto a_Hovered = std::ranges::find_if(m_Panels, [](const Trinity::Scope<Panel>& panel) { return panel->IsWindowHovered(); });
+    const auto a_Focused = std::ranges::find_if(m_Panels, [](const Trinity::Scope<Panel>& panel) { return panel->IsWindowFocused(); });
+    if (const auto a_Panel = a_Hovered != m_Panels.end() ? a_Hovered : a_Focused; a_Panel != m_Panels.end())
+    {
+        SetMaximized(a_Panel->get());
+    }
+}
+
+// Null restores. The others are left undrawn, which hides their dock nodes, and the room they leave goes to the centre alone. So a panel outside the centre has its own node made the centre for as long as it is maximised, and the node that was is made it again after. Nothing is undocked, so every panel is back where it was
+void ForgeLayer::SetMaximized(Panel* panel)
+{
+    if (ImGuiDockNode* l_Lent = m_LentNode != 0 ? ImGui::DockBuilderGetNode(m_LentNode) : nullptr)
+    {
+        l_Lent->SetLocalFlags(l_Lent->LocalFlags & ~ImGuiDockNodeFlags_CentralNode);
+    }
+
+    if (ImGuiDockNode* l_Central = m_CentralNode != 0 ? ImGui::DockBuilderGetNode(m_CentralNode) : nullptr)
+    {
+        l_Central->SetLocalFlags(l_Central->LocalFlags | ImGuiDockNodeFlags_CentralNode);
+    }
+
+    // What changed meanwhile is saved now that the layout is whole again
+    if (m_Maximized != nullptr)
+    {
+        ImGui::MarkIniSettingsDirty();
+    }
+
+    m_CentralNode = 0;
+    m_LentNode = 0;
+    m_Maximized = nullptr;
+    if (panel == nullptr)
+    {
+        return;
+    }
+
+    // Only one docked in Forge's own dock space has the others' room to take
+    const ImGuiID l_DockSpace = ImHashStr(c_DockSpaceName.data(), c_DockSpaceName.size());
+    const ImGuiWindow* l_Window = ImGui::FindWindowByName(panel->GetWindowName().c_str());
+    ImGuiDockNode* l_Node = l_Window != nullptr ? l_Window->DockNode : nullptr;
+    if (l_Node == nullptr || ImGui::DockNodeGetRootNode(l_Node)->ID != l_DockSpace)
+    {
+        TR_INFO("Forge: {} is not docked in Forge's window, so it is not maximised", panel->GetTitle());
+
+        return;
+    }
+
+    // A centre with no panel in it would be let go of once it is no longer the centre, so it is left as it is
+    ImGuiDockNode* l_Central = ImGui::DockBuilderGetCentralNode(l_DockSpace);
+    if (l_Central != nullptr && l_Central != l_Node && l_Central->Windows.Size > 0)
+    {
+        l_Central->SetLocalFlags(l_Central->LocalFlags & ~ImGuiDockNodeFlags_CentralNode);
+        l_Node->SetLocalFlags(l_Node->LocalFlags | ImGuiDockNodeFlags_CentralNode);
+        m_CentralNode = l_Central->ID;
+        m_LentNode = l_Node->ID;
+    }
+
+    m_Maximized = panel;
+    m_Maximized->RequestFocus();
 }
 
 // Not while typing, dragging, in a popup, or while Input Actions listens for a key to bind
@@ -851,6 +956,12 @@ void ForgeLayer::DrawMenuBar()
         }
 
         ImGui::Separator();
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Expand, m_Maximized != nullptr ? "Restore Panels" : "Maximize Panel").c_str(), GetKeyText("window.maximize").c_str()))
+        {
+            ToggleMaximized();
+        }
+
+        ImGui::SetItemTooltip("%s", m_Maximized != nullptr ? "Brings the other panels back" : "The panel under the mouse, or the one with the focus, fills the window until this is asked again");
 
         bool l_ShowStats = m_ViewportPanel->IsShowingStats();
         if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Eye, "Scene Stats").c_str(), nullptr, &l_ShowStats))
@@ -860,6 +971,7 @@ void ForgeLayer::DrawMenuBar()
 
         if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Refresh, "Reset Layout").c_str()))
         {
+            SetMaximized(nullptr);
             m_ResetLayout = true;
         }
 

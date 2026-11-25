@@ -36,6 +36,12 @@ public:
     void SetOpen(bool open);
     // Brings the panel to the front the next time it is drawn, selecting its tab where docked
     void RequestFocus() { m_FocusRequested = true; }
+    [[nodiscard]] bool IsFocusRequested() const { return m_FocusRequested; }
+    // Whether the mouse was over the panel, and whether it had the focus, as it was last drawn. Neither for one that is closed or was not drawn
+    [[nodiscard]] bool IsWindowHovered() const { return m_WindowHovered; }
+    [[nodiscard]] bool IsWindowFocused() const { return m_WindowFocused; }
+    // Called in place of Draw for a frame the panel is left out of, as the others are while one is maximised
+    void Skip();
 
 protected:
     virtual void OnImGuiRender() = 0;
@@ -54,4 +60,6 @@ private:
     bool m_Borderless = false;
     bool m_Navigable = true;
     bool m_FocusRequested = false;
+    bool m_WindowHovered = false;
+    bool m_WindowFocused = false;
 };
