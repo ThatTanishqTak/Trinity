@@ -18,9 +18,9 @@ public:
     struct Command
     {
         // What a saved key names the command by, which stays as its label and its key change
-        std::string_view ID;
+        std::string ID;
         std::string_view Category;
-        std::string_view Label;
+        std::string Label;
         // The key it runs on, and a second that runs it too, as Ctrl+Shift+Z redoes beside Ctrl+Y. ImGuiKey_None for none
         ImGuiKeyChord Chord = ImGuiKey_None;
         ImGuiKeyChord Alternate = ImGuiKey_None;

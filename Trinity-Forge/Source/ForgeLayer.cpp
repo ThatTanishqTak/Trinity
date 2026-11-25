@@ -17,6 +17,7 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -380,6 +381,7 @@ void ForgeLayer::OnImGuiRender()
     DrawStartScreen();
     m_PreferencesWindow.Draw();
     m_ShortcutsWindow.Draw();
+    m_CommandPalette.Draw();
 
     if (m_ShowAbout)
     {
@@ -693,12 +695,58 @@ void ForgeLayer::RegisterShortcuts()
     l_Shortcuts.Add({ .ID = "play.pause", .Category = "Play", .Label = "Pause or Resume", .Chord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P, .Run = [this] { m_Session.RequestPause(); } });
     l_Shortcuts.Add({ .ID = "play.step", .Category = "Play", .Label = "Step", .Chord = ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_P, .Run = [this] { m_Session.RequestStep(); } });
 
+    l_Shortcuts.Add({ .ID = "help.palette", .Category = "Help", .Label = "Command Palette", .Chord = ImGuiMod_Ctrl | ImGuiKey_K, .Run = [this] { m_CommandPalette.Open(); } });
     l_Shortcuts.Add({ .ID = "help.shortcuts", .Category = "Help", .Label = "Keyboard Shortcuts", .Chord = ImGuiMod_Ctrl | ImGuiKey_Slash, .Run = [this] { m_ShortcutsWindow.Open(); } });
     l_Shortcuts.Add({ .ID = "help.demo", .Category = "Help", .Label = "ImGui Demo", .Chord = ImGuiKey_F1, .Run = [this]
     {
         m_ShowDemoWindow = !m_ShowDemoWindow;
         TR_INFO("Forge: demo window {}", m_ShowDemoWindow ? "shown" : "hidden");
     } });
+
+    // What a menu does and no key has had, which the Command Palette runs by name, and which can be given a key as the rest can
+    l_Shortcuts.Add({ .ID = "file.newProject", .Category = "File", .Label = "New Project", .Run = a_Request(EditorSession::Command::NewProject) });
+    l_Shortcuts.Add({ .ID = "file.openProject", .Category = "File", .Label = "Open Project", .Run = a_Request(EditorSession::Command::OpenProject) });
+    l_Shortcuts.Add({ .ID = "file.setStartScene", .Category = "File", .Label = "Set as Start Scene", .IsEnabled = [this] { return m_Session.HasProject() && m_Session.HasScenePath(); }, .Run = a_Request(EditorSession::Command::SetStartScene) });
+    l_Shortcuts.Add({ .ID = "edit.projectSettings", .Category = "Edit", .Label = "Project Settings", .IsEnabled = a_HasProject, .Run = [this]
+    {
+        m_ProjectSettings->SetOpen(true);
+        m_ProjectSettings->RequestFocus();
+    } });
+
+    const auto a_CreatesEntity = [this] { return m_Session.HasProject() && !m_Session.IsPlaying(); };
+    // A saved key names a command by its ID, which for these is the label without its spaces
+    const auto a_MakeID = [](std::string_view prefix, std::string_view label)
+    {
+        std::string l_ID(prefix);
+        std::ranges::copy_if(label, std::back_inserter(l_ID), [](char character) { return character != ' '; });
+
+        return l_ID;
+    };
+    for (const Trinity::BuiltInMesh it_Mesh : Trinity::c_BuiltInMeshes)
+    {
+        l_Shortcuts.Add({ .ID = a_MakeID("entity.create", Trinity::ToString(it_Mesh)), .Category = "Entity", .Label = std::format("Create {}", Trinity::ToString(it_Mesh)), .IsEnabled = a_CreatesEntity, .Run = [this, it_Mesh] { static_cast<void>(m_Session.CreatePrimitive(it_Mesh, {})); } });
+    }
+
+    for (const Trinity::LightType it_Type : c_LightTypes)
+    {
+        l_Shortcuts.Add({ .ID = a_MakeID("entity.create", GetLightLabel(it_Type)), .Category = "Entity", .Label = std::format("Create {}", GetLightLabel(it_Type)), .IsEnabled = a_CreatesEntity, .Run = [this, it_Type] { static_cast<void>(m_Session.CreateLight(it_Type, {})); } });
+    }
+
+    l_Shortcuts.Add({ .ID = "entity.createCamera", .Category = "Entity", .Label = "Create Camera", .IsEnabled = a_CreatesEntity, .Run = [this] { static_cast<void>(m_Session.CreateCamera({})); } });
+
+    // Each panel by the name its tab has, shown and brought forward
+    for (const Trinity::Scope<Panel>& it_Panel : m_Panels)
+    {
+        Panel* l_Panel = it_Panel.get();
+        l_Shortcuts.Add({ .ID = a_MakeID("window.", l_Panel->GetSettingsID()), .Category = "Window", .Label = std::format("Show {}", l_Panel->GetTitle()), .Run = [l_Panel]
+        {
+            l_Panel->SetOpen(true);
+            l_Panel->RequestFocus();
+        } });
+    }
+
+    l_Shortcuts.Add({ .ID = "window.resetLayout", .Category = "Window", .Label = "Reset Layout", .Run = [this] { m_ResetLayout = true; } });
+    l_Shortcuts.Add({ .ID = "window.theme", .Category = "Window", .Label = "Toggle Theme", .Run = [this] { m_Session.SetPreferenceVariable("ui.theme", Trinity::Theme::IsLight() ? Trinity::Theme::c_Dark : Trinity::Theme::c_Light); } });
 
     // Last, so each key someone changed finds the command it was changed for
     l_Shortcuts.ReadKeys();
@@ -830,6 +878,11 @@ void ForgeLayer::DrawMenuBar()
     if (ImGui::BeginMenu("Help"))
     {
         ImGui::MenuItem(WithIcon(Trinity::Icons::c_Book, "ImGui Demo").c_str(), GetKeyText("help.demo").c_str(), &m_ShowDemoWindow);
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Search, "Command Palette...").c_str(), GetKeyText("help.palette").c_str()))
+        {
+            m_CommandPalette.Open();
+        }
+
         if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Book, "Keyboard Shortcuts...").c_str(), GetKeyText("help.shortcuts").c_str()))
         {
             m_ShortcutsWindow.Open();

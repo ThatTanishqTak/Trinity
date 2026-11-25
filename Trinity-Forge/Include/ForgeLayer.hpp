@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EditorSession.hpp"
+#include "CommandPalette.hpp"
 #include "Export/ExportCommand.hpp"
 #include "ImportTest.hpp"
 #include "Panels/AudioMixerPanel.hpp"
@@ -85,6 +86,7 @@ private:
     Toasts m_Toasts;
     PreferencesWindow m_PreferencesWindow{ m_Session };
     ShortcutsWindow m_ShortcutsWindow{ m_Session };
+    CommandPalette m_CommandPalette{ m_Session };
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;
     HierarchyPanel* m_HierarchyPanel = nullptr;
