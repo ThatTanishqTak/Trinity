@@ -1084,6 +1084,26 @@ void EditorSession::Update()
     {
         RemoveBackup();
     }
+
+    // On a timer too, so a crash costs minutes of work and not all of it since the last save. Not while playing, which began with a backup and changes nothing of the scene
+    const std::chrono::steady_clock::time_point l_Now = std::chrono::steady_clock::now();
+    if (m_Preferences.BackupMinutes <= 0 || !m_Project || m_Play || m_Recovery || !IsDirty())
+    {
+        // A backup a crash left is not written over before it is asked about
+        m_BackupTime = l_Now;
+    }
+    else if (l_Now - m_BackupTime >= std::chrono::minutes(m_Preferences.BackupMinutes))
+    {
+        m_BackupTime = l_Now;
+        if (m_History.GetRevision() != m_BackupRevision || !m_HasBackup)
+        {
+            WriteBackup(Trinity::SceneSerializer::SaveToText(m_Scene));
+            if (m_HasBackup)
+            {
+                TR_INFO("Forge: backed up the unsaved changes of {}", GetSceneName());
+            }
+        }
+    }
 }
 
 void EditorSession::DrawPopups()
@@ -2893,6 +2913,10 @@ void EditorSession::ReadPreferences(const Trinity::ApplicationCommandLineArgs& a
         {
             m_Preferences.MuteWhenUnfocused = l_Value == "1";
         }
+        else if (int l_Minutes = 0; l_Key == "BackupMinutes" && std::from_chars(l_Value.data(), l_Value.data() + l_Value.size(), l_Minutes).ec == std::errc())
+        {
+            m_Preferences.BackupMinutes = std::clamp(l_Minutes, 0, EditorPreferences::c_MaximumBackupMinutes);
+        }
     }
 
     TR_INFO("Forge: preferences read from {}", EditorPreferences::c_Path);
@@ -2921,6 +2945,7 @@ void EditorSession::WritePreferences()
     l_Text += std::format("PlayModeTint={} {} {}\n", m_Preferences.PlayModeTint.x, m_Preferences.PlayModeTint.y, m_Preferences.PlayModeTint.z);
     l_Text += std::format("CameraSpeed={}\nSnapSteps={} {} {}\n", m_Preferences.CameraSpeed, m_Preferences.SnapSteps.x, m_Preferences.SnapSteps.y, m_Preferences.SnapSteps.z);
     l_Text += std::format("AudioDevice={}\nMuteWhenUnfocused={}\n", m_Preferences.AudioDevice, m_Preferences.MuteWhenUnfocused ? 1 : 0);
+    l_Text += std::format("BackupMinutes={}\n", m_Preferences.BackupMinutes);
     if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(EditorPreferences::c_Path, l_Text); !l_Written)
     {
         TR_WARN("Forge: the preferences could not be saved: {}", Trinity::ToString(l_Written.GetError()));
@@ -3228,12 +3253,13 @@ void EditorSession::WriteBackup(std::string_view sceneText)
     const std::string l_Text = std::format("# Forge's backup of a scene with unsaved changes, deleted once they are saved or discarded\n{}{}\n{}{}\n{}", c_BackupScenePrefix, m_ScenePath, c_BackupWrittenPrefix, l_Seconds, sceneText);
     if (const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(GetBackupPath(), l_Text); !l_Written)
     {
-        TR_WARN("Forge: {} could not be backed up before playing: {}", GetSceneName(), Trinity::ToString(l_Written.GetError()));
+        TR_WARN("Forge: {} could not be backed up: {}", GetSceneName(), Trinity::ToString(l_Written.GetError()));
 
         return;
     }
 
     m_HasBackup = true;
+    m_BackupRevision = m_History.GetRevision();
 }
 
 // Only the backup this session wrote. One a crash left is removed by Discard alone

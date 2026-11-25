@@ -26,7 +26,7 @@ namespace
     };
 
     // Each section's settings by the names its rows show, which the search goes through
-    constexpr std::array<std::string_view, 3> c_GeneralSettings{ "UI Scale", "Theme", "Multi-viewport" };
+    constexpr std::array<std::string_view, 4> c_GeneralSettings{ "UI Scale", "Theme", "Multi-viewport", "Back Up Every" };
     constexpr std::array<std::string_view, 2> c_AudioSettings{ "Output Device", "Mute When Unfocused" };
     constexpr std::array<std::string_view, 2> c_ExternalToolsSettings{ "Script Editor", "Wait for Debugger at Play" };
     constexpr std::array<std::string_view, 1> c_ColorsSettings{ "Play Mode Tint" };
@@ -286,6 +286,18 @@ void PreferencesWindow::DrawGeneral()
         Tooltip(l_Supported ? "Panels and windows dragged out of Forge's window become windows of their own, as the View menu's Multi-viewport does" : "This platform has no windows for panels to float in");
     }
 
+    EditorPreferences l_Preferences = m_Session.GetPreferences();
+    if (Shows(Section::General, "Back Up Every"))
+    {
+        Label("Back Up Every");
+        if (Trinity::Widgets::DragInt("##BackupMinutes", &l_Preferences.BackupMinutes, 0.1f, 0, EditorPreferences::c_MaximumBackupMinutes, l_Preferences.BackupMinutes == 0 ? "Never" : "%d min", ImGuiSliderFlags_AlwaysClamp))
+        {
+            m_Session.SetPreferences(l_Preferences);
+        }
+
+        Tooltip("How often a scene with unsaved changes is backed up beside the project's cache. The scene's own file is left as it was last saved, and after a crash Forge offers the backup as it next opens the project. At 0 the scene is backed up only as Play starts");
+    }
+
     if (ResetButton())
     {
         for (const std::string_view it_Name : EditorPreferences::c_Variables)
@@ -295,9 +307,12 @@ void PreferencesWindow::DrawGeneral()
                 m_Session.SetPreferenceVariable(it_Name, l_Variable->DefaultToString());
             }
         }
+
+        l_Preferences.BackupMinutes = EditorPreferences::c_DefaultBackupMinutes;
+        m_Session.SetPreferences(l_Preferences);
     }
 
-    Tooltip("UI Scale 100%, the Dark theme, and multi-viewport on");
+    Tooltip("UI Scale 100%, the Dark theme, multi-viewport on, and a backup every 5 minutes");
 }
 
 // The outputs are listed as the menu opens. One chosen that is not connected stays, listed last

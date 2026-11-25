@@ -716,6 +716,9 @@ private:
     std::optional<Notice> m_Notice;
     // Whether this session wrote the backup in the cache, which it removes once the scene is saved
     bool m_HasBackup = false;
+    // When the scene was last saved, backed up or found with nothing unsaved, and the history's revision the last backup holds, so one is written only for changes it is without
+    std::chrono::steady_clock::time_point m_BackupTime = std::chrono::steady_clock::now();
+    std::uint64_t m_BackupRevision = 0;
     std::optional<Recovery> m_Recovery;
     bool m_OpenRecoveryPopup = false;
     std::optional<LanguageQuestion> m_LanguageQuestion;

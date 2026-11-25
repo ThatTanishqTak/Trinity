@@ -21,6 +21,9 @@ struct EditorPreferences
     static constexpr glm::vec3 c_DefaultSnapSteps{ 0.5f, 15.0f, 0.1f };
     static constexpr float c_MinimumSnap = 0.001f;
     static constexpr float c_MaximumSnap = 1000.0f;
+    // Minutes between backups of a scene with unsaved changes, and the most that can be asked for
+    static constexpr int c_DefaultBackupMinutes = 5;
+    static constexpr int c_MaximumBackupMinutes = 60;
 
     ScriptEditor Editor = ScriptEditor::System;
     bool WaitForDebugger = false;
@@ -32,4 +35,6 @@ struct EditorPreferences
     std::string AudioDevice;
     // Silence while none of Forge's windows has the focus. Off, sound goes on, as in Unity's editor
     bool MuteWhenUnfocused = false;
+    // How often a scene with unsaved changes is backed up, for a crash to be recovered from. 0 backs it up only as Play starts
+    int BackupMinutes = c_DefaultBackupMinutes;
 };
