@@ -4,6 +4,7 @@
 #include "Export/BuildWalk.hpp"
 #include "Export/PlayerResources.hpp"
 #include "Modules/PortableExecutable.hpp"
+#include "Toasts.hpp"
 
 #include <algorithm>
 #include <array>
@@ -996,6 +997,7 @@ void ExportCommand::Report(const PackSummary& pack) const
     }
 
     TR_INFO("Export: {} exported to {} as {} in {:.1f} s, {} file(s) in {}", m_Session.GetProject()->GetExportSettings().Product, ToUtf8(l_Output), m_Development ? "a Development Build" : "players get it, in Distribution", GetSeconds(), m_Written.size(), Trinity::Memory::FormatBytes(l_Total));
+    Toasts::Notify(std::format("Exported {} in {:.1f} s", m_Session.GetProject()->GetExportSettings().Product, GetSeconds()));
     for (const auto& [it_Kind, it_Count] : l_Kinds)
     {
         TR_INFO("Export:   {}: {} in {} file(s)", it_Kind, Trinity::Memory::FormatBytes(it_Count.second), it_Count.first);

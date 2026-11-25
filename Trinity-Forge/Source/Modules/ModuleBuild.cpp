@@ -1,6 +1,7 @@
 #include "Modules/ModuleBuild.hpp"
 
 #include "Modules/BuildOutput.hpp"
+#include "Toasts.hpp"
 
 #include <Trinity/Tools/BuildTools.hpp>
 
@@ -320,6 +321,7 @@ void ModuleBuild::Run(Running& running)
     else if (l_Result.Succeeded)
     {
         TR_INFO("Build: {} built in {:.1f} s{}", l_Request.Name, l_Result.Seconds, l_Result.Warnings > 0 ? std::format(", with {} warning(s)", l_Result.Warnings) : std::string());
+        Toasts::Notify(std::format("{} built in {:.1f} s", l_Request.Name, l_Result.Seconds));
     }
     else
     {

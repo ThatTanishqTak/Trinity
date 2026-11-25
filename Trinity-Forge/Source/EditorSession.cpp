@@ -3,6 +3,7 @@
 #include "EditorCommands.hpp"
 #include "Modules/DebuggerSettings.hpp"
 #include "ProjectMigration.hpp"
+#include "Toasts.hpp"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -3468,6 +3469,7 @@ bool EditorSession::DeleteAsset(std::string_view path)
     }
 
     TR_INFO("Forge: moved {} to the bin, which held {} asset(s)", path, l_Removed.size());
+    Toasts::Notify(std::format("Moved {} to the bin", path));
     static_cast<void>(ScanAssets());
     for (const Trinity::UUID it_ID : l_Removed)
     {
@@ -4157,6 +4159,7 @@ void EditorSession::RequestImportFiles(std::vector<std::filesystem::path> files,
         }
 
         ScanAssets();
+        Toasts::Notify(l_Imported.size() == 1 ? std::format("Imported {}", l_Imported.front()) : std::format("Imported {} items into {}", l_Imported.size(), l_Folder));
         if (l_Then)
         {
             l_Then(l_Imported);
@@ -4167,9 +4170,10 @@ void EditorSession::RequestImportFiles(std::vector<std::filesystem::path> files,
 // Unity copies too, leaving the file where it was
 void EditorSession::ImportAsset(const std::filesystem::path& file, const std::string& folder)
 {
-    if (CopyIntoProject(file, folder))
+    if (const std::optional<std::string> l_Path = CopyIntoProject(file, folder))
     {
         ScanAssets();
+        Toasts::Notify(std::format("Imported {}", *l_Path));
     }
 }
 
@@ -5023,6 +5027,7 @@ bool EditorSession::SavePrefab()
     m_Stage->Text = *l_Text;
     m_Stage->History.MarkSaved();
     TR_INFO("Forge: saved prefab {}, and made its {} instance(s) in the scene again from it", l_Name, *l_Made);
+    Toasts::Notify(std::format("Saved prefab {}", l_Name));
 
     return true;
 }
@@ -5618,6 +5623,7 @@ bool EditorSession::WriteScene(const std::string& assetPath)
 
     m_History.MarkSaved();
     TR_INFO("Forge: saved scene {} with {} entities", assetPath, m_Scene.GetEntityCount());
+    Toasts::Notify(std::format("Saved {}", assetPath));
 
     // A scene saved under a new name gets its .meta and UUID now
     if (m_Registry && m_Registry->FindByPath(assetPath) == nullptr)

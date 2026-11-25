@@ -174,6 +174,12 @@ void ForgeLayer::OnAttach()
         m_Console->SetOpen(true);
         m_Console->RequestFocus();
     });
+    // As a click on a warning's or an error's toast does, to all of what was logged
+    m_Toasts.SetShowConsole([this]
+    {
+        m_Console->SetOpen(true);
+        m_Console->RequestFocus();
+    });
     m_Panels.push_back(std::move(l_Console));
     // The Console's Clear on Play and Clear on Build. A build beside one still running clears nothing
     m_Session.SetBeforePlay([this]
@@ -367,6 +373,8 @@ void ForgeLayer::OnImGuiRender()
     {
         it_Panel->Draw();
     }
+
+    m_Toasts.Draw();
 
     // The scene reads the keyboard and mouse as the Game panel lets it, and gamepads with focus
     Trinity::SceneInputFilter l_SceneInput = m_GamePanel->TakeSceneFilter();

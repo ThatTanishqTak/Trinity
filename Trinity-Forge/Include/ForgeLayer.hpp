@@ -16,6 +16,7 @@
 #include "Panels/ViewportPanel.hpp"
 #include "PreferencesWindow.hpp"
 #include "SceneCapture.hpp"
+#include "Toasts.hpp"
 
 #include <Trinity.hpp>
 
@@ -77,6 +78,7 @@ private:
     ImportTest m_ImportTest{ m_Session };
     ExportCommand m_Export{ m_Session };
     SceneCapture m_Capture{ m_Session };
+    Toasts m_Toasts;
     PreferencesWindow m_PreferencesWindow{ m_Session };
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;
