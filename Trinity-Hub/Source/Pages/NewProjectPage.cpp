@@ -1,19 +1,16 @@
 #include "Pages/NewProjectPage.hpp"
 
 #include "HubText.hpp"
+#include "HubThumbnails.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
-#include <stb_image.h>
 
 #include <algorithm>
 #include <array>
 #include <cctype>
-#include <cstring>
 #include <format>
-#include <fstream>
-#include <iterator>
 #include <limits>
 #include <system_error>
 #include <utility>
@@ -23,43 +20,8 @@ namespace
     // The card chosen first, as Unity Hub's New project starts on its 3D template
     constexpr std::string_view c_FirstTemplate = "3D";
     constexpr std::string_view c_FirstName = "My Project";
-    // A thumbnail is a small picture, so a file larger than this a side is not decoded
-    constexpr int c_MaximumThumbnailSide = 4096;
     // Windows keeps these for devices, alone or before an extension, so no folder anywhere is named one
     constexpr std::array<std::string_view, 22> c_DeviceNames{ "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9" };
-
-    struct StbDeleter
-    {
-        void operator()(stbi_uc* pixels) const
-        {
-            stbi_image_free(pixels);
-        }
-    };
-
-    // The PNG as an ImGui texture, which ImGui's renderer creates next frame, or none if unreadable
-    std::unique_ptr<ImTextureData> LoadThumbnail(const std::filesystem::path& file)
-    {
-        std::ifstream l_Stream(file, std::ios::binary);
-        const std::string l_Bytes((std::istreambuf_iterator<char>(l_Stream)), std::istreambuf_iterator<char>());
-        int l_Width = 0;
-        int l_Height = 0;
-        int l_Channels = 0;
-        const std::unique_ptr<stbi_uc, StbDeleter> l_Pixels(l_Bytes.empty() ? nullptr : stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(l_Bytes.data()), static_cast<int>(l_Bytes.size()), &l_Width, &l_Height, &l_Channels, 4));
-        if (!l_Pixels || l_Width > c_MaximumThumbnailSide || l_Height > c_MaximumThumbnailSide)
-        {
-            const std::string l_Why = l_Bytes.empty() ? std::string("it could not be read") : !l_Pixels ? std::format("it is not a PNG it can read: {}", stbi_failure_reason()) : std::format("it is {}x{}, larger than {} a side", l_Width, l_Height, c_MaximumThumbnailSide);
-            TR_WARN("Hub: the thumbnail {} is not shown, as {}", HubText::ToUtf8(file), l_Why);
-
-            return nullptr;
-        }
-
-        std::unique_ptr<ImTextureData> l_Texture = std::make_unique<ImTextureData>();
-        l_Texture->Create(ImTextureFormat_RGBA32, l_Width, l_Height);
-        std::memcpy(l_Texture->GetPixels(), l_Pixels.get(), static_cast<std::size_t>(l_Width) * static_cast<std::size_t>(l_Height) * 4);
-        ImGui::RegisterUserTexture(l_Texture.get());
-
-        return l_Texture;
-    }
 
     // Why a name cannot name a project's folder, by Windows' rules, the narrowest, or empty when it can
     std::string GetNameRefusal(std::string_view name)
@@ -461,26 +423,7 @@ void NewProjectPage::DrawSettings()
 
 void NewProjectPage::DrawPicture(const Card& card, const ImVec2& minimum, const ImVec2& maximum)
 {
-    ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
-    l_DrawList.AddRectFilled(minimum, maximum, ImGui::GetColorU32(ImGuiCol_FrameBg), ImGui::GetStyle().FrameRounding);
-    const float l_Width = maximum.x - minimum.x;
-    const float l_Height = maximum.y - minimum.y;
-    // Once ImGui's renderer has made the texture, a frame after it is read, so a failed one never draws
-    if (card.Thumbnail != nullptr && card.Thumbnail->Status == ImTextureStatus_OK && card.Thumbnail->Width > 0 && card.Thumbnail->Height > 0)
-    {
-        const float l_Scale = std::min(l_Width / static_cast<float>(card.Thumbnail->Width), l_Height / static_cast<float>(card.Thumbnail->Height));
-        const ImVec2 l_Size(static_cast<float>(card.Thumbnail->Width) * l_Scale, static_cast<float>(card.Thumbnail->Height) * l_Scale);
-        const ImVec2 l_At(minimum.x + (l_Width - l_Size.x) * 0.5f, minimum.y + (l_Height - l_Size.y) * 0.5f);
-        l_DrawList.AddImage(ImTextureRef(card.Thumbnail->TexID), l_At, ImVec2(l_At.x + l_Size.x, l_At.y + l_Size.y));
-
-        return;
-    }
-
-    const char* l_Icon = card.Template ? Trinity::Icons::c_FileImage : Trinity::Icons::c_File;
-    const float l_IconSize = l_Height * 0.35f;
-    const ImVec2 l_IconExtent = ImGui::CalcTextSize(l_Icon);
-    const float l_IconScale = l_IconSize / ImGui::GetFontSize();
-    l_DrawList.AddText(nullptr, l_IconSize, ImVec2(minimum.x + (l_Width - l_IconExtent.x * l_IconScale) * 0.5f, minimum.y + (l_Height - l_IconExtent.y * l_IconScale) * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled), l_Icon);
+    HubThumbnails::Draw(card.Thumbnail, card.Template ? Trinity::Icons::c_FileImage : Trinity::Icons::c_File, minimum, maximum);
 }
 
 // Each reason in the order the page is filled in, the language last, as it is picked last
@@ -603,7 +546,7 @@ void NewProjectPage::ReadTemplates()
             Card l_Card{ std::move(it_Template), nullptr };
             if (!l_Card.Template->Thumbnail.empty())
             {
-                if (std::unique_ptr<ImTextureData> l_Texture = LoadThumbnail(l_Card.Template->Thumbnail))
+                if (std::unique_ptr<ImTextureData> l_Texture = HubThumbnails::Load(l_Card.Template->Thumbnail))
                 {
                     l_Card.Thumbnail = l_Texture.get();
                     m_Thumbnails.push_back(std::move(l_Texture));

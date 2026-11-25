@@ -6,6 +6,7 @@
 #include <Trinity/UI/Widgets.hpp>
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
@@ -28,6 +29,10 @@ namespace
     constexpr const char* c_RowMenuPopup = "##RowMenu";
     // The room above and below what a project's row holds
     constexpr float c_RowPaddingInFonts = 0.5f;
+    // A tile's width, which its picture's height follows at 16 to 9
+    constexpr float c_TileWidthInFonts = 15.0f;
+    // Lit to the tile's own edge, not half the spacing past it, which only ImGui's internal flag does
+    constexpr ImGuiSelectableFlags c_TileFlags = ImGuiSelectableFlags_AllowOverlap | ImGuiSelectableFlags_AllowDoubleClick | static_cast<ImGuiSelectableFlags>(ImGuiSelectableFlags_NoPadWithHalfSpacing);
 
     // The files Forge saves again as it moves a project, by the format each manifest names for them
     struct FormatKind
@@ -52,6 +57,19 @@ namespace
         std::ranges::transform(text, text.begin(), [](char character) { return static_cast<char>(std::tolower(static_cast<unsigned char>(character))); });
 
         return text;
+    }
+
+    // A button that is only its icon, in the colour given, with no frame until the mouse is on it
+    bool DrawIconButton(const char* label, const ImVec4& color)
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, color);
+        const bool l_Pressed = ImGui::Button(label);
+        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar();
+
+        return l_Pressed;
     }
 
     std::string DescribeLanguage(const HubProject& project)
@@ -185,7 +203,7 @@ namespace
     }
 }
 
-ProjectsPage::ProjectsPage(HubProjects& projects, const HubInstalls& installs, HubReleases& releases, HubPathPrompt& prompt, HubLauncher& launcher, std::function<void(const HubRelease& release)> download, std::function<void()> newProject) : m_Projects(projects), m_Installs(installs), m_Releases(releases), m_Prompt(prompt), m_Launcher(launcher), m_Download(std::move(download)), m_NewProject(std::move(newProject))
+ProjectsPage::ProjectsPage(HubProjects& projects, const HubInstalls& installs, HubReleases& releases, HubSettings& settings, HubPathPrompt& prompt, HubLauncher& launcher, std::function<void(const HubRelease& release)> download, std::function<void()> newProject) : m_Projects(projects), m_Installs(installs), m_Releases(releases), m_Settings(settings), m_Prompt(prompt), m_Launcher(launcher), m_Download(std::move(download)), m_NewProject(std::move(newProject))
 {
 
 }
@@ -198,6 +216,7 @@ const char* ProjectsPage::GetIcon() const
 void ProjectsPage::OnShow()
 {
     m_Projects.Refresh();
+    m_Thumbnails.Recheck();
 }
 
 // A Forge started here that ended, or recorded an export, may have changed what the list shows
@@ -212,6 +231,8 @@ void ProjectsPage::Update()
     {
         m_Projects.Refresh();
     }
+
+    m_Thumbnails.Update();
 }
 
 void ProjectsPage::Draw()
@@ -260,7 +281,15 @@ void ProjectsPage::Draw()
         return;
     }
 
-    DrawList();
+    if (m_Settings.ProjectsGrid)
+    {
+        DrawGrid();
+    }
+    else
+    {
+        DrawList();
+    }
+
     DrawOfferPopup();
     DrawUpgradePopup();
 }
@@ -308,9 +337,23 @@ void ProjectsPage::RemoveProject(const std::filesystem::path& file)
         return;
     }
 
+    // Off the list is off the favorites too, so one added again later starts as any other
+    if (m_Settings.IsFavorite(file))
+    {
+        m_Settings.SetFavorite(file, false);
+        m_Settings.Save();
+    }
+
     const std::string l_Folder = HubText::ToUtf8(file.parent_path());
     Report(l_Project != nullptr && l_Project->Missing ? std::format("Took {} off the list, whose folder {} is gone", l_Name, l_Folder) : std::format("Took {} off the list, and left its files in {} as they are", l_Name, l_Folder), false);
     m_Projects.Refresh();
+}
+
+void ProjectsPage::SetFavorite(const std::filesystem::path& file, bool favorite)
+{
+    m_Settings.SetFavorite(file, favorite);
+    m_Settings.Save();
+    m_Reorder = true;
 }
 
 void ProjectsPage::OpenProject(const std::filesystem::path& file)
@@ -370,7 +413,7 @@ void ProjectsPage::OpenWith(const std::filesystem::path& file, const std::filesy
     }
 }
 
-// New Project first, as Unity Hub's is, then Add, the search and the count
+// New Project first, as Unity Hub's is, then Add, the search and the count, and List or Grid at the end
 void ProjectsPage::DrawToolbar()
 {
     if (ImGui::Button(std::format("{} New Project", Trinity::Icons::c_Plus).c_str()))
@@ -419,6 +462,39 @@ void ProjectsPage::DrawToolbar()
     {
         ImGui::TextDisabled("%s", std::format("{} project{}", l_Total, l_Total == 1 ? "" : "s").c_str());
     }
+
+    // Against the right edge, or after the count where the window is too narrow for that
+    const float l_Spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+    const float l_Width = ImGui::CalcTextSize(Trinity::Icons::c_List).x + ImGui::CalcTextSize(Trinity::Icons::c_Grid).x + ImGui::GetStyle().FramePadding.x * 4.0f + l_Spacing;
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - l_Width));
+    std::optional<bool> l_Grid;
+    if (Trinity::Widgets::ToggleButton(std::format("{}##List", Trinity::Icons::c_List).c_str(), !m_Settings.ProjectsGrid))
+    {
+        l_Grid = false;
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("List");
+    }
+
+    ImGui::SameLine(0.0f, l_Spacing);
+    if (Trinity::Widgets::ToggleButton(std::format("{}##Grid", Trinity::Icons::c_Grid).c_str(), m_Settings.ProjectsGrid))
+    {
+        l_Grid = true;
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("Grid");
+    }
+
+    if (l_Grid && *l_Grid != m_Settings.ProjectsGrid)
+    {
+        m_Settings.ProjectsGrid = *l_Grid;
+        m_Settings.Save();
+    }
 }
 
 void ProjectsPage::DrawList()
@@ -460,16 +536,16 @@ void ProjectsPage::DrawList()
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(l_Style.CellPadding.x, l_RowPadding));
 
     const std::vector<HubProject>& l_Projects = m_Projects.GetProjects();
-    std::optional<std::filesystem::path> l_Open;
-    std::optional<Choice> l_OpenWith;
-    std::optional<std::filesystem::path> l_Remove;
+    Requests l_Requests;
     ImGuiListClipper l_Clipper;
     l_Clipper.Begin(static_cast<int>(m_Order.size()), l_RowHeight);
     while (l_Clipper.Step())
     {
         for (int it_Row = l_Clipper.DisplayStart; it_Row < l_Clipper.DisplayEnd; ++it_Row)
         {
-            const HubProject& l_Project = l_Projects[m_Order[static_cast<std::size_t>(it_Row)]];
+            const std::size_t l_Index = m_Order[static_cast<std::size_t>(it_Row)];
+            const HubProject& l_Project = l_Projects[l_Index];
+            const bool l_Favorite = m_Favorite[l_Index];
             ImGui::PushID(it_Row);
             ImGui::TableNextRow(ImGuiTableRowFlags_None, l_RowHeight);
 
@@ -482,18 +558,17 @@ void ProjectsPage::DrawList()
             // A double-click opens it, and so does Enter, which presses the row with no mouse button let go. One click alone does nothing
             if (l_Pressed && (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) || !ImGui::IsMouseReleased(ImGuiMouseButton_Left)))
             {
-                if (const std::string_view l_Refusal = GetOpenRefusal(l_Project); l_Refusal.empty())
-                {
-                    l_Open = l_Project.Entry.File;
-                }
-                else
-                {
-                    Report(std::string(l_Refusal), true);
-                }
+                RequestOpen(l_Project, l_Requests);
             }
 
-            DrawRowMenu(l_Project, l_Open, l_OpenWith, l_Remove);
+            DrawRowMenu(l_Project, l_Favorite, l_Requests);
             ImGui::SameLine(0.0f, 0.0f);
+            if (DrawStar(l_Favorite))
+            {
+                l_Requests.Favorite = l_Project.Entry.File;
+            }
+
+            ImGui::SameLine(0.0f, l_Style.ItemInnerSpacing.x);
             ImGui::AlignTextToFramePadding();
             ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), 0.0f);
             if (l_Project.Missing)
@@ -557,7 +632,7 @@ void ProjectsPage::DrawList()
             HubPages::DrawClipped(HubText::ToUtf8(l_Project.Entry.File.parent_path()));
 
             ImGui::TableNextColumn();
-            DrawActions(l_Project, l_Open, l_OpenWith, l_Remove);
+            DrawActions(l_Project, l_Requests);
             ImGui::PopID();
         }
     }
@@ -570,25 +645,181 @@ void ProjectsPage::DrawList()
         ImGui::TextDisabled("%s", std::format("No project's name or folder holds \"{}\"", m_Search).c_str());
     }
 
-    // Once the table is drawn, as they change the list or open a popup
-    if (l_Open)
+    Apply(l_Requests);
+}
+
+void ProjectsPage::DrawGrid()
+{
+    Order();
+    if (!ImGui::BeginChild("##ProjectsGrid"))
     {
-        OpenProject(*l_Open);
+        ImGui::EndChild();
+
+        return;
     }
 
-    if (l_OpenWith)
+    if (m_Order.empty() && !m_OrderedSearch.empty())
     {
-        OpenWith(l_OpenWith->File, l_OpenWith->Install);
+        ImGui::TextDisabled("%s", std::format("No project's name or folder holds \"{}\"", m_Search).c_str());
     }
 
-    if (l_Remove)
+    // A tile is its picture, then a line for its name and its buttons, then a line for what stands out
+    const ImGuiStyle& l_Style = ImGui::GetStyle();
+    const float l_Padding = l_Style.FramePadding.x;
+    const float l_Width = std::round(ImGui::GetFontSize() * c_TileWidthInFonts);
+    const float l_PictureHeight = std::round((l_Width - l_Padding * 2.0f) * 9.0f / 16.0f);
+    const ImVec2 l_Size(l_Width, l_PictureHeight + ImGui::GetFrameHeight() + ImGui::GetTextLineHeight() + l_Padding * 3.0f);
+    const std::size_t l_PerRow = static_cast<std::size_t>(std::max(1.0f, (ImGui::GetContentRegionAvail().x + l_Style.ItemSpacing.x) / (l_Width + l_Style.ItemSpacing.x)));
+    const std::size_t l_Rows = (m_Order.size() + l_PerRow - 1) / l_PerRow;
+
+    const std::vector<HubProject>& l_Projects = m_Projects.GetProjects();
+    Requests l_Requests;
+    ImGuiListClipper l_Clipper;
+    l_Clipper.Begin(static_cast<int>(l_Rows), l_Size.y + l_Style.ItemSpacing.y);
+    while (l_Clipper.Step())
     {
-        RemoveProject(*l_Remove);
+        for (int it_Row = l_Clipper.DisplayStart; it_Row < l_Clipper.DisplayEnd; ++it_Row)
+        {
+            // Each tile is put in its place, as on the same line as the last it would sit as low as that one's buttons
+            const ImVec2 l_RowStart = ImGui::GetCursorScreenPos();
+            const std::size_t l_First = static_cast<std::size_t>(it_Row) * l_PerRow;
+            for (std::size_t it_Place = l_First; it_Place < std::min(l_First + l_PerRow, m_Order.size()); ++it_Place)
+            {
+                const std::size_t l_Index = m_Order[it_Place];
+                ImGui::SetCursorScreenPos(ImVec2(l_RowStart.x + static_cast<float>(it_Place - l_First) * (l_Width + l_Style.ItemSpacing.x), l_RowStart.y));
+                ImGui::PushID(static_cast<int>(it_Place));
+                DrawTile(l_Projects[l_Index], m_Favorite[l_Index], l_Size, l_Requests);
+                ImGui::PopID();
+            }
+        }
+    }
+
+    ImGui::EndChild();
+    Apply(l_Requests);
+}
+
+// One selectable under the whole tile, drawn over, with its star and its menu's button on top of it
+void ProjectsPage::DrawTile(const HubProject& project, bool favorite, const ImVec2& size, Requests& requests)
+{
+    const ImGuiStyle& l_Style = ImGui::GetStyle();
+    const float l_Padding = l_Style.FramePadding.x;
+    const float l_PictureHeight = size.y - ImGui::GetFrameHeight() - ImGui::GetTextLineHeight() - l_Padding * 3.0f;
+    const ImVec2 l_Start = ImGui::GetCursorScreenPos();
+
+    // A group, so the buttons placed inside the tile leave what follows it where the tile ends
+    ImGui::BeginGroup();
+    const bool l_Pressed = ImGui::Selectable("##Tile", false, c_TileFlags, size);
+    if (l_Pressed && (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) || !ImGui::IsMouseReleased(ImGuiMouseButton_Left)))
+    {
+        RequestOpen(project, requests);
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        const std::string l_Folder = HubText::ToUtf8(project.Entry.File.parent_path());
+        ImGui::SetTooltip("%s", project.Problem.empty() ? l_Folder.c_str() : std::format("{}\n{}", l_Folder, project.Problem).c_str());
+    }
+
+    DrawRowMenu(project, favorite, requests);
+
+    ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+    l_DrawList.AddRect(l_Start, ImVec2(l_Start.x + size.x, l_Start.y + size.y), ImGui::GetColorU32(ImGuiCol_Border), l_Style.FrameRounding);
+    const ImTextureData* l_Picture = project.Missing ? nullptr : m_Thumbnails.Get(Trinity::Project::GetThumbnailFile(project.Entry.File.parent_path()));
+    HubThumbnails::Draw(l_Picture, Trinity::Icons::c_Cube, ImVec2(l_Start.x + l_Padding, l_Start.y + l_Padding), ImVec2(l_Start.x + size.x - l_Padding, l_Start.y + l_Padding + l_PictureHeight));
+
+    // The star and the menu's button end the name's line, and the name is cut where they begin
+    const float l_NameTop = l_Start.y + l_PictureHeight + l_Padding * 2.0f;
+    const float l_ButtonsWidth = ImGui::CalcTextSize(Trinity::Icons::c_Star).x + ImGui::CalcTextSize(Trinity::Icons::c_EllipsisVertical).x + l_Style.FramePadding.x * 4.0f;
+    const float l_ButtonsLeft = l_Start.x + size.x - l_Padding - l_ButtonsWidth;
+    ImGui::SetCursorScreenPos(ImVec2(l_ButtonsLeft, l_NameTop));
+    if (DrawStar(favorite))
+    {
+        requests.Favorite = project.Entry.File;
+    }
+
+    ImGui::SameLine(0.0f, 0.0f);
+    if (DrawIconButton(std::format("{}##More", Trinity::Icons::c_EllipsisVertical).c_str(), ImGui::GetStyleColorVec4(ImGuiCol_Text)))
+    {
+        ImGui::OpenPopup(c_RowMenuPopup);
+    }
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("More");
+    }
+
+    ImGui::EndGroup();
+
+    const ImVec2 l_NameAt(l_Start.x + l_Padding, l_NameTop + l_Style.FramePadding.y);
+    l_DrawList.PushClipRect(l_NameAt, ImVec2(l_ButtonsLeft, l_Start.y + size.y), true);
+    l_DrawList.AddText(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), ImGui::GetFontSize(), l_NameAt, ImGui::GetColorU32(project.Missing ? ImGuiCol_TextDisabled : ImGuiCol_Text), project.GetName().c_str());
+    l_DrawList.PopClipRect();
+
+    // What is wrong with it where something is, and its version and when it was last opened where not
+    bool l_Warning = false;
+    std::string l_Detail = DescribeState(project, l_Warning);
+    if (!l_Warning)
+    {
+        const std::optional<std::chrono::sys_seconds> l_Opened = HubText::ParseTime(project.Entry.LastOpened);
+        l_Detail = std::format("Trinity {}, {}", project.GetEngineVersion(), l_Opened ? HubText::DescribeAge(*l_Opened) : std::string("never opened"));
+    }
+
+    const ImVec2 l_DetailAt(l_Start.x + l_Padding, l_NameTop + ImGui::GetFrameHeight());
+    const ImU32 l_DetailColor = l_Warning ? Trinity::Theme::GetColorU32(Trinity::ThemeColor::Warning) : ImGui::GetColorU32(ImGuiCol_TextDisabled);
+    l_DrawList.PushClipRect(l_DetailAt, ImVec2(l_Start.x + size.x - l_Padding, l_Start.y + size.y), true);
+    l_DrawList.AddText(l_DetailAt, l_DetailColor, l_Detail.c_str());
+    l_DrawList.PopClipRect();
+}
+
+bool ProjectsPage::DrawStar(bool favorite)
+{
+    const bool l_Pressed = DrawIconButton(std::format("{}##Star", favorite ? Trinity::Icons::c_Star : Trinity::Icons::c_StarOutline).c_str(), favorite ? Trinity::Theme::GetColor(Trinity::ThemeColor::Accent) : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+    {
+        ImGui::SetTooltip("%s", favorite ? "Remove from Favorites" : "Add to Favorites, which are kept first");
+    }
+
+    return l_Pressed;
+}
+
+// Once the rows are drawn, as each of these changes the list or opens a popup
+void ProjectsPage::Apply(const Requests& requests)
+{
+    if (requests.Open)
+    {
+        OpenProject(*requests.Open);
+    }
+
+    if (requests.OpenWith)
+    {
+        OpenWith(requests.OpenWith->File, requests.OpenWith->Install);
+    }
+
+    if (requests.Remove)
+    {
+        RemoveProject(*requests.Remove);
+    }
+
+    if (requests.Favorite)
+    {
+        SetFavorite(*requests.Favorite, !m_Settings.IsFavorite(*requests.Favorite));
+    }
+}
+
+void ProjectsPage::RequestOpen(const HubProject& project, Requests& requests)
+{
+    if (const std::string_view l_Refusal = GetOpenRefusal(project); l_Refusal.empty())
+    {
+        requests.Open = project.Entry.File;
+    }
+    else
+    {
+        Report(std::string(l_Refusal), true);
     }
 }
 
 // Each button says in its tooltip what it does, or why it cannot
-void ProjectsPage::DrawActions(const HubProject& project, std::optional<std::filesystem::path>& open, std::optional<Choice>& openWith, std::optional<std::filesystem::path>& remove)
+void ProjectsPage::DrawActions(const HubProject& project, Requests& requests)
 {
     constexpr ImGuiHoveredFlags c_Tooltip = ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled;
 
@@ -596,7 +827,7 @@ void ProjectsPage::DrawActions(const HubProject& project, std::optional<std::fil
     ImGui::BeginDisabled(!l_Refusal.empty());
     if (ImGui::Button("Open"))
     {
-        open = project.Entry.File;
+        requests.Open = project.Entry.File;
     }
 
     ImGui::EndDisabled();
@@ -623,7 +854,7 @@ void ProjectsPage::DrawActions(const HubProject& project, std::optional<std::fil
     {
         ImGui::TextDisabled("Open With");
         ImGui::Separator();
-        DrawVersions(project, openWith);
+        DrawVersions(project, requests.OpenWith);
         ImGui::EndPopup();
     }
 
@@ -668,7 +899,7 @@ void ProjectsPage::DrawActions(const HubProject& project, std::optional<std::fil
     ImGui::SameLine();
     if (ImGui::Button(Trinity::Icons::c_TimesCircle))
     {
-        remove = project.Entry.File;
+        requests.Remove = project.Entry.File;
     }
 
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
@@ -678,7 +909,7 @@ void ProjectsPage::DrawActions(const HubProject& project, std::optional<std::fil
 }
 
 // What the row's buttons do, by name, for those who right-click a row before they read its icons
-void ProjectsPage::DrawRowMenu(const HubProject& project, std::optional<std::filesystem::path>& open, std::optional<Choice>& openWith, std::optional<std::filesystem::path>& remove)
+void ProjectsPage::DrawRowMenu(const HubProject& project, bool favorite, Requests& requests)
 {
     if (!ImGui::BeginPopupContextItem(c_RowMenuPopup))
     {
@@ -687,12 +918,12 @@ void ProjectsPage::DrawRowMenu(const HubProject& project, std::optional<std::fil
 
     if (ImGui::MenuItem("Open", nullptr, false, GetOpenRefusal(project).empty()))
     {
-        open = project.Entry.File;
+        requests.Open = project.Entry.File;
     }
 
     if (ImGui::BeginMenu("Open With", GetOpenWithRefusal(project).empty()))
     {
-        DrawVersions(project, openWith);
+        DrawVersions(project, requests.OpenWith);
         ImGui::EndMenu();
     }
 
@@ -703,6 +934,11 @@ void ProjectsPage::DrawRowMenu(const HubProject& project, std::optional<std::fil
     }
 
     ImGui::Separator();
+    if (ImGui::MenuItem(favorite ? "Remove from Favorites" : "Add to Favorites"))
+    {
+        requests.Favorite = project.Entry.File;
+    }
+
     if (ImGui::MenuItem("Show in the File Manager", nullptr, false, !project.Missing))
     {
         if (const Trinity::Expected<void, std::string> l_Opened = Trinity::Process::OpenWithSystem(project.Entry.File.parent_path()); !l_Opened)
@@ -713,7 +949,7 @@ void ProjectsPage::DrawRowMenu(const HubProject& project, std::optional<std::fil
 
     if (ImGui::MenuItem("Remove from List"))
     {
-        remove = project.Entry.File;
+        requests.Remove = project.Entry.File;
     }
 
     ImGui::EndPopup();
@@ -928,10 +1164,18 @@ void ProjectsPage::Order()
         return;
     }
 
+    // The list read again is often a Forge that closed, which may have written its project's picture
+    if (m_OrderedGeneration != m_Projects.GetGeneration())
+    {
+        m_Thumbnails.Recheck();
+    }
+
     const std::vector<HubProject>& l_Projects = m_Projects.GetProjects();
     m_Order.clear();
+    m_Favorite.assign(l_Projects.size(), false);
     for (std::size_t it_Index = 0; it_Index < l_Projects.size(); ++it_Index)
     {
+        m_Favorite[it_Index] = m_Settings.IsFavorite(l_Projects[it_Index].Entry.File);
         if (l_Search.empty() || l_Projects[it_Index].SearchText.find(l_Search) != std::string::npos)
         {
             m_Order.push_back(it_Index);
@@ -940,8 +1184,14 @@ void ProjectsPage::Order()
 
     const Column l_Column = m_SortColumn;
     const bool l_Ascending = m_SortAscending;
-    std::ranges::stable_sort(m_Order, [&l_Projects, l_Column, l_Ascending](std::size_t left, std::size_t right)
+    std::ranges::stable_sort(m_Order, [&l_Projects, &l_Favorite = std::as_const(m_Favorite), l_Column, l_Ascending](std::size_t left, std::size_t right)
     {
+        // Favorites stay first whichever way the column sorts
+        if (l_Favorite[left] != l_Favorite[right])
+        {
+            return l_Favorite[left];
+        }
+
         const HubProject& l_Left = l_Projects[l_Ascending ? left : right];
         const HubProject& l_Right = l_Projects[l_Ascending ? right : left];
         switch (l_Column)

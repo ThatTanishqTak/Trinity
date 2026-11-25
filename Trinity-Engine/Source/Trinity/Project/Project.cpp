@@ -712,6 +712,11 @@ namespace Trinity
         return directory / "Cache" / "Forge.lock";
     }
 
+    std::filesystem::path Project::GetThumbnailFile(const std::filesystem::path& directory)
+    {
+        return directory / "Cache" / "Thumbnail.png";
+    }
+
     std::filesystem::path Project::GetScriptsDirectory() const
     {
         return m_Directory / "Scripts";

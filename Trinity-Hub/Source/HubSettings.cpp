@@ -10,9 +10,13 @@
 #include <charconv>
 #include <format>
 #include <system_error>
+#include <utility>
 
 namespace
 {
+    constexpr const char* c_ListView = "List";
+    constexpr const char* c_GridView = "Grid";
+
     std::string ReadScalar(const YAML::Node& map, const char* key)
     {
         const YAML::Node l_Value = map[key];
@@ -100,6 +104,17 @@ HubSettings HubSettings::Load()
 
     l_Settings.InstallsDirectory = ReadScalar(l_Root, "InstallsDirectory");
     l_Settings.ProjectsDirectory = ReadScalar(l_Root, "ProjectsDirectory");
+    l_Settings.ProjectsGrid = ReadScalar(l_Root, "ProjectsView") == c_GridView;
+    if (const YAML::Node l_Favorites = l_Root["Favorites"]; l_Favorites && l_Favorites.IsSequence())
+    {
+        for (const YAML::Node& it_Favorite : l_Favorites)
+        {
+            if (it_Favorite.IsScalar() && !it_Favorite.Scalar().empty() && std::ranges::find(l_Settings.Favorites, it_Favorite.Scalar()) == l_Settings.Favorites.end())
+            {
+                l_Settings.Favorites.push_back(it_Favorite.Scalar());
+            }
+        }
+    }
 
     return l_Settings;
 }
@@ -114,6 +129,25 @@ std::filesystem::path HubSettings::GetProjectsDirectory(const std::filesystem::p
     return GetDirectory(ProjectsDirectory, defaultDirectory);
 }
 
+bool HubSettings::IsFavorite(const std::filesystem::path& file) const
+{
+    return std::ranges::find(Favorites, HubText::ToUtf8(file)) != Favorites.end();
+}
+
+void HubSettings::SetFavorite(const std::filesystem::path& file, bool favorite)
+{
+    std::string l_File = HubText::ToUtf8(file);
+    const auto a_Favorite = std::ranges::find(Favorites, l_File);
+    if (favorite && a_Favorite == Favorites.end())
+    {
+        Favorites.push_back(std::move(l_File));
+    }
+    else if (!favorite && a_Favorite != Favorites.end())
+    {
+        Favorites.erase(a_Favorite);
+    }
+}
+
 void HubSettings::Save() const
 {
     YAML::Emitter l_Emitter;
@@ -123,6 +157,14 @@ void HubSettings::Save() const
     l_Emitter << YAML::Key << "Scale" << YAML::Value << Scale;
     l_Emitter << YAML::Key << "InstallsDirectory" << YAML::Value << YAML::DoubleQuoted << InstallsDirectory;
     l_Emitter << YAML::Key << "ProjectsDirectory" << YAML::Value << YAML::DoubleQuoted << ProjectsDirectory;
+    l_Emitter << YAML::Key << "ProjectsView" << YAML::Value << (ProjectsGrid ? c_GridView : c_ListView);
+    l_Emitter << YAML::Key << "Favorites" << YAML::Value << YAML::BeginSeq;
+    for (const std::string& it_Favorite : Favorites)
+    {
+        l_Emitter << YAML::DoubleQuoted << it_Favorite;
+    }
+
+    l_Emitter << YAML::EndSeq;
     l_Emitter << YAML::EndMap;
 
     const Trinity::Expected<void, Trinity::FileError> l_Written = Trinity::FileSystem::WriteText(c_Path, std::string(l_Emitter.c_str()) + "\n");

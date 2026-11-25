@@ -7,8 +7,9 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <vector>
 
-// The person's choices, in Settings.yaml: theme, scale, the installs folder and the projects folder
+// The person's choices, in Settings.yaml: theme, scale, folders, favorite projects and how they are shown
 struct HubSettings
 {
     static constexpr std::uint32_t c_FormatVersion = 1;
@@ -23,9 +24,16 @@ struct HubSettings
     std::string InstallsDirectory;
     // Where New Project starts a project's location, as UTF-8. Empty for Trinity Projects in Documents
     std::string ProjectsDirectory;
+    // The Projects page as a grid of pictures rather than a list
+    bool ProjectsGrid = false;
+    // The projects kept first on the Projects page, each by its .trproj as UTF-8
+    std::vector<std::string> Favorites;
 
     [[nodiscard]] std::filesystem::path GetInstallsDirectory(const std::filesystem::path& defaultDirectory) const;
     [[nodiscard]] std::filesystem::path GetProjectsDirectory(const std::filesystem::path& defaultDirectory) const;
+    [[nodiscard]] bool IsFavorite(const std::filesystem::path& file) const;
+    // Changed here only, so the caller saves
+    void SetFavorite(const std::filesystem::path& file, bool favorite);
 
     // The settings in /saves. Each one missing or unreadable keeps its default
     [[nodiscard]] static HubSettings Load();

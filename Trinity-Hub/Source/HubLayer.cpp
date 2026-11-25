@@ -32,7 +32,7 @@ HubLayer::HubLayer(std::filesystem::path directory, std::filesystem::path instal
     Trinity::Scope<InstallsPage> l_Installs = Trinity::CreateScope<InstallsPage>(m_Installs, m_Releases, m_Settings, m_PathPrompt, m_Requirements, m_DefaultInstallsDirectory);
     InstallsPage* l_InstallsPage = l_Installs.get();
     // A version downloaded from a project's offer is installed by the Installs page, which is shown
-    Trinity::Scope<ProjectsPage> l_Projects = Trinity::CreateScope<ProjectsPage>(m_Projects, m_Installs, m_Releases, m_PathPrompt, m_Launcher, [this, l_InstallsPage](const HubRelease& release)
+    Trinity::Scope<ProjectsPage> l_Projects = Trinity::CreateScope<ProjectsPage>(m_Projects, m_Installs, m_Releases, m_Settings, m_PathPrompt, m_Launcher, [this, l_InstallsPage](const HubRelease& release)
     {
         l_InstallsPage->DownloadRelease(release);
         ShowPage(1);

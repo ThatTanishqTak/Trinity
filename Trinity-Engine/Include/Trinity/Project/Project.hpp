@@ -107,6 +107,8 @@ namespace Trinity
         [[nodiscard]] static ProjectAge GetAge(const ProjectFileInfo& info);
         // Cache/Forge.lock, held by the Forge that has the project open, so a second finds the first
         [[nodiscard]] static std::filesystem::path GetLockFile(const std::filesystem::path& directory);
+        // Cache/Thumbnail.png, a picture of the project's scene that Forge writes and Hub shows
+        [[nodiscard]] static std::filesystem::path GetThumbnailFile(const std::filesystem::path& directory);
 
         ~Project();
 

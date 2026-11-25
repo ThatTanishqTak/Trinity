@@ -47,6 +47,9 @@ namespace Trinity
         constexpr const char* c_ChevronDown = "\uF078";
         constexpr const char* c_Plus = "\uF067";
         constexpr const char* c_Star = "\uF005";
+        constexpr const char* c_StarOutline = "\uF006";
+        constexpr const char* c_List = "\uF03A";
+        constexpr const char* c_Grid = "\uF00A";
         constexpr const char* c_Arrows = "\uF047";
         constexpr const char* c_RotateRight = "\uF01E";
         constexpr const char* c_Expand = "\uF065";
