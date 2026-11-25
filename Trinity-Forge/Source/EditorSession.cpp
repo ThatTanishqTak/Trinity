@@ -3408,7 +3408,7 @@ bool EditorSession::MoveAsset(std::string_view path, std::string_view folder, st
     return true;
 }
 
-// For good, with its .meta and everything cooked from it. Assets still in use then read as failed
+// To the system's bin with its .meta, from where both can be put back, and what was cooked from it is let go. Where the system has no bin for it, nothing is deleted. Assets still in use then read as failed
 bool EditorSession::DeleteAsset(std::string_view path)
 {
     if (!m_Project || !m_Registry)
@@ -3423,7 +3423,7 @@ bool EditorSession::DeleteAsset(std::string_view path)
         return false;
     }
 
-    std::vector<Trinity::UUID> l_Removed;
+    std::vector<const Trinity::AssetRecord*> l_Records;
     for (const Trinity::AssetRecord* it_Record : m_Registry->GetRecords())
     {
         const Trinity::AssetRecord* l_File = it_Record->Parent.IsValid() ? m_Registry->Find(it_Record->Parent) : it_Record;
@@ -3435,30 +3435,39 @@ bool EditorSession::DeleteAsset(std::string_view path)
                 m_AudioPreview.Stop();
             }
 
-            l_Removed.push_back(it_Record->ID);
-            RemoveCooked(*it_Record);
+            l_Records.push_back(it_Record);
         }
     }
 
+    // First, so what could not be binned keeps its .meta and all that is cooked from it
     const std::filesystem::path l_Native = m_Project->ToNativePath(path);
+    if (const Trinity::Expected<void, std::string> l_Binned = Trinity::Process::MoveToTrash(l_Native); !l_Binned)
+    {
+        TR_ERROR("Forge: {}, so nothing was deleted", l_Binned.GetError());
+
+        return false;
+    }
+
+    // Binned beside it, so the two put back together are the asset it was, by the same ID
     std::filesystem::path l_Meta = l_Native;
     l_Meta += std::string(Trinity::AssetRegistry::c_MetaExtension);
     std::error_code l_Error;
-    std::filesystem::remove_all(l_Native, l_Error);
-    if (!l_Error)
+    if (std::filesystem::exists(l_Meta, l_Error))
     {
-        std::filesystem::remove(l_Meta, l_Error);
+        if (const Trinity::Expected<void, std::string> l_Binned = Trinity::Process::MoveToTrash(l_Meta); !l_Binned)
+        {
+            TR_WARN("Forge: {}", l_Binned.GetError());
+        }
     }
 
-    if (l_Error)
+    std::vector<Trinity::UUID> l_Removed;
+    for (const Trinity::AssetRecord* it_Record : l_Records)
     {
-        TR_ERROR("Forge: {} could not be deleted: {}", path, l_Error.message());
-    }
-    else
-    {
-        TR_INFO("Forge: deleted {}, which held {} asset(s)", path, l_Removed.size());
+        l_Removed.push_back(it_Record->ID);
+        RemoveCooked(*it_Record);
     }
 
+    TR_INFO("Forge: moved {} to the bin, which held {} asset(s)", path, l_Removed.size());
     static_cast<void>(ScanAssets());
     for (const Trinity::UUID it_ID : l_Removed)
     {
@@ -3469,7 +3478,7 @@ bool EditorSession::DeleteAsset(std::string_view path)
         }
     }
 
-    return !l_Error;
+    return true;
 }
 
 // A metal-free, half-rough white, which shows light better than glTF's default of metal

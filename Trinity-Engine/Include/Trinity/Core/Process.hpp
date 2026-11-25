@@ -40,6 +40,8 @@ namespace Trinity
         [[nodiscard]] TRINITY_API Expected<void, std::string> Start(const std::filesystem::path& executable, std::span<const std::string> arguments, const std::filesystem::path& workingDirectory = {});
         // Opens it with the desktop's program for that kind of file, without waiting
         [[nodiscard]] TRINITY_API Expected<void, std::string> OpenWithSystem(const std::filesystem::path& path);
+        // Moves the file, or the folder with all that is in it, to the desktop's Recycle Bin or Trash, from where it can be put back. Blocks until it is there. Where the system has no bin for it the file stays as it is, and the error says so
+        [[nodiscard]] TRINITY_API Expected<void, std::string> MoveToTrash(const std::filesystem::path& path);
 
         [[nodiscard]] TRINITY_API Environment GetEnvironment();
         // Windows matches the name without regard to case

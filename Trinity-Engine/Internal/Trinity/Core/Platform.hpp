@@ -132,6 +132,8 @@ namespace Trinity
         [[nodiscard]] std::optional<int> PollProcess(void* process);
         void ReleaseProcess(void* process);
         [[nodiscard]] bool OpenWithSystem(const std::filesystem::path& path, std::string& error);
+        // Blocks. False, with the file left as it was, where the system has no bin for it
+        [[nodiscard]] bool MoveToTrash(const std::filesystem::path& path, std::string& error);
         // False where the platform has no windows, or the process shows none
         bool BringProcessToFront(std::uint32_t processID);
 

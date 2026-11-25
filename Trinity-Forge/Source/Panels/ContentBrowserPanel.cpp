@@ -53,10 +53,13 @@ namespace
 
 #if defined(TR_PLATFORM_WINDOWS)
     constexpr const char* c_ShowInFileManager = "Show in Explorer";
+    constexpr std::string_view c_Bin = "the Recycle Bin";
 #elif defined(TR_PLATFORM_MACOS)
     constexpr const char* c_ShowInFileManager = "Reveal in Finder";
+    constexpr std::string_view c_Bin = "the Trash";
 #else
     constexpr const char* c_ShowInFileManager = "Show in File Manager";
+    constexpr std::string_view c_Bin = "the trash";
 #endif
 
     // New Script's templates, each with the name it suggests until the name is typed over
@@ -2236,8 +2239,8 @@ void ContentBrowserPanel::Duplicate(const Item& item)
 // Asks first, since a deleted file is gone for good
 void ContentBrowserPanel::AskDelete(const Item& item)
 {
-    const std::string_view l_Detail = IsPrefab(item.Record) ? "This cannot be undone. The scene's instances of it stay until the scene reopens, then stand in for a missing prefab" : "This cannot be undone, and anything using it will find it missing";
-    m_Confirmation = Confirmation{ "Delete", std::format("Delete {}{}?", item.Name, item.Folder ? " and everything in it" : ""), std::string(l_Detail), "Delete", [this, l_Path = item.Path]
+    const std::string_view l_Missing = IsPrefab(item.Record) ? "The scene's instances of it stay until the scene reopens, then stand in for a missing prefab" : "Anything using it will find it missing";
+    m_Confirmation = Confirmation{ "Delete", std::format("Delete {}{}?", item.Name, item.Folder ? " and everything in it" : ""), std::format("It goes to {}, from where it can be put back. {}", c_Bin, l_Missing), "Delete", [this, l_Path = item.Path]
     {
         static_cast<void>(m_Session.DeleteAsset(l_Path));
         m_Selected.clear();
@@ -2261,7 +2264,7 @@ void ContentBrowserPanel::AskDeleteSelected()
         return;
     }
 
-    m_Confirmation = Confirmation{ "Delete", std::format("Delete {} items?", l_Paths.size()), "This cannot be undone. A folder goes with everything in it", "Delete", [this, l_Paths = std::move(l_Paths)]
+    m_Confirmation = Confirmation{ "Delete", std::format("Delete {} items?", l_Paths.size()), std::format("They go to {}, from where they can be put back. A folder goes with everything in it", c_Bin), "Delete", [this, l_Paths = std::move(l_Paths)]
     {
         for (const std::string& it_Path : l_Paths)
         {

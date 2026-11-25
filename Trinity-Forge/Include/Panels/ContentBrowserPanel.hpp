@@ -89,7 +89,7 @@ private:
         int LastDrawn = 0;
     };
 
-    // What Delete and Reimport All ask before they act, since neither can be undone
+    // What Delete and Reimport All ask before they act, since neither is undone from within Forge
     struct Confirmation
     {
         std::string Title;

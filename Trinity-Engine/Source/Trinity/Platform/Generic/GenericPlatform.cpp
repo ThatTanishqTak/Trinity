@@ -880,6 +880,43 @@ namespace Trinity
             return std::string(l_Buffer.data(), static_cast<std::size_t>(l_Read));
         }
 
+        // The Finder on macOS, and gio elsewhere, which moves into the desktop's trash by its own rules. Without gio there is no bin to move to
+        bool MoveToTrash(const std::filesystem::path& path, std::string& error)
+        {
+#if defined(TR_PLATFORM_MACOS)
+            const std::filesystem::path l_Tool = "/usr/bin/osascript";
+            const std::array<std::string, 7> l_Arguments{ "-e", "on run argv", "-e", "tell application \"Finder\" to delete POSIX file (item 1 of argv)", "-e", "end run", path.string() };
+#else
+            const std::filesystem::path l_Tool = FindOnPath("gio");
+            if (l_Tool.empty())
+            {
+                error = "gio is not on the PATH, and it is what moves a file to the trash";
+
+                return false;
+            }
+
+            const std::array<std::string, 2> l_Arguments{ "trash", path.string() };
+#endif
+            ProcessRequest l_Request;
+            l_Request.Executable = l_Tool;
+            l_Request.Arguments = l_Arguments;
+            std::string l_Output;
+            const std::optional<int> l_Exit = RunProcess(l_Request, [&l_Output](std::string_view line) { l_Output += line; }, error);
+            if (!l_Exit)
+            {
+                return false;
+            }
+
+            if (*l_Exit != 0)
+            {
+                error = !l_Output.empty() ? l_Output : std::format("{} ended with {}", l_Tool.filename().string(), *l_Exit);
+
+                return false;
+            }
+
+            return true;
+        }
+
         // open on macOS, and xdg-open elsewhere
         bool OpenWithSystem(const std::filesystem::path& path, std::string& error)
         {

@@ -734,6 +734,52 @@ namespace Trinity
             return true;
         }
 
+        // A drive with no Recycle Bin, as a network share is, is refused first, since the shell would delete from it for good. Should it still mean to, for a file too large for the bin, it asks before it does
+        bool MoveToTrash(const std::filesystem::path& path, std::string& error)
+        {
+            std::error_code l_Failure;
+            const std::filesystem::path l_Path = std::filesystem::absolute(path, l_Failure);
+            if (l_Failure || !std::filesystem::exists(l_Path, l_Failure))
+            {
+                error = "it is not there";
+
+                return false;
+            }
+
+            SHQUERYRBINFO l_Bin{};
+            l_Bin.cbSize = sizeof(l_Bin);
+            if (FAILED(::SHQueryRecycleBinW(l_Path.root_path().c_str(), &l_Bin)))
+            {
+                error = std::format("{} has no Recycle Bin", ToUtf8(l_Path.root_path().native()));
+
+                return false;
+            }
+
+            // The shell reads a list of paths, which ends at a second null
+            std::wstring l_From = l_Path.native();
+            l_From.push_back(L'\0');
+            SHFILEOPSTRUCTW l_Operation{};
+            l_Operation.wFunc = FO_DELETE;
+            l_Operation.pFrom = l_From.c_str();
+            l_Operation.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_WANTNUKEWARNING | FOF_NOERRORUI | FOF_SILENT;
+            const int l_Result = ::SHFileOperationW(&l_Operation);
+            if (l_Result != 0)
+            {
+                error = std::format("the shell refused it with code {:#x}", l_Result);
+
+                return false;
+            }
+
+            if (l_Operation.fAnyOperationsAborted != FALSE || std::filesystem::exists(l_Path, l_Failure))
+            {
+                error = "it was called off";
+
+                return false;
+            }
+
+            return true;
+        }
+
         // The first visible unowned window is the main one. Restoring it first lets it come forward
         bool BringProcessToFront(std::uint32_t processID)
         {

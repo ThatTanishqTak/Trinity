@@ -105,6 +105,17 @@ namespace Trinity
             return {};
         }
 
+        Expected<void, std::string> MoveToTrash(const std::filesystem::path& path)
+        {
+            std::string l_Error;
+            if (!Platform::MoveToTrash(path, l_Error))
+            {
+                return Unexpected{ std::format("{} could not be moved to the bin: {}", ToUtf8(path), l_Error) };
+            }
+
+            return {};
+        }
+
         Environment GetEnvironment()
         {
             return Platform::GetEnvironment();
