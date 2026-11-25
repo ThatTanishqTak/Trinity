@@ -263,6 +263,7 @@ void ForgeLayer::OnAttach()
     l_Handler.WriteAllFn = &ForgeLayer::WritePanelSettings;
     l_Handler.UserData = this;
     ImGui::AddSettingsHandler(&l_Handler);
+    RegisterShortcuts();
 }
 
 // Before ImGui's frame begins, so a native file dialog never blocks with a frame open
@@ -356,13 +357,6 @@ void ForgeLayer::OnImGuiRender()
     // The Scene panel gives the scene its input back while hovered or focused. Closed, it gives none
     m_ImGui.SetSceneInput(false, false);
 
-    // F1 shows and hides the demo window, though not while a text field takes the keyboard
-    if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F1, false))
-    {
-        m_ShowDemoWindow = !m_ShowDemoWindow;
-        TR_INFO("Forge: demo window {}", m_ShowDemoWindow ? "shown" : "hidden");
-    }
-
     ReadShortcuts();
     DrawMenuBar();
     DrawToolbar();
@@ -385,6 +379,7 @@ void ForgeLayer::OnImGuiRender()
     m_PropertiesPanel->DrawPopups();
     DrawStartScreen();
     m_PreferencesWindow.Draw();
+    m_ShortcutsWindow.Draw();
 
     if (m_ShowAbout)
     {
@@ -649,6 +644,64 @@ bool ForgeLayer::OnCloseRequested()
     return m_Session.RequestClose();
 }
 
+// Every command a key runs, with the key it starts on. Each is ready by what its menu item is greyed by, and Duplicate, Delete and Paste are left to a panel that lists things of its own while it has the focus
+void ForgeLayer::RegisterShortcuts()
+{
+    Shortcuts& l_Shortcuts = m_Session.GetShortcuts();
+    const auto a_Request = [this](EditorSession::Command command) { return [this, command] { m_Session.Request(command); }; };
+    const auto a_HasProject = [this] { return m_Session.HasProject(); };
+    const auto a_HasSelection = [this] { return static_cast<bool>(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection())); };
+    const auto a_OwnsEditKeys = [this] { return m_ContentBrowser->IsFocused() || m_InputActionsPanel->IsFocused() || m_AudioMixerPanel->IsFocused() || m_SoundEventPanel->IsFocused(); };
+    // Not while a copy plays, which nothing may change, nor from a panel with its own Duplicate, Delete and Paste
+    const auto a_EditsScene = [this, a_OwnsEditKeys] { return !m_Session.IsPlaying() && !a_OwnsEditKeys(); };
+
+    l_Shortcuts.Add({ .ID = "file.newScene", .Category = "File", .Label = "New Scene", .Chord = ImGuiMod_Ctrl | ImGuiKey_N, .Run = a_Request(EditorSession::Command::NewScene) });
+    l_Shortcuts.Add({ .ID = "file.openScene", .Category = "File", .Label = "Open Scene", .Chord = ImGuiMod_Ctrl | ImGuiKey_O, .Run = a_Request(EditorSession::Command::OpenScene) });
+    l_Shortcuts.Add({ .ID = "file.save", .Category = "File", .Label = "Save", .Chord = ImGuiMod_Ctrl | ImGuiKey_S, .Run = a_Request(EditorSession::Command::SaveScene) });
+    l_Shortcuts.Add({ .ID = "file.saveAs", .Category = "File", .Label = "Save As", .Chord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, .Run = a_Request(EditorSession::Command::SaveSceneAs) });
+    l_Shortcuts.Add({ .ID = "file.refresh", .Category = "File", .Label = "Refresh", .Chord = ImGuiKey_F5, .Run = a_Request(EditorSession::Command::Refresh) });
+    l_Shortcuts.Add({ .ID = "file.buildSettings", .Category = "File", .Label = "Build Settings", .Chord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B, .IsEnabled = a_HasProject, .Run = [this]
+    {
+        m_BuildPanel->SetOpen(true);
+        m_BuildPanel->RequestFocus();
+    } });
+    l_Shortcuts.Add({ .ID = "file.buildAndRun", .Category = "File", .Label = "Build And Run", .Chord = ImGuiMod_Ctrl | ImGuiKey_B, .IsEnabled = a_HasProject, .Run = [this] { BuildAndRun(); } });
+
+    l_Shortcuts.Add({ .ID = "edit.undo", .Category = "Edit", .Label = "Undo", .Chord = ImGuiMod_Ctrl | ImGuiKey_Z, .Repeats = true, .Run = [this] { m_Session.GetHistory().Undo(); } });
+    l_Shortcuts.Add({ .ID = "edit.redo", .Category = "Edit", .Label = "Redo", .Chord = ImGuiMod_Ctrl | ImGuiKey_Y, .Alternate = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, .Repeats = true, .Run = [this] { m_Session.GetHistory().Redo(); } });
+    l_Shortcuts.Add({ .ID = "edit.copy", .Category = "Edit", .Label = "Copy", .Chord = ImGuiMod_Ctrl | ImGuiKey_C, .IsEnabled = [this, a_HasSelection] { return !m_ContentBrowser->IsFocused() && a_HasSelection(); }, .Run = [this] { m_Session.CopyEntity(m_Session.GetSelection()); } });
+    l_Shortcuts.Add({ .ID = "edit.paste", .Category = "Edit", .Label = "Paste", .Chord = ImGuiMod_Ctrl | ImGuiKey_V, .IsEnabled = [this, a_EditsScene] { return a_EditsScene() && m_Session.HasCopiedEntity(); }, .Run = [this] { static_cast<void>(m_Session.PasteEntity()); } });
+    l_Shortcuts.Add({ .ID = "edit.pasteAsChild", .Category = "Edit", .Label = "Paste As Child", .Chord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V, .IsEnabled = [this, a_EditsScene, a_HasSelection] { return a_EditsScene() && m_Session.HasCopiedEntity() && a_HasSelection(); }, .Run = [this] { static_cast<void>(m_Session.PasteEntityAsChild(m_Session.GetSelection())); } });
+    l_Shortcuts.Add({ .ID = "edit.duplicate", .Category = "Edit", .Label = "Duplicate", .Chord = ImGuiMod_Ctrl | ImGuiKey_D, .IsEnabled = [a_EditsScene, a_HasSelection] { return a_EditsScene() && a_HasSelection(); }, .Run = [this] { static_cast<void>(m_Session.DuplicateSelection()); } });
+    l_Shortcuts.Add({ .ID = "edit.delete", .Category = "Edit", .Label = "Delete", .Chord = ImGuiKey_Delete, .IsEnabled = [a_EditsScene, a_HasSelection] { return a_EditsScene() && a_HasSelection(); }, .Run = [this] { static_cast<void>(m_Session.DeleteSelection()); } });
+    l_Shortcuts.Add({ .ID = "edit.preferences", .Category = "Edit", .Label = "Preferences", .Chord = ImGuiMod_Ctrl | ImGuiKey_Comma, .Run = [this] { m_PreferencesWindow.Open(); } });
+
+    l_Shortcuts.Add({ .ID = "entity.createEmpty", .Category = "Entity", .Label = "Create Empty", .Chord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_N, .IsEnabled = [this] { return !m_Session.IsPlaying() && m_Session.HasProject(); }, .Run = [this] { CreateEmpty({}); } });
+    l_Shortcuts.Add({ .ID = "entity.createEmptyChild", .Category = "Entity", .Label = "Create Empty Child", .Chord = ImGuiMod_Alt | ImGuiMod_Shift | ImGuiKey_N, .IsEnabled = [this, a_HasSelection] { return !m_Session.IsPlaying() && a_HasSelection(); }, .Run = [this] { CreateEmpty(m_Session.GetSelection()); } });
+
+    l_Shortcuts.Add({ .ID = "play.toggle", .Category = "Play", .Label = "Play or Stop", .Chord = ImGuiMod_Ctrl | ImGuiKey_P, .IsEnabled = a_HasProject, .Run = [this]
+    {
+        if (m_Session.IsPlaying())
+        {
+            m_Session.RequestStop();
+        }
+        else
+        {
+            m_Session.RequestPlay();
+        }
+    } });
+    l_Shortcuts.Add({ .ID = "play.pause", .Category = "Play", .Label = "Pause or Resume", .Chord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P, .Run = [this] { m_Session.RequestPause(); } });
+    l_Shortcuts.Add({ .ID = "play.step", .Category = "Play", .Label = "Step", .Chord = ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_P, .Run = [this] { m_Session.RequestStep(); } });
+
+    l_Shortcuts.Add({ .ID = "help.shortcuts", .Category = "Help", .Label = "Keyboard Shortcuts", .Chord = ImGuiMod_Ctrl | ImGuiKey_Slash, .Run = [this] { m_ShortcutsWindow.Open(); } });
+    l_Shortcuts.Add({ .ID = "help.demo", .Category = "Help", .Label = "ImGui Demo", .Chord = ImGuiKey_F1, .Run = [this]
+    {
+        m_ShowDemoWindow = !m_ShowDemoWindow;
+        TR_INFO("Forge: demo window {}", m_ShowDemoWindow ? "shown" : "hidden");
+    } });
+}
+
+// Not while typing, dragging, in a popup, or while Input Actions listens for a key to bind
 // Not while typing, dragging, in a popup, or while Input Actions listens. Ctrl+P plays and stops
 void ForgeLayer::ReadShortcuts()
 {
@@ -657,103 +710,7 @@ void ForgeLayer::ReadShortcuts()
         return;
     }
 
-    const bool l_Playing = m_Session.IsPlaying();
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_P))
-    {
-        m_Session.RequestStep();
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P))
-    {
-        m_Session.RequestPause();
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_P) && m_Session.HasProject())
-    {
-        if (l_Playing)
-        {
-            m_Session.RequestStop();
-        }
-        else
-        {
-            m_Session.RequestPlay();
-        }
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_N))
-    {
-        m_Session.Request(EditorSession::Command::NewScene);
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O))
-    {
-        m_Session.Request(EditorSession::Command::OpenScene);
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S))
-    {
-        m_Session.Request(EditorSession::Command::SaveSceneAs);
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B) && m_Session.HasProject())
-    {
-        m_BuildPanel->SetOpen(true);
-        m_BuildPanel->RequestFocus();
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_B) && m_Session.HasProject())
-    {
-        BuildAndRun();
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S))
-    {
-        m_Session.Request(EditorSession::Command::SaveScene);
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiKey_F5))
-    {
-        m_Session.Request(EditorSession::Command::Refresh);
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C) && !m_ContentBrowser->IsFocused() && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
-    {
-        m_Session.CopyEntity(m_Session.GetSelection());
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, ImGuiInputFlags_Repeat) || ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiInputFlags_Repeat))
-    {
-        m_Session.GetHistory().Redo();
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z, ImGuiInputFlags_Repeat))
-    {
-        m_Session.GetHistory().Undo();
-    }
-    else if (l_Playing)
-    {
-        // Create Empty, Paste, Duplicate and Delete would edit the scene, locked while a copy plays
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_N) && m_Session.HasProject())
-    {
-        CreateEmpty({});
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Alt | ImGuiMod_Shift | ImGuiKey_N) && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
-    {
-        CreateEmpty(m_Session.GetSelection());
-    }
-    else if (m_ContentBrowser->IsFocused() || m_InputActionsPanel->IsFocused() || m_AudioMixerPanel->IsFocused() || m_SoundEventPanel->IsFocused())
-    {
-        // Duplicate and Delete are the focused panel's own, and Copy and Paste are left to them
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V) && m_Session.HasCopiedEntity() && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
-    {
-        static_cast<void>(m_Session.PasteEntityAsChild(m_Session.GetSelection()));
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V) && m_Session.HasCopiedEntity())
-    {
-        static_cast<void>(m_Session.PasteEntity());
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D) && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
-    {
-        static_cast<void>(m_Session.DuplicateSelection());
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiKey_Delete) && m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()))
-    {
-        static_cast<void>(m_Session.DeleteSelection());
-    }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma))
-    {
-        m_PreferencesWindow.Open();
-    }
+    static_cast<void>(m_Session.GetShortcuts().Dispatch());
 }
 
 void ForgeLayer::DrawMenuBar()
@@ -777,8 +734,8 @@ void ForgeLayer::DrawMenuBar()
         a_Item(Trinity::Icons::c_File, "New Project...", nullptr, true, EditorSession::Command::NewProject);
         a_Item(Trinity::Icons::c_FolderOpen, "Open Project...", nullptr, true, EditorSession::Command::OpenProject);
         ImGui::Separator();
-        a_Item(Trinity::Icons::c_File, "New Scene", "Ctrl+N", l_HasProject, EditorSession::Command::NewScene);
-        a_Item(Trinity::Icons::c_FolderOpen, "Open Scene...", "Ctrl+O", l_HasProject, EditorSession::Command::OpenScene);
+        a_Item(Trinity::Icons::c_File, "New Scene", GetKeyText("file.newScene").c_str(), l_HasProject, EditorSession::Command::NewScene);
+        a_Item(Trinity::Icons::c_FolderOpen, "Open Scene...", GetKeyText("file.openScene").c_str(), l_HasProject, EditorSession::Command::OpenScene);
         if (ImGui::BeginMenu(WithIcon(Trinity::Icons::c_History, "Open Recent Scene").c_str(), l_HasProject))
         {
             DrawRecentScenesMenu();
@@ -788,18 +745,18 @@ void ForgeLayer::DrawMenuBar()
 
         // In prefab mode Save is the prefab's, as in Unity, and Save As waits for the scene
         const bool l_PrefabMode = static_cast<bool>(m_Session.GetOpenPrefab());
-        a_Item(Trinity::Icons::c_Save, l_PrefabMode ? "Save Prefab" : "Save", "Ctrl+S", l_HasProject, EditorSession::Command::SaveScene);
-        a_Item(Trinity::Icons::c_Save, "Save As...", "Ctrl+Shift+S", l_HasProject && !l_PrefabMode, EditorSession::Command::SaveSceneAs);
+        a_Item(Trinity::Icons::c_Save, l_PrefabMode ? "Save Prefab" : "Save", GetKeyText("file.save").c_str(), l_HasProject, EditorSession::Command::SaveScene);
+        a_Item(Trinity::Icons::c_Save, "Save As...", GetKeyText("file.saveAs").c_str(), l_HasProject && !l_PrefabMode, EditorSession::Command::SaveSceneAs);
         a_Item(Trinity::Icons::c_Gear, "Set as Start Scene", nullptr, l_HasProject && m_Session.HasScenePath(), EditorSession::Command::SetStartScene);
-        a_Item(Trinity::Icons::c_Refresh, "Refresh", "F5", l_HasProject, EditorSession::Command::Refresh);
+        a_Item(Trinity::Icons::c_Refresh, "Refresh", GetKeyText("file.refresh").c_str(), l_HasProject, EditorSession::Command::Refresh);
         ImGui::Separator();
-        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_PackageVariantClosed, "Build Settings...").c_str(), "Ctrl+Shift+B", false, l_HasProject))
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_PackageVariantClosed, "Build Settings...").c_str(), GetKeyText("file.buildSettings").c_str(), false, l_HasProject))
         {
             m_BuildPanel->SetOpen(true);
             m_BuildPanel->RequestFocus();
         }
 
-        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Play, "Build And Run").c_str(), "Ctrl+B", false, l_HasProject && !m_Export.IsRunning()))
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Play, "Build And Run").c_str(), GetKeyText("file.buildAndRun").c_str(), false, l_HasProject && !m_Export.IsRunning()))
         {
             BuildAndRun();
         }
@@ -869,7 +826,12 @@ void ForgeLayer::DrawMenuBar()
 
     if (ImGui::BeginMenu("Help"))
     {
-        ImGui::MenuItem(WithIcon(Trinity::Icons::c_Book, "ImGui Demo").c_str(), "F1", &m_ShowDemoWindow);
+        ImGui::MenuItem(WithIcon(Trinity::Icons::c_Book, "ImGui Demo").c_str(), GetKeyText("help.demo").c_str(), &m_ShowDemoWindow);
+        if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Book, "Keyboard Shortcuts...").c_str(), GetKeyText("help.shortcuts").c_str()))
+        {
+            m_ShortcutsWindow.Open();
+        }
+
         ImGui::Separator();
         ImGui::MenuItem(WithIcon(Trinity::Icons::c_InfoCircle, "About").c_str(), nullptr, &m_ShowAbout);
 
@@ -907,7 +869,7 @@ void ForgeLayer::DrawToolbar()
 
         // In prefab mode Save is the prefab's, as it is in the File menu
         const bool l_PrefabMode = static_cast<bool>(m_Session.GetOpenPrefab());
-        if (a_Button(Trinity::Icons::c_Save, "Save", m_Session.HasProject(), l_PrefabMode ? "Save Prefab (Ctrl+S)" : "Save (Ctrl+S)"))
+        if (a_Button(Trinity::Icons::c_Save, "Save", m_Session.HasProject(), std::format("{} ({})", l_PrefabMode ? "Save Prefab" : "Save", GetKeyText("file.save"))))
         {
             m_Session.Request(EditorSession::Command::SaveScene);
         }
@@ -915,12 +877,12 @@ void ForgeLayer::DrawToolbar()
         CommandStack& l_History = m_Session.GetHistory();
         const bool l_CanUndo = l_History.CanUndo();
         const bool l_CanRedo = l_History.CanRedo();
-        if (a_Button(Trinity::Icons::c_Undo, "Undo", l_CanUndo, l_CanUndo ? std::format("Undo {} (Ctrl+Z)", l_History.GetCommand(l_History.GetPosition() - 1).GetName()) : std::string("Undo (Ctrl+Z)")))
+        if (a_Button(Trinity::Icons::c_Undo, "Undo", l_CanUndo, l_CanUndo ? std::format("Undo {} ({})", l_History.GetCommand(l_History.GetPosition() - 1).GetName(), GetKeyText("edit.undo")) : std::format("Undo ({})", GetKeyText("edit.undo"))))
         {
             l_History.Undo();
         }
 
-        if (a_Button(Trinity::Icons::c_Redo, "Redo", l_CanRedo, l_CanRedo ? std::format("Redo {} (Ctrl+Y)", l_History.GetCommand(l_History.GetPosition()).GetName()) : std::string("Redo (Ctrl+Y)")))
+        if (a_Button(Trinity::Icons::c_Redo, "Redo", l_CanRedo, l_CanRedo ? std::format("Redo {} ({})", l_History.GetCommand(l_History.GetPosition()).GetName(), GetKeyText("edit.redo")) : std::format("Redo ({})", GetKeyText("edit.redo"))))
         {
             l_History.Redo();
         }
@@ -1084,23 +1046,25 @@ void ForgeLayer::DrawPlayControls()
     const std::string l_Failed = l_Playing ? std::string() : m_Session.GetFailedBuilds();
     // Greyed in prefab mode, which has no scene to play
     const bool l_PrefabMode = static_cast<bool>(m_Session.GetOpenPrefab());
-    const std::string l_PlayTip = l_PrefabMode ? "Play is disabled in prefab mode. Go back to the scene to play it" : l_Paused ? "Resume (Ctrl+Shift+P)" : l_Waiting ? "Plays once the scripts have built. Click to stop waiting (Ctrl+P)" : !l_Failed.empty() ? std::format("Play (Ctrl+P). Build errors in {} stop it until they are fixed", l_Failed) : "Play (Ctrl+P)";
+    const std::string l_PlayKey = GetKeyText("play.toggle");
+    const std::string l_PauseKey = GetKeyText("play.pause");
+    const std::string l_PlayTip = l_PrefabMode ? "Play is disabled in prefab mode. Go back to the scene to play it" : l_Paused ? std::format("Resume ({})", l_PauseKey) : l_Waiting ? std::format("Plays once the scripts have built. Click to stop waiting ({})", l_PlayKey) : !l_Failed.empty() ? std::format("Play ({}). Build errors in {} stop it until they are fixed", l_PlayKey, l_Failed) : std::format("Play ({})", l_PlayKey);
     if (a_Button(Trinity::Icons::c_Play, "Play", m_Session.HasProject() && !l_PrefabMode && (!l_Playing || l_Paused), (l_Playing && !l_Paused) || l_Waiting, l_PlayTip.c_str()))
     {
         m_Session.RequestPlay();
     }
 
-    if (a_Button(Trinity::Icons::c_Pause, "Pause", l_Playing, l_Paused, "Pause (Ctrl+Shift+P)"))
+    if (a_Button(Trinity::Icons::c_Pause, "Pause", l_Playing, l_Paused, std::format("Pause ({})", l_PauseKey).c_str()))
     {
         m_Session.RequestPause();
     }
 
-    if (a_Button(Trinity::Icons::c_StepForward, "Step", l_Playing, false, "Step (Ctrl+Alt+P)"))
+    if (a_Button(Trinity::Icons::c_StepForward, "Step", l_Playing, false, std::format("Step ({})", GetKeyText("play.step")).c_str()))
     {
         m_Session.RequestStep();
     }
 
-    if (a_Button(Trinity::Icons::c_Stop, "Stop", l_Playing, false, "Stop (Ctrl+P)"))
+    if (a_Button(Trinity::Icons::c_Stop, "Stop", l_Playing, false, std::format("Stop ({})", l_PlayKey).c_str()))
     {
         m_Session.RequestStop();
     }
@@ -1115,13 +1079,13 @@ void ForgeLayer::DrawEditMenu()
     const bool l_CanRedo = l_History.CanRedo();
 
     const std::string l_Undo = l_CanUndo ? std::format("Undo {}###Undo", l_History.GetCommand(l_History.GetPosition() - 1).GetName()) : std::string("Undo###Undo");
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Undo, l_Undo).c_str(), "Ctrl+Z", false, l_CanUndo))
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Undo, l_Undo).c_str(), GetKeyText("edit.undo").c_str(), false, l_CanUndo))
     {
         l_History.Undo();
     }
 
     const std::string l_Redo = l_CanRedo ? std::format("Redo {}###Redo", l_History.GetCommand(l_History.GetPosition()).GetName()) : std::string("Redo###Redo");
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Redo, l_Redo).c_str(), "Ctrl+Y", false, l_CanRedo))
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Redo, l_Redo).c_str(), GetKeyText("edit.redo").c_str(), false, l_CanRedo))
     {
         l_History.Redo();
     }
@@ -1137,28 +1101,28 @@ void ForgeLayer::DrawEditMenu()
 
     const bool l_Selected = static_cast<bool>(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()));
     const bool l_HasSelection = !l_Playing && l_Selected;
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Copy, "Copy").c_str(), "Ctrl+C", false, l_Selected))
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Copy, "Copy").c_str(), GetKeyText("edit.copy").c_str(), false, l_Selected))
     {
         m_Session.CopyEntity(m_Session.GetSelection());
     }
 
     const bool l_CanPaste = !l_Playing && m_Session.HasCopiedEntity();
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Paste, "Paste").c_str(), "Ctrl+V", false, l_CanPaste))
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Paste, "Paste").c_str(), GetKeyText("edit.paste").c_str(), false, l_CanPaste))
     {
         static_cast<void>(m_Session.PasteEntity());
     }
 
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Paste, "Paste As Child").c_str(), "Ctrl+Shift+V", false, l_CanPaste && l_HasSelection))
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Paste, "Paste As Child").c_str(), GetKeyText("edit.pasteAsChild").c_str(), false, l_CanPaste && l_HasSelection))
     {
         static_cast<void>(m_Session.PasteEntityAsChild(m_Session.GetSelection()));
     }
 
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Duplicate").c_str(), "Ctrl+D", false, l_HasSelection))
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Duplicate").c_str(), GetKeyText("edit.duplicate").c_str(), false, l_HasSelection))
     {
         static_cast<void>(m_Session.DuplicateSelection());
     }
 
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Trash, "Delete").c_str(), "Delete", false, l_HasSelection))
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Trash, "Delete").c_str(), GetKeyText("edit.delete").c_str(), false, l_HasSelection))
     {
         static_cast<void>(m_Session.DeleteSelection());
     }
@@ -1171,7 +1135,7 @@ void ForgeLayer::DrawEditMenu()
         m_ProjectSettings->RequestFocus();
     }
 
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Sliders, "Preferences...").c_str(), "Ctrl+,"))
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Sliders, "Preferences...").c_str(), GetKeyText("edit.preferences").c_str()))
     {
         m_PreferencesWindow.Open();
     }
@@ -1182,12 +1146,12 @@ void ForgeLayer::DrawEntityMenu()
 {
     const bool l_Editable = m_Session.HasProject() && !m_Session.IsPlaying();
     const bool l_HasSelection = l_Editable && static_cast<bool>(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection()));
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Create Empty").c_str(), "Ctrl+Shift+N", false, l_Editable))
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Create Empty").c_str(), GetKeyText("entity.createEmpty").c_str(), false, l_Editable))
     {
         CreateEmpty({});
     }
 
-    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Create Empty Child").c_str(), "Alt+Shift+N", false, l_HasSelection))
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_CubeOutline, "Create Empty Child").c_str(), GetKeyText("entity.createEmptyChild").c_str(), false, l_HasSelection))
     {
         CreateEmpty(m_Session.GetSelection());
     }

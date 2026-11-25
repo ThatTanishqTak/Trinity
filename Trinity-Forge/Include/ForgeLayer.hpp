@@ -16,6 +16,7 @@
 #include "Panels/ViewportPanel.hpp"
 #include "PreferencesWindow.hpp"
 #include "SceneCapture.hpp"
+#include "ShortcutsWindow.hpp"
 #include "Toasts.hpp"
 
 #include <Trinity.hpp>
@@ -45,6 +46,9 @@ public:
     [[nodiscard]] bool OnCloseRequested() override;
 
 private:
+    void RegisterShortcuts();
+    // The command's key as its menu item and its button's tip show it
+    [[nodiscard]] std::string GetKeyText(std::string_view id) const { return m_Session.GetShortcuts().GetKeyText(id); }
     void ReadShortcuts();
     void DrawMenuBar();
     void DrawToolbar();
@@ -80,6 +84,7 @@ private:
     SceneCapture m_Capture{ m_Session };
     Toasts m_Toasts;
     PreferencesWindow m_PreferencesWindow{ m_Session };
+    ShortcutsWindow m_ShortcutsWindow{ m_Session };
     std::vector<Trinity::Scope<Panel>> m_Panels;
     ViewportPanel* m_ViewportPanel = nullptr;
     HierarchyPanel* m_HierarchyPanel = nullptr;

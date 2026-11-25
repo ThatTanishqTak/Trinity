@@ -800,9 +800,11 @@ void HierarchyPanel::DrawRenameField(Trinity::Entity entity)
 // While a copy plays, Copy alone, which takes the playing entity, and Open Prefab
 void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
 {
+    // The keys shown are the commands' own, which Forge's Edit and Entity menus show too
+    const Shortcuts& l_Shortcuts = m_Session.GetShortcuts();
     const Trinity::UUID l_ID = entity.GetUUID();
     ImGui::BeginDisabled(m_ReadOnly);
-    if (ImGui::MenuItem(std::format("{} Create Empty Child", Trinity::Icons::c_CubeOutline).c_str(), "Alt+Shift+N"))
+    if (ImGui::MenuItem(std::format("{} Create Empty Child", Trinity::Icons::c_CubeOutline).c_str(), l_Shortcuts.GetKeyText("entity.createEmptyChild").c_str()))
     {
         m_Deferred.push_back([this, l_ID] { Create(l_ID); });
     }
@@ -812,13 +814,13 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
 
     ImGui::Separator();
 
-    if (ImGui::MenuItem(std::format("{} Copy", Trinity::Icons::c_Copy).c_str(), "Ctrl+C"))
+    if (ImGui::MenuItem(std::format("{} Copy", Trinity::Icons::c_Copy).c_str(), l_Shortcuts.GetKeyText("edit.copy").c_str()))
     {
         m_Session.CopyEntity(l_ID);
     }
 
     ImGui::BeginDisabled(m_ReadOnly);
-    if (ImGui::MenuItem(std::format("{} Paste", Trinity::Icons::c_Paste).c_str(), "Ctrl+V", false, m_Session.HasCopiedEntity()))
+    if (ImGui::MenuItem(std::format("{} Paste", Trinity::Icons::c_Paste).c_str(), l_Shortcuts.GetKeyText("edit.paste").c_str(), false, m_Session.HasCopiedEntity()))
     {
         m_Deferred.push_back([this]
         {
@@ -829,7 +831,7 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
         });
     }
 
-    if (ImGui::MenuItem(std::format("{} Paste As Child", Trinity::Icons::c_Paste).c_str(), "Ctrl+Shift+V", false, m_Session.HasCopiedEntity()))
+    if (ImGui::MenuItem(std::format("{} Paste As Child", Trinity::Icons::c_Paste).c_str(), l_Shortcuts.GetKeyText("edit.pasteAsChild").c_str(), false, m_Session.HasCopiedEntity()))
     {
         m_Deferred.push_back([this, l_ID]
         {
@@ -849,14 +851,14 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
 
     // With several rows selected and this one of them, Duplicate and Delete are theirs
     const bool l_Several = m_Session.GetSelected().GetCount() > 1 && m_Session.GetSelected().Contains(l_ID);
-    if (ImGui::MenuItem("Duplicate", "Ctrl+D"))
+    if (ImGui::MenuItem("Duplicate", l_Shortcuts.GetKeyText("edit.duplicate").c_str()))
     {
         m_Deferred.push_back([this, l_ID, l_Several] { static_cast<void>(l_Several ? m_Session.DuplicateSelection() : m_Session.DuplicateEntity(l_ID)); });
     }
 
     ImGui::Separator();
 
-    if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), "Delete"))
+    if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), l_Shortcuts.GetKeyText("edit.delete").c_str()))
     {
         m_Deferred.push_back([this, l_ID, l_Several] { static_cast<void>(l_Several ? m_Session.DeleteSelection() : m_Session.DeleteEntity(l_ID)); });
     }
@@ -927,7 +929,8 @@ void HierarchyPanel::DrawBackground()
 
     if (ImGui::BeginPopupContextItem("##BackgroundMenu"))
     {
-        if (ImGui::MenuItem(std::format("{} Create Empty", Trinity::Icons::c_CubeOutline).c_str(), "Ctrl+Shift+N"))
+        const Shortcuts& l_Shortcuts = m_Session.GetShortcuts();
+        if (ImGui::MenuItem(std::format("{} Create Empty", Trinity::Icons::c_CubeOutline).c_str(), l_Shortcuts.GetKeyText("entity.createEmpty").c_str()))
         {
             m_Deferred.push_back([this] { Create({}); });
         }
@@ -936,7 +939,7 @@ void HierarchyPanel::DrawBackground()
 
         ImGui::Separator();
 
-        if (ImGui::MenuItem(std::format("{} Paste", Trinity::Icons::c_Paste).c_str(), "Ctrl+V", false, m_Session.HasCopiedEntity()))
+        if (ImGui::MenuItem(std::format("{} Paste", Trinity::Icons::c_Paste).c_str(), l_Shortcuts.GetKeyText("edit.paste").c_str(), false, m_Session.HasCopiedEntity()))
         {
             m_Deferred.push_back([this]
             {

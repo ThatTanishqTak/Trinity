@@ -16,6 +16,7 @@
 #include "Modules/IdeLauncher.hpp"
 #include "Modules/ModuleHost.hpp"
 #include "PrefabTemplateCache.hpp"
+#include "Shortcuts.hpp"
 #include "SoundEventAudition.hpp"
 
 #include "Trinity.hpp"
@@ -212,6 +213,9 @@ public:
     [[nodiscard]] Trinity::Scene& GetEditedScene() { return m_Stage ? m_Stage->Scene : m_Scene; }
     // In prefab mode the open prefab's own, so nothing done there reaches the scene's
     [[nodiscard]] CommandStack& GetHistory() { return m_Stage ? m_Stage->History : m_History; }
+    // Every command a key runs, which the panels read the keys their menus show from
+    [[nodiscard]] Shortcuts& GetShortcuts() { return m_Shortcuts; }
+    [[nodiscard]] const Shortcuts& GetShortcuts() const { return m_Shortcuts; }
     [[nodiscard]] const Trinity::Project* GetProject() const { return m_Project.get(); }
     [[nodiscard]] const Trinity::AssetRegistry* GetRegistry() const { return m_Registry.get(); }
     [[nodiscard]] bool HasProject() const { return m_Project != nullptr; }
@@ -715,6 +719,7 @@ private:
     bool m_PlayAfterBuild = false;
     std::optional<Notice> m_Notice;
     // Whether this session wrote the backup in the cache, which it removes once the scene is saved
+    Shortcuts m_Shortcuts;
     bool m_HasBackup = false;
     // When the scene was last saved, backed up or found with nothing unsaved, and the history's revision the last backup holds, so one is written only for changes it is without
     std::chrono::steady_clock::time_point m_BackupTime = std::chrono::steady_clock::now();
