@@ -12,7 +12,6 @@
 #include <cstdint>
 #include <cstring>
 #include <format>
-#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -24,7 +23,6 @@ namespace
     constexpr float c_LabelWidthInFonts = 9.0f;
     // A scene's row dragged within the list: its index as a 32-bit number
     constexpr const char* c_BuildScenePayload = "TRINITY_BUILD_SCENE";
-    constexpr const char* c_IconPickerPopup = "##IconPicker";
     constexpr std::string_view c_SceneType = "Scene";
     constexpr std::size_t c_MinimumRows = 3;
     constexpr std::size_t c_MaximumRows = 10;
@@ -153,14 +151,6 @@ namespace
         return l_Tip;
     }
 
-    // The platform's own order, made from its defaults the first time it changes
-    std::vector<Trinity::GraphicsAPI>& GetOrder(Trinity::ExportSettings& settings)
-    {
-        std::vector<Trinity::GraphicsAPI> l_Current = settings.GetGraphicsAPIs();
-
-        return settings.GraphicsAPIs.try_emplace(settings.Platform, std::move(l_Current)).first->second;
-    }
-
     // A row moved to take another's place
     void MoveRow(Trinity::ExportSettings& settings, std::size_t from, std::size_t to)
     {
@@ -223,9 +213,6 @@ void BuildPanel::OnImGuiRender()
     const Trinity::ExportSettings l_Settings = l_Project->GetExportSettings();
     DrawPlatforms(l_Settings);
     DrawScenes(l_Settings);
-    DrawPlayer(l_Settings);
-    DrawWindow(l_Settings);
-    DrawGraphicsAPIs(l_Settings);
     DrawBuild(l_Settings);
 
     // Nothing is being dragged or typed into, so the next change is a command of its own
@@ -407,246 +394,6 @@ void BuildPanel::DrawScenes(const Trinity::ExportSettings& settings)
     Tooltip(l_Open ? "The scene open in the Scene panel, last in the build, unless the build has it already" : "The open scene has never been saved, so it is no asset the build can hold");
 }
 
-// The names a player keeps its saves and log under and shows, and its icon
-void BuildPanel::DrawPlayer(const Trinity::ExportSettings& settings)
-{
-    ImGui::SeparatorText("Player");
-    Label("Product Name");
-    if (TextField("##Product", m_Product, settings.Product))
-    {
-        Edit("product name", [this](Trinity::ExportSettings& changed) { changed.Product = m_Product.Text; });
-    }
-
-    Tooltip("The game's name: its executable, window title, saves and log are named for it, as Unity's Product Name");
-
-    Label("Company Name");
-    if (TextField("##Company", m_Company, settings.Company))
-    {
-        Edit("company name", [this](Trinity::ExportSettings& changed) { changed.Company = m_Company.Text; });
-    }
-
-    Tooltip("Whose game it is, whose folder its saves and log go under, as Unity's Company Name");
-
-    Label("Version");
-    if (TextField("##Version", m_Version, settings.Version))
-    {
-        Edit("version", [this](Trinity::ExportSettings& changed) { changed.Version = m_Version.Text; });
-    }
-
-    Tooltip("The game's version, which its executable is given, as Unity's Version");
-
-    DrawIcon(settings);
-}
-
-// A slot for one of the project's textures, as Unity's Default Icon, which also takes a drop
-void BuildPanel::DrawIcon(const Trinity::ExportSettings& settings)
-{
-    const Trinity::AssetRegistry* l_Registry = m_Session.GetRegistry();
-    const Trinity::AssetRecord* l_Record = l_Registry != nullptr && settings.Icon ? l_Registry->Find(settings.Icon) : nullptr;
-    const bool l_Broken = settings.Icon && (l_Record == nullptr || l_Record->Importer != Trinity::TextureAsset::c_AssetType);
-    const std::string l_Text = !settings.Icon ? std::string("None (Texture)") : (l_Record == nullptr ? std::format("{} Missing (Texture)", Trinity::Icons::c_Warning) : (l_Broken ? std::format("{} Type Mismatch (Texture)", Trinity::Icons::c_Warning) : std::string(ShortPath(l_Record->Path))));
-
-    const float l_ClearWidth = ImGui::GetFrameHeight();
-    Label("Icon", l_ClearWidth + ImGui::GetStyle().ItemSpacing.x);
-    if (l_Broken)
-    {
-        ImGui::PushStyleColor(ImGuiCol_Text, Trinity::Theme::GetColor(Trinity::ThemeColor::Warning));
-    }
-
-    if (ImGui::Button(std::format("{}###Icon", l_Text).c_str(), ImVec2(ImGui::CalcItemWidth(), 0.0f)))
-    {
-        m_IconFilter.clear();
-        ImGui::OpenPopup(c_IconPickerPopup);
-    }
-
-    if (l_Broken)
-    {
-        ImGui::PopStyleColor();
-    }
-
-    Tooltip("A texture of the project, which the export makes the game's icon from. Without one the game has Trinity's");
-    if (ImGui::BeginDragDropTarget())
-    {
-        const ImGuiPayload* l_Payload = ImGui::GetDragDropPayload();
-        std::uint64_t l_Value = 0;
-        if (l_Payload != nullptr && l_Payload->IsDataType(c_AssetPayload) && l_Payload->DataSize == sizeof(l_Value))
-        {
-            std::memcpy(&l_Value, l_Payload->Data, sizeof(l_Value));
-        }
-
-        const Trinity::AssetRecord* l_Dragged = l_Registry != nullptr && l_Value != 0 ? l_Registry->Find(Trinity::UUID(l_Value)) : nullptr;
-        if (l_Dragged != nullptr && l_Dragged->Importer == Trinity::TextureAsset::c_AssetType && ImGui::AcceptDragDropPayload(c_AssetPayload))
-        {
-            Edit("icon", [l_Dragged](Trinity::ExportSettings& changed) { changed.Icon = l_Dragged->ID; });
-        }
-
-        ImGui::EndDragDropTarget();
-    }
-
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!settings.Icon);
-    if (ImGui::Button(std::format("{}##ClearIcon", Trinity::Icons::c_TimesCircle).c_str(), ImVec2(l_ClearWidth, 0.0f)))
-    {
-        Edit("icon", [](Trinity::ExportSettings& changed) { changed.Icon = {}; });
-    }
-
-    ImGui::EndDisabled();
-
-    if (!ImGui::BeginPopup(c_IconPickerPopup))
-    {
-        return;
-    }
-
-    if (ImGui::IsWindowAppearing())
-    {
-        ImGui::SetKeyboardFocusHere();
-    }
-
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 20.0f);
-    Trinity::Widgets::SearchField("##Filter", "Search", m_IconFilter);
-    if (ImGui::Selectable("None", !settings.Icon) && settings.Icon)
-    {
-        Edit("icon", [](Trinity::ExportSettings& changed) { changed.Icon = {}; });
-    }
-
-    std::vector<const Trinity::AssetRecord*> l_Textures;
-    for (const Trinity::AssetRecord* it_Record : l_Registry != nullptr ? l_Registry->GetRecords() : std::vector<const Trinity::AssetRecord*>())
-    {
-        if (it_Record->Importer == Trinity::TextureAsset::c_AssetType && (m_IconFilter.empty() || it_Record->Path.find(m_IconFilter) != std::string::npos))
-        {
-            l_Textures.push_back(it_Record);
-        }
-    }
-
-    for (const Trinity::AssetRecord* it_Texture : l_Textures)
-    {
-        const bool l_Selected = it_Texture->ID == settings.Icon;
-        ImGui::PushID(it_Texture->ID.ToString().c_str());
-        if (ImGui::Selectable(std::string(ShortPath(it_Texture->Path)).c_str(), l_Selected) && !l_Selected)
-        {
-            Edit("icon", [it_Texture](Trinity::ExportSettings& changed) { changed.Icon = it_Texture->ID; });
-            ImGui::CloseCurrentPopup();
-        }
-
-        ImGui::PopID();
-    }
-
-    ImGui::EndPopup();
-}
-
-// The window a player first opens with, as Unity's Resolution and Presentation
-void BuildPanel::DrawWindow(const Trinity::ExportSettings& settings)
-{
-    ImGui::SeparatorText("Window");
-    Label("Fullscreen Mode");
-    int l_Mode = static_cast<int>(settings.Window.Mode);
-    if (ImGui::Combo("##FullscreenMode", &l_Mode, "Windowed\0Fullscreen Window\0"))
-    {
-        Edit("fullscreen mode", [l_Mode](Trinity::ExportSettings& changed) { changed.Window.Mode = static_cast<Trinity::FullScreenMode>(l_Mode); });
-    }
-
-    Tooltip("Windowed opens in a frame at the width and height below. Fullscreen Window covers the monitor. Alt+Enter switches");
-
-    constexpr int c_MaxSize = static_cast<int>(Trinity::WindowSettings::c_MaxSize);
-    Label("Width");
-    int l_Width = static_cast<int>(settings.Window.Width);
-    if (Trinity::Widgets::DragInt("##Width", &l_Width, 1.0f, 1, c_MaxSize, "%d px", ImGuiSliderFlags_AlwaysClamp))
-    {
-        Edit("window width", [l_Width](Trinity::ExportSettings& changed) { changed.Window.Width = static_cast<std::uint32_t>(l_Width); });
-    }
-
-    Tooltip("The window's client area while windowed, in pixels");
-
-    Label("Height");
-    int l_Height = static_cast<int>(settings.Window.Height);
-    if (Trinity::Widgets::DragInt("##Height", &l_Height, 1.0f, 1, c_MaxSize, "%d px", ImGuiSliderFlags_AlwaysClamp))
-    {
-        Edit("window height", [l_Height](Trinity::ExportSettings& changed) { changed.Window.Height = static_cast<std::uint32_t>(l_Height); });
-    }
-
-    Tooltip("The window's client area while windowed, in pixels");
-
-    Label("VSync");
-    bool l_VSync = settings.Window.VSync;
-    if (ImGui::Checkbox("##VSync", &l_VSync))
-    {
-        Edit("vsync", [l_VSync](Trinity::ExportSettings& changed) { changed.Window.VSync = l_VSync; });
-    }
-
-    Tooltip("Each frame waits for the display's refresh, so the game runs at its rate without tearing");
-}
-
-// In the order the player tries them. Each platform keeps its own order. One is always left
-void BuildPanel::DrawGraphicsAPIs(const Trinity::ExportSettings& settings)
-{
-    const Trinity::TargetPlatform* l_Platform = Trinity::TargetPlatforms::Find(settings.Platform);
-    const std::vector<Trinity::GraphicsAPI> l_APIs = settings.GetGraphicsAPIs();
-    ImGui::SeparatorText("Graphics APIs");
-    if (l_Platform == nullptr || l_Platform->GraphicsAPIs.empty())
-    {
-        ImGui::TextDisabled("%s", std::format("Trinity has no graphics API for {} yet", l_Platform != nullptr ? l_Platform->DisplayName : std::string_view(settings.Platform)).c_str());
-
-        return;
-    }
-
-    ImGui::TextDisabled("%s", std::format("Tried in this order on {}, each the machine cannot run passed over", l_Platform->DisplayName).c_str());
-    for (std::size_t it_API = 0; it_API < l_APIs.size(); ++it_API)
-    {
-        ImGui::PushID(static_cast<int>(it_API));
-        const float l_Button = ImGui::GetFrameHeight();
-        const float l_Right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
-        ImGui::AlignTextToFramePadding();
-        ImGui::Text("%zu. %s", it_API + 1, std::string(Trinity::ToString(l_APIs[it_API])).c_str());
-        ImGui::SameLine(std::max(l_Right - l_Button * 3.0f - ImGui::GetStyle().ItemSpacing.x * 2.0f, ImGui::GetFontSize() * c_LabelWidthInFonts));
-        ImGui::BeginDisabled(it_API == 0);
-        if (ImGui::Button(Trinity::Icons::c_ArrowUp, ImVec2(l_Button, 0.0f)))
-        {
-            Edit("graphics API order", [it_API](Trinity::ExportSettings& changed) { std::vector<Trinity::GraphicsAPI>& l_Order = GetOrder(changed); std::swap(l_Order[it_API], l_Order[it_API - 1]); });
-        }
-
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::BeginDisabled(it_API + 1 >= l_APIs.size());
-        if (ImGui::Button(Trinity::Icons::c_ArrowDown, ImVec2(l_Button, 0.0f)))
-        {
-            Edit("graphics API order", [it_API](Trinity::ExportSettings& changed) { std::vector<Trinity::GraphicsAPI>& l_Order = GetOrder(changed); std::swap(l_Order[it_API], l_Order[it_API + 1]); });
-        }
-
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        ImGui::BeginDisabled(l_APIs.size() <= 1);
-        if (ImGui::Button(Trinity::Icons::c_TimesCircle, ImVec2(l_Button, 0.0f)))
-        {
-            Edit("graphics API removed", [it_API](Trinity::ExportSettings& changed) { std::vector<Trinity::GraphicsAPI>& l_Order = GetOrder(changed); l_Order.erase(l_Order.begin() + static_cast<std::ptrdiff_t>(it_API)); });
-        }
-
-        ImGui::EndDisabled();
-        Tooltip(l_APIs.size() <= 1 ? "The game needs one to draw with" : "Remove from the list");
-        ImGui::PopID();
-    }
-
-    std::vector<Trinity::GraphicsAPI> l_Missing;
-    std::ranges::copy_if(l_Platform->GraphicsAPIs, std::back_inserter(l_Missing), [&l_APIs](Trinity::GraphicsAPI api) { return std::ranges::find(l_APIs, api) == l_APIs.end(); });
-    if (l_Missing.empty())
-    {
-        return;
-    }
-
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * c_LabelWidthInFonts);
-    if (ImGui::BeginCombo("##AddAPI", std::format("{} Add", Trinity::Icons::c_Plus).c_str()))
-    {
-        for (const Trinity::GraphicsAPI it_API : l_Missing)
-        {
-            if (ImGui::Selectable(std::string(Trinity::ToString(it_API)).c_str()))
-            {
-                Edit("graphics API added", [it_API](Trinity::ExportSettings& changed) { GetOrder(changed).push_back(it_API); });
-            }
-        }
-
-        ImGui::EndCombo();
-    }
-}
-
 bool BuildPanel::Build(bool run)
 {
     if (!m_Session.HasProject() || m_Export.IsRunning())
@@ -672,7 +419,7 @@ bool BuildPanel::Build(bool run)
     return true;
 }
 
-// Development Build, the output folder, Build and Build And Run, or what stops them. Then Stop Game
+// Development Build, the output folder, the way to the player's settings, Build and Build And Run, or what stops them. Then Stop Game
 void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
 {
     ImGui::SeparatorText("Build");
@@ -701,6 +448,17 @@ void BuildPanel::DrawBuild(const Trinity::ExportSettings& settings)
     if (ImGui::Button(l_Browse.c_str()))
     {
         m_Session.Request(EditorSession::Command::ChooseExportFolder);
+    }
+
+    // As Unity's Build Profiles has it, since what the game is called and how it opens is the project's and set there
+    if (m_ShowPlayerSettings)
+    {
+        if (ImGui::Button(std::format("{} Player Settings...", Trinity::Icons::c_Gear).c_str()))
+        {
+            m_ShowPlayerSettings();
+        }
+
+        Tooltip("The game's name, version and icon, its window and its graphics APIs, in Project Settings");
     }
 
     ImGui::Spacing();

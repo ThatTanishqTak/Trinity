@@ -4,13 +4,14 @@
 #include <string>
 #include <string_view>
 
-// Where a panel goes in the default layout
+// Where a panel goes in the default layout. A Floating one is in no dock there and is closed until asked for, opening as a window of its own in the middle, which can be docked as any other
 enum class DockSlot : std::uint8_t
 {
     Centre,
     Left,
     Right,
-    Bottom
+    Bottom,
+    Floating
 };
 
 // A dockable Forge window. ImGui knows it by its ID alone, so its icon and title can change

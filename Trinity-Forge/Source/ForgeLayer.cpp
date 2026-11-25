@@ -164,12 +164,13 @@ void ForgeLayer::OnAttach()
     m_PropertiesPanel = l_Properties.get();
     m_Panels.push_back(std::move(l_Properties));
 
-    // Docked as a tab behind Properties, as is the Build panel, which exports as --export does
+    // A window of its own until it is docked. The Build panel is a tab behind Properties, and exports as --export does
     Trinity::Scope<ProjectSettingsPanel> l_ProjectSettings = Trinity::CreateScope<ProjectSettingsPanel>(m_Session);
     m_ProjectSettings = l_ProjectSettings.get();
     m_Panels.push_back(std::move(l_ProjectSettings));
     Trinity::Scope<BuildPanel> l_Build = Trinity::CreateScope<BuildPanel>(m_Session, m_Export);
     m_BuildPanel = l_Build.get();
+    m_BuildPanel->SetShowPlayerSettings([this] { m_ProjectSettings->ShowSection(ProjectSettingsPanel::Section::Player); });
     m_Panels.push_back(std::move(l_Build));
     // A build's error opens where it is, in the script editor, on a double-click
     Trinity::Scope<ConsolePanel> l_Console = Trinity::CreateScope<ConsolePanel>();
@@ -1845,7 +1846,7 @@ void ForgeLayer::DockNewPanels()
     }
 }
 
-// Hierarchy left, Properties right, Scene and Game as centre tabs, Console below. All reopen
+// Hierarchy left, Properties right, Scene and Game as centre tabs, Console below. All reopen but the floating ones
 void ForgeLayer::BuildDefaultLayout(std::uint32_t dockSpace)
 {
     ImGui::DockBuilderRemoveNode(dockSpace);
@@ -1861,6 +1862,14 @@ void ForgeLayer::BuildDefaultLayout(std::uint32_t dockSpace)
 
     for (const Trinity::Scope<Panel>& it_Panel : m_Panels)
     {
+        // A floating panel has no node here, and stays put away until it is asked for
+        if (it_Panel->GetSlot() == DockSlot::Floating)
+        {
+            it_Panel->SetOpen(false);
+
+            continue;
+        }
+
         it_Panel->SetOpen(true);
         ImGui::DockBuilderDockWindow(it_Panel->GetWindowName().c_str(), l_Nodes[std::to_underlying(it_Panel->GetSlot())]);
     }
