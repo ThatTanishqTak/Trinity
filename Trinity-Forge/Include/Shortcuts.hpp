@@ -12,6 +12,9 @@
 class Shortcuts
 {
 public:
+    // Each person's changed keys, a command a line, kept with the preferences
+    static constexpr std::string_view c_Path = "/saves/Shortcuts.txt";
+
     struct Command
     {
         // What a saved key names the command by, which stays as its label and its key change
@@ -26,8 +29,11 @@ public:
         // Asked as its key is pressed. A command without it is always ready
         std::function<bool()> IsEnabled;
         std::function<void()> Run;
-        // The key it was added with, which Add fills in
+        // The keys it was added with, which Add fills in and a reset puts back
         ImGuiKeyChord Default = ImGuiKey_None;
+        ImGuiKeyChord DefaultAlternate = ImGuiKey_None;
+
+        [[nodiscard]] bool IsDefault() const { return Chord == Default && Alternate == DefaultAlternate; }
     };
 
     // A key a panel reads for itself while it has the focus, listed beside the commands and not theirs to run
@@ -48,9 +54,27 @@ public:
     // Ctrl, Alt, Shift and Super in that order, then the key, by its sign where it has one. Empty for none
     [[nodiscard]] static std::string FormatChord(ImGuiKeyChord chord);
 
+    // The reverse of FormatChord, for a saved key. ImGuiKey_None for text that names no key
+    [[nodiscard]] static ImGuiKeyChord ParseChord(std::string_view text);
+
+    // Another command that runs on the key, by either of its two, or null
+    [[nodiscard]] const Command* FindUser(ImGuiKeyChord chord, std::string_view except) const;
+    // A key a panel reads for itself that the chord is too, which a command given it takes from the panel, or null
+    [[nodiscard]] static const PanelKey* FindPanelUser(ImGuiKeyChord chord);
+
+    // The command's key from now on, taken from any other command that ran on it. ImGuiKey_None leaves the command with none. Saved at once
+    void SetKey(std::string_view id, ImGuiKeyChord chord);
+    void ResetKey(std::string_view id);
+    void ResetAll();
+    // Once every command is added, so each saved key finds its command
+    void ReadKeys();
+
     // Runs the first command in the list whose key was pressed this frame and that is ready. True if one ran
     bool Dispatch() const;
 
 private:
+    [[nodiscard]] Command* FindCommand(std::string_view id);
+    void WriteKeys() const;
+
     std::vector<Command> m_Commands;
 };

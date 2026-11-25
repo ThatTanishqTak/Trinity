@@ -699,6 +699,9 @@ void ForgeLayer::RegisterShortcuts()
         m_ShowDemoWindow = !m_ShowDemoWindow;
         TR_INFO("Forge: demo window {}", m_ShowDemoWindow ? "shown" : "hidden");
     } });
+
+    // Last, so each key someone changed finds the command it was changed for
+    l_Shortcuts.ReadKeys();
 }
 
 // Not while typing, dragging, in a popup, or while Input Actions listens for a key to bind

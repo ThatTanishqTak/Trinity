@@ -16,6 +16,7 @@
 namespace
 {
     constexpr float c_KeyWidthInFonts = 12.0f;
+    constexpr const char* c_KeyPopup = "Set Key###ForgeSetKey";
 
     bool ContainsIgnoringCase(std::string_view text, std::string_view part)
     {
@@ -104,16 +105,27 @@ void ShortcutsWindow::Draw()
         ImGui::SetKeyboardFocusHere();
     }
 
-    ImGui::SetNextItemWidth(-FLT_MIN);
+    // Reset All at the right end, greyed while every key is as Forge came with it
+    Shortcuts& l_Shortcuts = m_Session.GetShortcuts();
+    const std::span<const Shortcuts::Command> l_Commands = l_Shortcuts.GetCommands();
+    const char* l_ResetAll = "Reset All";
+    const float l_ResetWidth = ImGui::CalcTextSize(l_ResetAll).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    ImGui::SetNextItemWidth(std::max(ImGui::GetContentRegionAvail().x - l_ResetWidth - ImGui::GetStyle().ItemSpacing.x, 1.0f));
     Trinity::Widgets::SearchField("##Search", "Search commands and keys", m_Search, ImGuiInputTextFlags_EscapeClearsAll);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(std::ranges::all_of(l_Commands, &Shortcuts::Command::IsDefault));
+    if (ImGui::Button(l_ResetAll))
+    {
+        l_Shortcuts.ResetAll();
+    }
 
-    // A group is listed by what it is called too, so "scene" finds all of the Scene panel's keys
-    const auto a_Matches = [this](std::string_view group, std::string_view label, std::string_view keys) { return m_Search.empty() || ContainsIgnoringCase(group, m_Search) || ContainsIgnoringCase(label, m_Search) || ContainsIgnoringCase(keys, m_Search); };
+    ImGui::SetItemTooltip("Every command back on the key Forge came with");
+    ImGui::EndDisabled();
+
     bool l_Any = false;
     if (ImGui::BeginChild("##Shortcuts"))
     {
         // The commands by category, each category where its first command is in the list
-        const std::span<const Shortcuts::Command> l_Commands = m_Session.GetShortcuts().GetCommands();
         std::vector<std::string_view> l_Categories;
         for (const Shortcuts::Command& it_Command : l_Commands)
         {
@@ -125,25 +137,10 @@ void ShortcutsWindow::Draw()
 
         for (const std::string_view it_Category : l_Categories)
         {
-            std::vector<Row> l_Rows;
-            for (const Shortcuts::Command& it_Command : l_Commands)
-            {
-                std::string l_Keys = Shortcuts::FormatChord(it_Command.Chord);
-                if (it_Command.Alternate != ImGuiKey_None)
-                {
-                    l_Keys += std::format(", {}", Shortcuts::FormatChord(it_Command.Alternate));
-                }
-
-                if (it_Command.Category == it_Category && a_Matches(it_Category, it_Command.Label, l_Keys))
-                {
-                    l_Rows.push_back({ it_Command.Label, std::move(l_Keys) });
-                }
-            }
-
-            l_Any = l_Any || !l_Rows.empty();
-            DrawGroup(it_Category, l_Rows);
+            DrawCommands(it_Category, l_Any);
         }
 
+        // A group is found by what it is called too, so "scene" finds all of the Scene panel's keys
         const std::span<const Shortcuts::PanelKey> l_PanelKeys = Shortcuts::GetPanelKeys();
         std::vector<std::string_view> l_Panels;
         for (const Shortcuts::PanelKey& it_Key : l_PanelKeys)
@@ -159,14 +156,14 @@ void ShortcutsWindow::Draw()
             std::vector<Row> l_Rows;
             for (const Shortcuts::PanelKey& it_Key : l_PanelKeys)
             {
-                if (it_Key.Panel == it_Panel && a_Matches(it_Panel, it_Key.Label, it_Key.Keys))
+                if (it_Key.Panel == it_Panel && (m_Search.empty() || ContainsIgnoringCase(it_Panel, m_Search) || ContainsIgnoringCase(it_Key.Label, m_Search) || ContainsIgnoringCase(it_Key.Keys, m_Search)))
                 {
                     l_Rows.push_back({ it_Key.Label, std::string(it_Key.Keys) });
                 }
             }
 
             l_Any = l_Any || !l_Rows.empty();
-            DrawGroup(std::format("{} (while it has the focus)", it_Panel), l_Rows);
+            DrawGroup(std::format("{} (while it has the focus, not yet changeable)", it_Panel), l_Rows);
         }
 
         if (!l_Any)
@@ -176,5 +173,184 @@ void ShortcutsWindow::Draw()
     }
 
     ImGui::EndChild();
+
+    // Opened here, at the window's own level, where the popup is begun
+    if (std::exchange(m_OpenKeyPopup, false))
+    {
+        ImGui::OpenPopup(c_KeyPopup);
+    }
+
+    DrawKeyPopup();
     ImGui::End();
+}
+
+// A category's commands that the search leaves, each with its key as a button that asks for another, and where the key is not the one it came with, an arrow that puts that back
+void ShortcutsWindow::DrawCommands(std::string_view category, bool& any)
+{
+    Shortcuts& l_Shortcuts = m_Session.GetShortcuts();
+    std::vector<const Shortcuts::Command*> l_Shown;
+    for (const Shortcuts::Command& it_Command : l_Shortcuts.GetCommands())
+    {
+        const std::string l_Keys = std::format("{} {}", Shortcuts::FormatChord(it_Command.Chord), Shortcuts::FormatChord(it_Command.Alternate));
+        if (it_Command.Category == category && (m_Search.empty() || ContainsIgnoringCase(category, m_Search) || ContainsIgnoringCase(it_Command.Label, m_Search) || ContainsIgnoringCase(l_Keys, m_Search)))
+        {
+            l_Shown.push_back(&it_Command);
+        }
+    }
+
+    if (l_Shown.empty())
+    {
+        return;
+    }
+
+    any = true;
+    ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), 0.0f);
+    ImGui::SeparatorText(std::string(category).c_str());
+    ImGui::PopFont();
+    if (!ImGui::BeginTable(std::string(category).c_str(), 3, ImGuiTableFlags_RowBg))
+    {
+        return;
+    }
+
+    // Acted on once the rows are drawn, as a key given or put back changes other rows' keys too
+    std::string_view l_Reset;
+    ImGui::TableSetupColumn("Command", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("Key", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * c_KeyWidthInFonts);
+    ImGui::TableSetupColumn("Reset", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFrameHeight());
+    for (const Shortcuts::Command* it_Command : l_Shown)
+    {
+        ImGui::PushID(it_Command->ID.data(), it_Command->ID.data() + it_Command->ID.size());
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(it_Command->Label.data(), it_Command->Label.data() + it_Command->Label.size());
+
+        // Its first key is the one changed. A second, as Redo has, is told after it and stays until another command is given it
+        ImGui::TableNextColumn();
+        std::string l_Key = it_Command->Chord != ImGuiKey_None ? Shortcuts::FormatChord(it_Command->Chord) : std::string("None");
+        if (it_Command->Alternate != ImGuiKey_None)
+        {
+            l_Key += std::format(", {}", Shortcuts::FormatChord(it_Command->Alternate));
+        }
+
+        if (it_Command->Chord == ImGuiKey_None)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        }
+
+        const bool l_Ask = ImGui::Button(std::format("{}###Key", l_Key).c_str(), ImVec2(-FLT_MIN, 0.0f));
+        if (it_Command->Chord == ImGuiKey_None)
+        {
+            ImGui::PopStyleColor();
+        }
+
+        if (const Shortcuts::PanelKey* l_Panel = Shortcuts::FindPanelUser(it_Command->Chord))
+        {
+            ImGui::SetItemTooltip("%s", std::format("Click to press another key. {} reads {} for {} while it has the focus, which this command now takes from it", l_Panel->Panel, l_Panel->Keys, l_Panel->Label).c_str());
+        }
+        else
+        {
+            ImGui::SetItemTooltip("Click to press another key for it");
+        }
+
+        if (l_Ask)
+        {
+            m_Asking = std::string(it_Command->ID);
+            m_Pressed = ImGuiKey_None;
+            m_OpenKeyPopup = true;
+        }
+
+        ImGui::TableNextColumn();
+        if (!it_Command->IsDefault())
+        {
+            if (ImGui::Button(Trinity::Icons::c_Undo, ImVec2(ImGui::GetFrameHeight(), 0.0f)))
+            {
+                l_Reset = it_Command->ID;
+            }
+
+            ImGui::SetItemTooltip("%s", std::format("Back to {}", it_Command->Default != ImGuiKey_None ? Shortcuts::FormatChord(it_Command->Default) : std::string("no key")).c_str());
+        }
+
+        ImGui::PopID();
+    }
+
+    ImGui::EndTable();
+    if (!l_Reset.empty())
+    {
+        l_Shortcuts.ResetKey(l_Reset);
+    }
+}
+
+// Asks for the key by having it pressed, with whatever modifiers are held, and tells what the key does now before it is given. Escape leaves the command as it was, so it is the one key no command can have
+void ShortcutsWindow::DrawKeyPopup()
+{
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(c_KeyPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoNav))
+    {
+        return;
+    }
+
+    Shortcuts& l_Shortcuts = m_Session.GetShortcuts();
+    const Shortcuts::Command* l_Command = l_Shortcuts.Find(m_Asking);
+    if (l_Command == nullptr || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+    {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+
+        return;
+    }
+
+    // Any key of the keyboard but the modifiers themselves, which are read as held with it
+    for (int it_Key = ImGuiKey_NamedKey_BEGIN; it_Key < ImGuiKey_GamepadStart; ++it_Key)
+    {
+        const bool l_Modifier = it_Key >= ImGuiKey_LeftCtrl && it_Key <= ImGuiKey_RightSuper;
+        if (!l_Modifier && ImGui::IsKeyPressed(static_cast<ImGuiKey>(it_Key), false))
+        {
+            m_Pressed = (ImGui::GetIO().KeyMods & ImGuiMod_Mask_) | it_Key;
+        }
+    }
+
+    ImGui::TextUnformatted(std::format("Press the key for {}: {}", l_Command->Category, l_Command->Label).c_str());
+    ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), 0.0f);
+    ImGui::TextUnformatted(m_Pressed != ImGuiKey_None ? Shortcuts::FormatChord(m_Pressed).c_str() : "...");
+    ImGui::PopFont();
+
+    // What giving it the key takes from, so nothing loses its key unseen
+    if (const Shortcuts::Command* l_User = l_Shortcuts.FindUser(m_Pressed, l_Command->ID))
+    {
+        ImGui::TextColored(Trinity::Theme::GetColor(Trinity::ThemeColor::Warning), "%s", std::format("{} {}: {} Uses the shortcut", Trinity::Icons::c_Warning, l_User->Category, l_User->Label).c_str());
+    }
+
+    if (const Shortcuts::PanelKey* l_Panel = Shortcuts::FindPanelUser(m_Pressed))
+    {
+        ImGui::TextColored(Trinity::Theme::GetColor(Trinity::ThemeColor::Warning), "%s", std::format("{} {} reads it for {} while it has the focus, and would no longer get it", Trinity::Icons::c_Warning, l_Panel->Panel, l_Panel->Label).c_str());
+    }
+
+    ImGui::Spacing();
+    ImGui::BeginDisabled(m_Pressed == ImGuiKey_None);
+    if (ImGui::Button("Use This Key"))
+    {
+        l_Shortcuts.SetKey(m_Asking, m_Pressed);
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::BeginDisabled(l_Command->Chord == ImGuiKey_None);
+    if (ImGui::Button("No Key"))
+    {
+        l_Shortcuts.SetKey(m_Asking, ImGuiKey_None);
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::SetItemTooltip("Leaves the command to its menu alone");
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel"))
+    {
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::SetItemTooltip("Escape");
+    ImGui::EndPopup();
 }
