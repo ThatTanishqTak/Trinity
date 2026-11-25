@@ -1,6 +1,7 @@
 #include "ForgeLayer.hpp"
 
 #include "EditorCommands.hpp"
+#include "Layouts.hpp"
 #include "Panels/ContentBrowserPanel.hpp"
 #include "Panels/HierarchyPanel.hpp"
 #include "Panels/PropertiesPanel.hpp"
@@ -9,6 +10,7 @@
 
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
 #include <array>
@@ -40,6 +42,7 @@ namespace
     constexpr float c_StatusProgressWidthInFonts = 8.0f;
     constexpr float c_StatusTooltipWidthInFonts = 40.0f;
     constexpr const char* c_ExportPopup = "Exporting###ExportProgress";
+    constexpr const char* c_SaveLayoutPopup = "Save Layout###ForgeSaveLayout";
     constexpr float c_ExportProgressWidthInFonts = 26.0f;
     constexpr std::array<ImGuiCol, 7> c_TintedColors{ ImGuiCol_WindowBg, ImGuiCol_PopupBg, ImGuiCol_MenuBarBg, ImGuiCol_TitleBg, ImGuiCol_TitleBgActive, ImGuiCol_TitleBgCollapsed, ImGuiCol_DockingEmptyBg };
 
@@ -279,6 +282,12 @@ void ForgeLayer::OnAttach()
 // Before ImGui's frame begins, so a native file dialog never blocks with a frame open
 void ForgeLayer::OnUpdate(Trinity::Timestep timestep)
 {
+    // Here, before ImGui's frame begins, which is where its settings may be loaded again
+    if (const std::optional<std::string> l_Layout = std::exchange(m_PendingLayout, std::nullopt))
+    {
+        ApplyLayout(*l_Layout);
+    }
+
     m_Session.Update();
     m_ImportTest.Update();
     m_Export.Update();
@@ -424,6 +433,7 @@ void ForgeLayer::OnImGuiRender()
 
     m_Session.DrawPopups();
     DrawExportPopup();
+    DrawSaveLayoutPopup();
     m_Session.UpdateTitle();
     DrawNotice();
     ImGui::PopStyleColor(std::exchange(m_TintedColors, 0));
@@ -781,10 +791,143 @@ void ForgeLayer::RegisterShortcuts()
         SetMaximized(nullptr);
         m_ResetLayout = true;
     } });
+    l_Shortcuts.Add({ .ID = "window.saveLayout", .Category = "Window", .Label = "Save Layout As", .Run = [this]
+    {
+        m_LayoutName.clear();
+        m_OpenSaveLayoutPopup = true;
+    } });
     l_Shortcuts.Add({ .ID = "window.theme", .Category = "Window", .Label = "Toggle Theme", .Run = [this] { m_Session.SetPreferenceVariable("ui.theme", Trinity::Theme::IsLight() ? Trinity::Theme::c_Dark : Trinity::Theme::c_Light); } });
 
     // Last, so each key someone changed finds the command it was changed for
     l_Shortcuts.ReadKeys();
+}
+
+// Each saved layout by name, which a click changes to, then saving the arrangement as it is and taking a saved one away
+void ForgeLayer::DrawLayoutMenu()
+{
+    const std::vector<std::string> l_Names = Layouts::List();
+    for (const std::string& it_Name : l_Names)
+    {
+        if (ImGui::MenuItem(it_Name.c_str()))
+        {
+            m_PendingLayout = it_Name;
+        }
+    }
+
+    if (l_Names.empty())
+    {
+        ImGui::TextDisabled("No layout saved yet");
+    }
+
+    ImGui::Separator();
+    if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Save, "Save Layout As...").c_str()))
+    {
+        m_LayoutName.clear();
+        m_OpenSaveLayoutPopup = true;
+    }
+
+    if (ImGui::BeginMenu(WithIcon(Trinity::Icons::c_Trash, "Delete Layout").c_str(), !l_Names.empty()))
+    {
+        for (const std::string& it_Name : l_Names)
+        {
+            if (ImGui::MenuItem(it_Name.c_str()))
+            {
+                static_cast<void>(Layouts::Remove(it_Name));
+            }
+        }
+
+        ImGui::EndMenu();
+    }
+}
+
+// Asks the layout's name, and tells where one of that name is already saved, which it then takes the place of
+void ForgeLayer::DrawSaveLayoutPopup()
+{
+    if (std::exchange(m_OpenSaveLayoutPopup, false))
+    {
+        ImGui::OpenPopup(c_SaveLayoutPopup);
+    }
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(c_SaveLayoutPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        return;
+    }
+
+    ImGui::TextUnformatted("Which panels are open and where each one is, saved under a name");
+    if (ImGui::IsWindowAppearing())
+    {
+        ImGui::SetKeyboardFocusHere();
+    }
+
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 24.0f);
+    const bool l_Entered = ImGui::InputTextWithHint("##LayoutName", "Name", &m_LayoutName, ImGuiInputTextFlags_EnterReturnsTrue);
+    const std::string l_Name = Layouts::MakeName(m_LayoutName);
+    const std::vector<std::string> l_Names = Layouts::List();
+    const bool l_Replaces = std::ranges::find(l_Names, l_Name) != l_Names.end();
+    if (l_Replaces)
+    {
+        ImGui::TextColored(Trinity::Theme::GetColor(Trinity::ThemeColor::Warning), "%s", std::format("{} {} is saved already, and this takes its place", Trinity::Icons::c_Warning, l_Name).c_str());
+    }
+
+    ImGui::Spacing();
+    ImGui::BeginDisabled(l_Name.empty());
+    if (ImGui::Button(l_Replaces ? "Replace" : "Save") || (l_Entered && !l_Name.empty()))
+    {
+        SaveLayout(l_Name);
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+    {
+        ImGui::CloseCurrentPopup();
+    }
+
+    ImGui::EndPopup();
+}
+
+// A maximised panel is restored first, so the arrangement saved is the whole of it
+void ForgeLayer::SaveLayout(std::string_view name)
+{
+    SetMaximized(nullptr);
+    std::vector<std::string> l_Open;
+    for (const Trinity::Scope<Panel>& it_Panel : m_Panels)
+    {
+        if (it_Panel->IsOpen())
+        {
+            l_Open.push_back(it_Panel->GetSettingsID());
+        }
+    }
+
+    if (Layouts::Save(name, l_Open, ImGui::SaveIniSettingsToMemory()))
+    {
+        Toasts::Notify(std::format("Saved layout {}", name));
+    }
+}
+
+// ImGui's settings as they are now, with the layout's windows and docking in place of their own, loaded again, and each panel open or closed as the layout has it. A panel newer than the layout joins a panel of its slot, as one newer than imgui.ini does
+void ForgeLayer::ApplyLayout(const std::string& name)
+{
+    const std::optional<Layouts::Layout> l_Layout = Layouts::Read(name);
+    if (!l_Layout)
+    {
+        TR_WARN("Forge: the layout {} could not be read, so the panels stay as they are", name);
+
+        return;
+    }
+
+    SetMaximized(nullptr);
+    const std::string l_Settings = Layouts::Merge(ImGui::SaveIniSettingsToMemory(), l_Layout->Settings);
+    ImGui::LoadIniSettingsFromMemory(l_Settings.data(), l_Settings.size());
+    for (const Trinity::Scope<Panel>& it_Panel : m_Panels)
+    {
+        it_Panel->SetOpen(std::ranges::find(l_Layout->OpenPanels, it_Panel->GetSettingsID()) != l_Layout->OpenPanels.end());
+    }
+
+    m_DockedNewPanels = false;
+    ImGui::MarkIniSettingsDirty();
 }
 
 // The panel under the mouse, or else the one with the focus, fills the dock space alone until this is asked again
@@ -967,6 +1110,13 @@ void ForgeLayer::DrawMenuBar()
         if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Eye, "Scene Stats").c_str(), nullptr, &l_ShowStats))
         {
             m_ViewportPanel->SetShowingStats(l_ShowStats);
+        }
+
+        if (ImGui::BeginMenu(WithIcon(Trinity::Icons::c_WindowRestore, "Layout").c_str()))
+        {
+            DrawLayoutMenu();
+
+            ImGui::EndMenu();
         }
 
         if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Refresh, "Reset Layout").c_str()))

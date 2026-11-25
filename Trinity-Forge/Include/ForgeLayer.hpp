@@ -23,7 +23,9 @@
 #include <Trinity.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 struct ImGuiContext;
@@ -72,6 +74,10 @@ private:
     void DrawStartScreen();
     void DrawNotice();
     void DrawExportPopup();
+    void DrawLayoutMenu();
+    void DrawSaveLayoutPopup();
+    void SaveLayout(std::string_view name);
+    void ApplyLayout(const std::string& name);
     void BuildAndRun();
     void DrawStatusBar();
     void ReadStatusLine();
@@ -118,6 +124,11 @@ private:
     bool m_ExportPopupOpen = false;
     bool m_ShowDemoWindow = false;
     bool m_ShowAbout = false;
+    // The layout to change to before the next frame begins, since ImGui's settings are not loaded within one
+    std::optional<std::string> m_PendingLayout;
+    // The name typed so far for the layout Save Layout As makes
+    std::string m_LayoutName;
+    bool m_OpenSaveLayoutPopup = false;
     bool m_ResetLayout = false;
     bool m_DockedNewPanels = false;
     // Whether a copy played last frame, so the Game panel comes forward at Play and the Scene at Stop
