@@ -13,8 +13,8 @@ namespace Trinity
     {
         std::string_view Name;
         std::string_view DisplayName;
-        // Empty for one Trinity builds for now
-        std::string_view Milestone;
+        // False for a platform no version of Trinity runs on yet
+        bool Supported = true;
         std::span<const GraphicsAPI> GraphicsAPIs;
         // Built with the platform holder's SDK, rather than with a version of Trinity for that platform
         bool Console = false;

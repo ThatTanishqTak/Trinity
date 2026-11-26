@@ -813,7 +813,7 @@ namespace Trinity
             delete static_cast<WatchedProcess*>(process);
         }
 
-        // Until Linux and macOS have windows, in M15 and M16, there is none to bring forward
+        // Until Linux and macOS have windows, there is none to bring forward
         bool BringProcessToFront([[maybe_unused]] std::uint32_t processID)
         {
             return false;

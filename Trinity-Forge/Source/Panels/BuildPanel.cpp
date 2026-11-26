@@ -132,11 +132,11 @@ namespace
         }
         else if (platform.Console)
         {
-            l_Tip = std::format("{} comes with {}, once the platform holder's SDK is to hand", platform.DisplayName, platform.Milestone);
+            l_Tip = std::format("{} is not supported yet, and needs the platform holder's SDK", platform.DisplayName);
         }
-        else if (!platform.Milestone.empty())
+        else if (!platform.Supported)
         {
-            l_Tip = std::format("{} comes with {}, built with a {} version of Trinity. This one runs on {}", platform.DisplayName, platform.Milestone, platform.DisplayName, l_Here);
+            l_Tip = std::format("{} is not supported yet. This version of Trinity runs on {}", platform.DisplayName, l_Here);
         }
         else
         {
