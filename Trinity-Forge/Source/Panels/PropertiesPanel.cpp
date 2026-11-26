@@ -110,7 +110,7 @@ namespace
         bool Model = false;
         std::vector<PrefabOverride> Overrides;
         Trinity::Entity Entity;
-        std::string_view Component;
+        std::string_view Component{};
         std::string Prefix;
         std::optional<OverrideRequest> Request;
     };
@@ -133,10 +133,10 @@ namespace
     {
         // The window whose rows leave the arrows' column free at their right end
         ImGuiID Window = 0;
-        std::string_view Component;
+        std::string_view Component{};
         // The keys at which the entity's component holds other than a new one does. None in an instance, whose rows go back to its prefab's
-        std::vector<std::string> Changed;
-        std::optional<ResetRequest> Request;
+        std::vector<std::string> Changed{};
+        std::optional<ResetRequest> Request{};
     };
 
     // Set while Properties draws an entity's sections
@@ -999,7 +999,7 @@ namespace
     {
         std::string_view Category;
         std::string Label;
-        std::string_view Component;
+        std::string_view Component{};
         const Trinity::ScriptClassDescription* Script = nullptr;
     };
 

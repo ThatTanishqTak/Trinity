@@ -27,10 +27,10 @@ public:
         // Whether the key held down runs it again and again, as Undo is
         bool Repeats = false;
         // Asked as its key is pressed. A command without it is always ready
-        std::function<bool()> IsEnabled;
+        std::function<bool()> IsEnabled{};
         // Asked of its key alone, and not by the Command Palette: where the key acts, as over one panel. A command without it acts everywhere
-        std::function<bool()> IsKeyInScope;
-        std::function<void()> Run;
+        std::function<bool()> IsKeyInScope{};
+        std::function<void()> Run{};
         // The keys it was added with, which Add fills in and a reset puts back
         ImGuiKeyChord Default = ImGuiKey_None;
         ImGuiKeyChord DefaultAlternate = ImGuiKey_None;

@@ -31,7 +31,7 @@ private:
     {
         std::uint32_t ID = 0;
         Kind Type = Kind::Success;
-        std::string Text;
+        std::string Text{};
         // How many times over it was told of while shown
         std::uint32_t Count = 1;
         // Seconds shown, which stand still while the mouse is on any of them

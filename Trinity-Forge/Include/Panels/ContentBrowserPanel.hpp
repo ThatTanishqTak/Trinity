@@ -70,7 +70,7 @@ private:
         std::string Path;
         bool Folder = false;
         const Trinity::AssetRecord* Record = nullptr;
-        std::filesystem::file_time_type Modified;
+        std::filesystem::file_time_type Modified{};
         std::uintmax_t Size = 0;
     };
 
@@ -79,7 +79,7 @@ private:
     {
         std::string Name;
         bool Folder = false;
-        std::filesystem::file_time_type Modified;
+        std::filesystem::file_time_type Modified{};
         std::uintmax_t Size = 0;
     };
 

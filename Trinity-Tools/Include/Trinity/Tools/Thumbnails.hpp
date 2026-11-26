@@ -39,8 +39,8 @@ namespace Trinity::Tools
         {
             std::filesystem::path File;
             // When the file read was written, or none where there was no file
-            std::optional<std::filesystem::file_time_type> Time;
-            std::unique_ptr<ImTextureData> Texture;
+            std::optional<std::filesystem::file_time_type> Time{};
+            std::unique_ptr<ImTextureData> Texture{};
             bool Checked = false;
         };
 
