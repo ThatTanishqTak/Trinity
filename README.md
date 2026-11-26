@@ -426,7 +426,7 @@ command that uploads them. It refuses to package uncommitted changes unless you 
 `-DALLOW_CHANGES=ON`. The other options are `-DPRESET=<name>`, `-DBUILD=OFF` (package existing
 builds) and `-DOUTPUT=<folder>`. The engine's version is `project(VERSION ...)` in the root
 `CMakeLists.txt`, and Hub's is `TRINITY_HUB_VERSION`. On Linux, packaging needs `bsdtar`
-(libarchive-tools) and `objcopy` (binutils). macOS packaging comes with M16.
+(libarchive-tools) and `objcopy` (binutils).
 
 ## Command-line options
 
