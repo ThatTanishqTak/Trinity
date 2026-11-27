@@ -44,11 +44,12 @@ namespace
     constexpr std::string_view c_AlternateSuffix = ".alternate";
 
     // Read by each panel in its own ReadShortcuts, so these are told here by hand and are not yet a command's to change
-    constexpr std::array<Shortcuts::PanelKey, 29> c_PanelKeys{ {
+    constexpr std::array<Shortcuts::PanelKey, 30> c_PanelKeys{ {
         { "Scene", "Move", "W" },
         { "Scene", "Rotate", "E" },
         { "Scene", "Scale", "R" },
         { "Scene", "Local or World Axes", "X" },
+        { "Scene", "Pivot or Centre", "Z" },
         { "Scene", "Toggle Snapping", "Ctrl+\\" },
         { "Scene", "Frame Selection", "F" },
         { "Scene", "Frame and Follow Selection", "Shift+F" },

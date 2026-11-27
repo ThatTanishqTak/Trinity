@@ -5103,6 +5103,63 @@ bool EditorSession::MoveEntity(Trinity::UUID entity, Trinity::UUID parent, Trini
     return GetHistory().Execute(Trinity::CreateScope<MoveEntityCommand>(entity, l_Place.Parent, FindAddedPlace(GetEditedScene(), l_Place.Before), true));
 }
 
+// Each keeps its place in the world. Put one after another before the same sibling, they keep the order given
+bool EditorSession::MoveEntities(const std::vector<Trinity::UUID>& entities, Trinity::UUID parent, Trinity::UUID before)
+{
+    if (entities.size() <= 1)
+    {
+        return !entities.empty() && MoveEntity(entities.front(), parent, before);
+    }
+
+    Trinity::Scene& l_Scene = GetEditedScene();
+    const auto a_IsMoved = [&entities](Trinity::Entity entity) { return std::ranges::find(entities, entity.GetUUID()) != entities.end(); };
+    const Place l_Place = FindPlace(parent, before);
+    for (Trinity::Entity it_Parent = l_Scene.FindEntityByUUID(l_Place.Parent); it_Parent; it_Parent = it_Parent.GetParent())
+    {
+        if (a_IsMoved(it_Parent))
+        {
+            Notify(std::format("{} is one of those moved, and none of them goes under itself or what it holds", GetEntityLabel(it_Parent)));
+
+            return false;
+        }
+    }
+
+    std::vector<Trinity::Scope<EditorCommand>> l_Commands;
+    for (const Trinity::UUID it_Entity : entities)
+    {
+        if (IsPrefabRoot(it_Entity))
+        {
+            Notify(std::format("{} is the prefab's root, which keeps its place in prefab mode", GetEntityLabel(m_Stage->Scene.GetFirstRoot())));
+
+            return false;
+        }
+
+        if (const std::optional<std::string> l_Problem = FindMoveProblem(l_Scene, it_Entity, l_Place.Parent))
+        {
+            Notify(*l_Problem);
+
+            return false;
+        }
+    }
+
+    // Dropped next to one of them, they go next to the first sibling after it that stays where it is
+    Trinity::Entity l_Before = l_Scene.FindEntityByUUID(l_Place.Before);
+    while (l_Before && a_IsMoved(l_Before))
+    {
+        l_Before = l_Before.GetNextSibling();
+    }
+
+    const Trinity::UUID l_Next = FindAddedPlace(l_Scene, l_Before ? l_Before.GetUUID() : Trinity::UUID());
+    for (const Trinity::UUID it_Entity : entities)
+    {
+        l_Commands.push_back(Trinity::CreateScope<MoveEntityCommand>(it_Entity, l_Place.Parent, l_Next, true));
+    }
+
+    std::string l_Label = std::format("Move {} Entities", l_Commands.size());
+
+    return GetHistory().Execute(Trinity::CreateScope<GroupCommand>(std::move(l_Label), std::move(l_Commands)));
+}
+
 bool EditorSession::DuplicateEntity(Trinity::UUID entity)
 {
     const Trinity::Entity l_Entity = GetEditedScene().FindEntityByUUID(entity);
@@ -5163,6 +5220,29 @@ std::vector<Trinity::UUID> EditorSession::GetSelectedRoots()
         if (!l_Held)
         {
             l_Roots.push_back(it_Entity);
+        }
+    }
+
+    return l_Roots;
+}
+
+// From the scene shown, which while a copy plays is the copy
+std::vector<Trinity::UUID> EditorSession::GetSelectedRootsInOrder()
+{
+    Trinity::Scene& l_Scene = GetScene();
+    const EditorSelection& l_Selection = GetSelected();
+    std::vector<Trinity::UUID> l_Roots;
+    for (Trinity::Entity it_Entity = l_Scene.GetFirstRoot(); it_Entity; it_Entity = l_Scene.GetNextInHierarchyOrder(it_Entity))
+    {
+        bool l_Held = !l_Selection.Contains(it_Entity.GetUUID());
+        for (Trinity::Entity it_Parent = it_Entity.GetParent(); it_Parent && !l_Held; it_Parent = it_Parent.GetParent())
+        {
+            l_Held = l_Selection.Contains(it_Parent.GetUUID());
+        }
+
+        if (!l_Held)
+        {
+            l_Roots.push_back(it_Entity.GetUUID());
         }
     }
 
@@ -5400,25 +5480,7 @@ void EditorSession::CopyEntity(Trinity::UUID entity)
 
 void EditorSession::CopySelection()
 {
-    // From the scene shown, which while a copy plays is the copy
-    Trinity::Scene& l_Scene = GetScene();
-    const EditorSelection& l_Selection = GetSelected();
-    std::vector<Trinity::UUID> l_Roots;
-    for (Trinity::Entity it_Entity = l_Scene.GetFirstRoot(); it_Entity; it_Entity = l_Scene.GetNextInHierarchyOrder(it_Entity))
-    {
-        bool l_Held = !l_Selection.Contains(it_Entity.GetUUID());
-        for (Trinity::Entity it_Parent = it_Entity.GetParent(); it_Parent && !l_Held; it_Parent = it_Parent.GetParent())
-        {
-            l_Held = l_Selection.Contains(it_Parent.GetUUID());
-        }
-
-        if (!l_Held)
-        {
-            l_Roots.push_back(it_Entity.GetUUID());
-        }
-    }
-
-    CopyEntities(l_Roots);
+    CopyEntities(GetSelectedRootsInOrder());
 }
 
 // All of them or none, so a paste never brings back less than was picked. What was copied before stays if nothing is taken

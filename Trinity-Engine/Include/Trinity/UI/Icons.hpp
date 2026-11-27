@@ -84,5 +84,7 @@ namespace Trinity
         constexpr const char* c_LanguageCss3 = "\uE749";
         constexpr const char* c_PackageVariantClosed = "\U000F03D7";
         constexpr const char* c_PackageVariant = "\U000F03D6";
+        constexpr const char* c_DotCircle = "\uF192";
+        constexpr const char* c_Crosshairs = "\uF05B";
     }
 }

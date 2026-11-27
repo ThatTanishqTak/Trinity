@@ -446,6 +446,8 @@ public:
     [[nodiscard]] std::string GetOpenPrefabName() const;
     // Keeps its place in the world, in one command. Refused with a notice for a prefab's own entity
     bool MoveEntity(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before);
+    // Together where one would go, in the order given, as one command. Refused together, with a notice, if any of them cannot go there
+    bool MoveEntities(const std::vector<Trinity::UUID>& entities, Trinity::UUID parent, Trinity::UUID before);
     // Just after the original, in one command. Refused with a notice if it holds a missing prefab
     bool DuplicateEntity(Trinity::UUID entity);
     // In one command, as the Delete key and the Hierarchy's menu ask
@@ -455,6 +457,8 @@ public:
     bool DeleteSelection();
     // The selected entities none of whose ancestors is selected too, in the order they were picked, which the gizmo moves as one
     [[nodiscard]] std::vector<Trinity::UUID> GetSelectedRoots();
+    // The same in the Hierarchy's order, top to bottom, as Copy takes them and a drag of several rows moves them
+    [[nodiscard]] std::vector<Trinity::UUID> GetSelectedRootsInOrder();
     // A sprite of the texture at the point, its size in units, in one command
     bool CreateSprite(std::string name, Trinity::UUID texture, glm::vec3 position, glm::vec2 size);
     // Plays the clip or event as the scene starts. At the point if given, else at the parent's origin

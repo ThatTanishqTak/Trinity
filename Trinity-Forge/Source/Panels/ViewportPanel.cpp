@@ -466,6 +466,10 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
     {
         m_GizmoLocal = value != "World";
     }
+    else if (key == "GizmoPivot")
+    {
+        m_GizmoCentre = value == "Centre";
+    }
     else if (key == "Snap")
     {
         m_Snap = value != "0";
@@ -508,7 +512,7 @@ bool ViewportPanel::ReadSetting(std::string_view key, std::string_view value)
 
 void ViewportPanel::WriteSettings(ImGuiTextBuffer& buffer) const
 {
-    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nSnap={}\nLightHeatmap={}\nPhysicsDebug={}\nAudioGizmos={}\n", m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_Snap ? 1 : 0, m_LightHeatmap ? 1 : 0, m_PhysicsDebug ? 1 : 0, m_AudioGizmos ? 1 : 0);
+    const std::string l_Lines = std::format("ViewportStats={}\nGizmoOperation={}\nGizmoSpace={}\nGizmoPivot={}\nSnap={}\nLightHeatmap={}\nPhysicsDebug={}\nAudioGizmos={}\n", m_ShowStats ? 1 : 0, c_GizmoOperationNames[static_cast<std::size_t>(m_GizmoOperation)], m_GizmoLocal ? "Local" : "World", m_GizmoCentre ? "Centre" : "Pivot", m_Snap ? 1 : 0, m_LightHeatmap ? 1 : 0, m_PhysicsDebug ? 1 : 0, m_AudioGizmos ? 1 : 0);
     buffer.append(l_Lines.c_str(), l_Lines.c_str() + l_Lines.size());
 }
 
@@ -1213,7 +1217,7 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
     }
 }
 
-// W, E and R pick the gizmo's operation, X its axes, and Ctrl+\ toggles snapping, as in Unity
+// W, E and R pick the gizmo's operation, X its axes, Z where it sits, and Ctrl+\ toggles snapping, as in Unity
 void ViewportPanel::HandleGizmoKeys()
 {
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Backslash))
@@ -1235,6 +1239,13 @@ void ViewportPanel::HandleGizmoKeys()
     if (ImGui::IsKeyPressed(ImGuiKey_X, false))
     {
         m_GizmoLocal = !m_GizmoLocal;
+        ImGui::MarkIniSettingsDirty();
+    }
+
+    // Z alone, since Ctrl+Z undoes
+    if (ImGui::IsKeyChordPressed(ImGuiKey_Z))
+    {
+        m_GizmoCentre = !m_GizmoCentre;
         ImGui::MarkIniSettingsDirty();
     }
 }
@@ -2198,10 +2209,15 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
 
     const Trinity::Entity l_Parent = l_Entity.GetParent();
     const glm::mat4 l_ParentWorld = l_Parent ? l_Scene.ComputeWorldMatrix(l_Parent) : glm::mat4(1.0f);
+    // A drag keeps the way it began, while Centre only counts with more than one entity selected
+    const bool l_Centred = m_GizmoDragging ? m_GizmoCentred : m_GizmoCentre && m_Session.GetSelected().GetCount() > 1;
     if (!m_GizmoDragging)
     {
-        m_GizmoMatrix = l_ParentWorld * l_Entity.Get<Trinity::TransformComponent>().GetMatrix();
+        const glm::mat4 l_World = l_ParentWorld * l_Entity.Get<Trinity::TransformComponent>().GetMatrix();
+        m_GizmoMatrix = l_Centred ? GetCentredMatrix(l_Scene, l_World) : l_World;
     }
+
+    const glm::mat4 l_Before = m_GizmoMatrix;
 
     ImGuizmo::OPERATION l_Operation = ImGuizmo::TRANSLATE;
     bool l_Changed = false;
@@ -2244,6 +2260,8 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
         m_GizmoEntity = l_Entity.GetUUID();
         m_GizmoStart = l_Entity.Get<Trinity::TransformComponent>();
         m_GizmoParentWorld = l_ParentWorld;
+        m_GizmoCentred = l_Centred;
+        m_GizmoOrigin = l_Before;
         BeginGizmoGroup(l_Scene);
         m_Session.GetHistory().EndMerge();
     }
@@ -2267,7 +2285,11 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
 
     ImGui::KeepAliveID(m_GizmoID);
 
-    if (l_Changed)
+    if (l_Changed && m_GizmoCentred)
+    {
+        ApplyGizmoCentred();
+    }
+    else if (l_Changed)
     {
         ApplyGizmoGroup(m_Mode3D ? ApplyGizmo3D(m_GizmoParentWorld) : ApplyGizmo(m_GizmoParentWorld, IsSnapping()));
     }
@@ -2299,6 +2321,12 @@ void ViewportPanel::BeginGizmoGroup(Trinity::Scene& scene)
         {
             m_GizmoMembers.push_back({ .Entity = it_Root, .Start = l_Entity.Get<Trinity::TransformComponent>(), .ParentWorld = l_ParentWorld });
         }
+    }
+
+    // Centred, the primary is carried as the others are, last so it stays the primary
+    if (m_GizmoCentred && std::exchange(m_GizmoMovesPrimary, false) && !IsFlat(m_GizmoParentWorld))
+    {
+        m_GizmoMembers.push_back({ .Entity = m_GizmoEntity, .Start = m_GizmoStart, .ParentWorld = m_GizmoParentWorld });
     }
 }
 
@@ -2332,16 +2360,115 @@ void ViewportPanel::ApplyGizmoGroup(Trinity::TransformComponent value)
         l_Commands.push_back(Trinity::CreateScope<SetComponentCommand<Trinity::TransformComponent>>(m_GizmoEntity, std::move(value), l_Field));
     }
 
-    // One alone, as when the only other entity selected holds the primary, is named as one
-    if (l_Commands.size() == 1)
+    ExecuteGizmoCommands(std::move(l_Commands));
+}
+
+// Every carried entity, the primary among them, takes the gizmo's change about where it began
+void ViewportPanel::ApplyGizmoCentred()
+{
+    const char* l_Field = c_GizmoFields[static_cast<std::size_t>(m_GizmoOperation)];
+    const glm::mat4 l_Delta = GetCentredDelta(!m_Mode3D && IsSnapping());
+    std::vector<Trinity::Scope<EditorCommand>> l_Commands;
+    for (const GizmoMember& it_Member : m_GizmoMembers)
     {
-        m_Session.GetHistory().Execute(std::move(l_Commands.front()));
+        l_Commands.push_back(Trinity::CreateScope<SetComponentCommand<Trinity::TransformComponent>>(it_Member.Entity, ApplyGizmoDelta(it_Member, l_Delta), l_Field));
+    }
+
+    ExecuteGizmoCommands(std::move(l_Commands));
+}
+
+// A frame's changes as one group, which the frames after it merge into. One alone, as when the only other entity selected holds the primary, is named as one
+void ViewportPanel::ExecuteGizmoCommands(std::vector<Trinity::Scope<EditorCommand>> commands)
+{
+    if (commands.size() <= 1)
+    {
+        if (!commands.empty())
+        {
+            m_Session.GetHistory().Execute(std::move(commands.front()));
+        }
 
         return;
     }
 
-    std::string l_Label = std::format("Edit {} {} of {} Entities", GetComponentLabel(Trinity::TransformComponent::c_TypeName), l_Field, l_Commands.size());
-    m_Session.GetHistory().Execute(Trinity::CreateScope<GroupCommand>(std::move(l_Label), std::move(l_Commands)));
+    std::string l_Label = std::format("Edit {} {} of {} Entities", GetComponentLabel(Trinity::TransformComponent::c_TypeName), c_GizmoFields[static_cast<std::size_t>(m_GizmoOperation)], commands.size());
+    m_Session.GetHistory().Execute(Trinity::CreateScope<GroupCommand>(std::move(l_Label), std::move(commands)));
+}
+
+// At the middle of the box around every selected entity's origin, turned as the primary is so Local keeps its axes, and never scaled, so it can always be measured back from
+glm::mat4 ViewportPanel::GetCentredMatrix(Trinity::Scene& scene, const glm::mat4& primaryWorld) const
+{
+    glm::vec3 l_Min(primaryWorld[3]);
+    glm::vec3 l_Max = l_Min;
+    for (const Trinity::UUID it_ID : m_Session.GetSelected().GetEntities())
+    {
+        if (const Trinity::Entity l_Entity = scene.FindEntityByUUID(it_ID))
+        {
+            const glm::vec3 l_Origin(scene.ComputeWorldMatrix(l_Entity)[3]);
+            l_Min = glm::min(l_Min, l_Origin);
+            l_Max = glm::max(l_Max, l_Origin);
+        }
+    }
+
+    Trinity::TransformComponent l_Primary;
+    l_Primary.SetMatrix(primaryWorld);
+
+    return glm::translate(glm::mat4(1.0f), (l_Min + l_Max) * 0.5f) * glm::mat4_cast(l_Primary.Rotation);
+}
+
+// The drag's change so far as one change in the world about where the gizmo began. In 2D, snapping puts the gizmo on the grid, the turn on its step and each axis' ratio on the scale's step, never at nothing
+glm::mat4 ViewportPanel::GetCentredDelta(bool snap) const
+{
+    const glm::vec3 l_Centre(m_GizmoOrigin[3]);
+    const glm::vec3 l_Steps = m_Session.GetPreferences().SnapSteps;
+    const glm::mat4 l_ToCentre = glm::translate(glm::mat4(1.0f), l_Centre);
+    const glm::mat4 l_FromCentre = glm::translate(glm::mat4(1.0f), -l_Centre);
+    switch (m_GizmoOperation)
+    {
+        case GizmoOperation::Translate:
+        {
+            glm::vec3 l_To(m_GizmoMatrix[3]);
+            if (!m_Mode3D)
+            {
+                l_To.z = l_Centre.z;
+                l_To.x = snap ? Snap(l_To.x, l_Steps.x) : l_To.x;
+                l_To.y = snap ? Snap(l_To.y, l_Steps.x) : l_To.y;
+            }
+
+            return glm::translate(glm::mat4(1.0f), l_To - l_Centre);
+        }
+        case GizmoOperation::Rotate:
+        {
+            if (m_Mode3D)
+            {
+                return l_ToCentre * glm::mat4(glm::mat3(m_GizmoMatrix) * glm::transpose(glm::mat3(m_GizmoOrigin))) * l_FromCentre;
+            }
+
+            float l_Angle = GetAngleZ(m_GizmoMatrix) - GetAngleZ(m_GizmoOrigin);
+            l_Angle = snap ? glm::radians(Snap(glm::degrees(l_Angle), l_Steps.y)) : l_Angle;
+
+            return l_ToCentre * glm::rotate(glm::mat4(1.0f), l_Angle, glm::vec3(0.0f, 0.0f, 1.0f)) * l_FromCentre;
+        }
+        case GizmoOperation::Scale:
+        {
+            // Along the gizmo's own axes, which began a unit long
+            glm::vec3 l_Ratio(1.0f);
+            for (glm::length_t it_Axis = 0; it_Axis < (m_Mode3D ? 3 : 2); ++it_Axis)
+            {
+                l_Ratio[it_Axis] = glm::length(glm::vec3(m_GizmoMatrix[it_Axis]));
+                if (snap)
+                {
+                    const float l_Snapped = Snap(l_Ratio[it_Axis], l_Steps.z);
+                    l_Ratio[it_Axis] = l_Snapped != 0.0f ? l_Snapped : l_Steps.z;
+                }
+            }
+
+            const glm::mat4 l_Turn = glm::mat4(glm::mat3(m_GizmoOrigin));
+
+            return l_ToCentre * l_Turn * glm::scale(glm::mat4(1.0f), l_Ratio) * glm::transpose(l_Turn) * l_FromCentre;
+        }
+    }
+
+    return glm::mat4(1.0f);
 }
 
 void ViewportPanel::EndGizmoDrag()
@@ -2778,6 +2905,15 @@ void ViewportPanel::DrawToolbar()
         }
 
         ImGui::SetItemTooltip("The gizmo's axes: the entity's own, or the world's (X)");
+
+        ImGui::SameLine();
+        if (ImGui::Button(std::format("{} {}###Pivot", m_GizmoCentre ? Trinity::Icons::c_Crosshairs : Trinity::Icons::c_DotCircle, m_GizmoCentre ? "Centre" : "Pivot").c_str()))
+        {
+            m_GizmoCentre = !m_GizmoCentre;
+            ImGui::MarkIniSettingsDirty();
+        }
+
+        ImGui::SetItemTooltip("With several entities selected, the gizmo sits on the one picked last, or at the middle of them all (Z)");
 
         // The preferences' steps, which Edit > Preferences shows too
         EditorPreferences l_Preferences = m_Session.GetPreferences();

@@ -129,6 +129,10 @@ private:
     [[nodiscard]] bool IsSnapping() const;
     void BeginGizmoGroup(Trinity::Scene& scene);
     void ApplyGizmoGroup(Trinity::TransformComponent value);
+    void ApplyGizmoCentred();
+    void ExecuteGizmoCommands(std::vector<Trinity::Scope<EditorCommand>> commands);
+    [[nodiscard]] glm::mat4 GetCentredMatrix(Trinity::Scene& scene, const glm::mat4& primaryWorld) const;
+    [[nodiscard]] glm::mat4 GetCentredDelta(bool snap) const;
     void EndGizmoDrag();
     void DrawToolbar();
     void DrawBreadcrumb();
@@ -189,6 +193,8 @@ private:
 
     GizmoOperation m_GizmoOperation = GizmoOperation::Translate;
     bool m_GizmoLocal = true;
+    // With several entities selected, the gizmo sits at the middle of their origins, as Unity's Centre, not on the one picked last
+    bool m_GizmoCentre = false;
     // Every drag snaps while it is on, and Ctrl flips it for a drag, as in Godot and Blender
     bool m_Snap = false;
     glm::mat4 m_GizmoMatrix{ 1.0f };
@@ -200,6 +206,9 @@ private:
     std::vector<GizmoMember> m_GizmoMembers;
     // Not when another selected entity holds the primary, whose move carries it
     bool m_GizmoMovesPrimary = true;
+    // Whether the drag began centred, and where the gizmo was then, which a centred drag is measured from
+    bool m_GizmoCentred = false;
+    glm::mat4 m_GizmoOrigin{ 1.0f };
     std::uint32_t m_GizmoID = 0;
     float m_ToolbarWidth = 0.0f;
     float m_ToolbarHeight = 0.0f;

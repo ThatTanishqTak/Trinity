@@ -701,9 +701,11 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
 
     if (!m_ReadOnly && !m_Box && ImGui::BeginDragDropSource())
     {
+        // One of several selected rows takes the others with it, which the drop moves together
         const std::uint64_t l_Value = l_ID.GetValue();
         ImGui::SetDragDropPayload(c_EntityPayload, &l_Value, sizeof(l_Value));
-        ImGui::TextUnformatted(GetEntityLabel(entity).c_str());
+        const bool l_Several = l_Selected && m_Session.GetSelected().GetCount() > 1;
+        ImGui::TextUnformatted(l_Several ? std::format("{} entities", m_Session.GetSelectedRootsInOrder().size()).c_str() : GetEntityLabel(entity).c_str());
         ImGui::EndDragDropSource();
     }
 
@@ -1346,7 +1348,8 @@ void HierarchyPanel::Reorder(Trinity::Entity entity, bool up)
         return;
     }
 
-    Move(entity.GetUUID(), GetID(entity.GetParent()), up ? l_Previous.GetUUID() : GetID(l_Next.GetNextSibling()));
+    // The last picked alone, as a drag's Move would take the others selected with it
+    static_cast<void>(m_Session.MoveEntity(entity.GetUUID(), GetID(entity.GetParent()), up ? l_Previous.GetUUID() : GetID(l_Next.GetNextSibling())));
     m_KeepSelectionVisible = true;
 }
 
@@ -1551,7 +1554,16 @@ void HierarchyPanel::Create(Trinity::UUID parent)
 }
 
 // Keeping the world transform, so a dragged entity stays where it is on screen
+// A row that is one of several selected moves them all, in the Hierarchy's order, as Unity moves them
 void HierarchyPanel::Move(Trinity::UUID entity, Trinity::UUID parent, Trinity::UUID before)
 {
+    const EditorSelection& l_Selected = m_Session.GetSelected();
+    if (l_Selected.GetCount() > 1 && l_Selected.Contains(entity))
+    {
+        static_cast<void>(m_Session.MoveEntities(m_Session.GetSelectedRootsInOrder(), parent, before));
+
+        return;
+    }
+
     static_cast<void>(m_Session.MoveEntity(entity, parent, before));
 }
