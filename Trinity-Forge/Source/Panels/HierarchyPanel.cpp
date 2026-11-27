@@ -13,14 +13,18 @@
 #include <array>
 #include <cctype>
 #include <cfloat>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -29,6 +33,10 @@ namespace
     constexpr float c_DropLineThickness = 2.0f;
     // How long a second click on a selected entity waits before renaming, so a double-click never does
     constexpr double c_SlowClickSeconds = 0.5;
+    // The selecting drag's box, filled as the Scene panel's is
+    constexpr float c_BoxSelectFill = 0.15f;
+    // How fast the tree scrolls under the box, a second, for each pixel the mouse is past an edge
+    constexpr float c_BoxScrollRate = 20.0f;
     // The keys the tree takes from ImGui's navigation while the Hierarchy has focus
     constexpr std::array<ImGuiKey, 10> c_TreeKeys{ ImGuiKey_UpArrow, ImGuiKey_DownArrow, ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_Home, ImGuiKey_End, ImGuiKey_PageUp, ImGuiKey_PageDown, ImGuiKey_Enter, ImGuiKey_KeypadEnter };
 
@@ -185,6 +193,12 @@ void HierarchyPanel::OnImGuiRender()
         }
 
         DrawBackground();
+        UpdateBoxSelect();
+        // A press whose row is gone by its release, scrolled away or folded, selects nothing later
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            m_Pressed = {};
+        }
     }
 
     ImGui::EndChild();
@@ -589,8 +603,10 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         ImGui::SetNextItemAllowOverlap();
     }
 
+    // Where the row's name ends, measured in the row's own font. A press past it starts a selecting drag, not one that moves the row
+    const float l_NameEnd = ImGui::GetCursorScreenPos().x + ImGui::GetTreeNodeToLabelSpacing() + ImGui::CalcTextSize(l_Label.c_str(), nullptr, true).x + ImGui::GetStyle().ItemSpacing.x;
     const bool l_Open = ImGui::TreeNodeEx(ToImGuiID(l_ID), l_Flags, "%s", l_Label.c_str());
-    m_Rows.push_back({ .Entity = l_ID, .HasChildren = l_HasChildren, .Open = l_HasChildren && l_Open });
+    m_Rows.push_back({ .Entity = l_ID, .HasChildren = l_HasChildren, .Open = l_HasChildren && l_Open, .Top = ImGui::GetItemRectMin().y, .Bottom = ImGui::GetItemRectMax().y });
     DrawMarks(entity);
     // Before the override bar, which is drawn over it where a row has both
     if (l_Selected)
@@ -637,6 +653,12 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         m_SlowClick = l_Selected && m_Session.GetSelected().GetCount() == 1 && !l_Renaming && !l_IO.KeyCtrl && !l_IO.KeyShift && !l_IO.KeyAlt ? l_ID : Trinity::UUID();
         m_SlowClickTime = ImGui::GetTime();
         m_Pressed = l_ID;
+        // A press with Ctrl or Shift held is none of ImGui's, which then leaves the focus where it was, and the Edit keys with it
+        ImGui::SetWindowFocus();
+        if (!l_Renaming && l_IO.MousePos.x > l_NameEnd)
+        {
+            BeginBoxSelect(false);
+        }
     }
     else if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !ImGui::IsItemToggledOpen() && !l_Selected)
     {
@@ -644,7 +666,8 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         Select(l_ID);
     }
 
-    if (m_Pressed == l_ID && ImGui::IsItemDeactivated())
+    // By the mouse's release, not the row's own, since ImGui never makes a tree row the active item while Ctrl or Shift is held
+    if (m_Pressed == l_ID && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
     {
         if (ImGui::IsItemHovered() && !ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Left))
         {
@@ -654,6 +677,8 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
             {
                 m_Session.ToggleSelection(l_ID);
                 m_SelectionAnchor = l_ID;
+                // The primary it leaves is in sight already, so the tree does not scroll to it
+                m_Revealed = m_Session.GetSelection();
             }
             else if (l_IO.KeyShift)
             {
@@ -674,7 +699,7 @@ void HierarchyPanel::DrawEntity(Trinity::Entity entity)
         ImGui::EndPopup();
     }
 
-    if (!m_ReadOnly && ImGui::BeginDragDropSource())
+    if (!m_ReadOnly && !m_Box && ImGui::BeginDragDropSource())
     {
         const std::uint64_t l_Value = l_ID.GetValue();
         ImGui::SetDragDropPayload(c_EntityPayload, &l_Value, sizeof(l_Value));
@@ -814,9 +839,18 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
 
     ImGui::Separator();
 
+    // With several rows selected and this one of them, Copy, Duplicate and Delete are theirs
+    const bool l_Several = m_Session.GetSelected().GetCount() > 1 && m_Session.GetSelected().Contains(l_ID);
     if (ImGui::MenuItem(std::format("{} Copy", Trinity::Icons::c_Copy).c_str(), l_Shortcuts.GetKeyText("edit.copy").c_str()))
     {
-        m_Session.CopyEntity(l_ID);
+        if (l_Several)
+        {
+            m_Session.CopySelection();
+        }
+        else
+        {
+            m_Session.CopyEntity(l_ID);
+        }
     }
 
     ImGui::BeginDisabled(m_ReadOnly);
@@ -849,8 +883,6 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
         BeginRename(entity);
     }
 
-    // With several rows selected and this one of them, Duplicate and Delete are theirs
-    const bool l_Several = m_Session.GetSelected().GetCount() > 1 && m_Session.GetSelected().Contains(l_ID);
     if (ImGui::MenuItem("Duplicate", l_Shortcuts.GetKeyText("edit.duplicate").c_str()))
     {
         m_Deferred.push_back([this, l_ID, l_Several] { static_cast<void>(l_Several ? m_Session.DuplicateSelection() : m_Session.DuplicateEntity(l_ID)); });
@@ -912,14 +944,14 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
     }
 }
 
-// The space below the tree: a click clears the selection, and a drop makes a root
+// The space below the tree: a click clears the selection, a drag selects the rows it reaches, and a drop makes a root
 void HierarchyPanel::DrawBackground()
 {
     const ImVec2 l_Available = ImGui::GetContentRegionAvail();
     ImGui::InvisibleButton("##Background", ImVec2(std::max(l_Available.x, 1.0f), std::max(l_Available.y, ImGui::GetFrameHeight())));
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
     {
-        Select({});
+        BeginBoxSelect(true);
     }
 
     if (m_ReadOnly)
@@ -1047,6 +1079,108 @@ void HierarchyPanel::AcceptDrop(Trinity::Entity target)
     }
 
     ImGui::EndDragDropTarget();
+}
+
+// From where the mouse is, as a place in the tree's content
+void HierarchyPanel::BeginBoxSelect(bool background)
+{
+    const ImGuiIO& l_IO = ImGui::GetIO();
+    const ImGuiWindow* l_Window = ImGui::GetCurrentWindow();
+    m_Box = BoxSelect{ .Start = ImVec2(l_IO.MousePos.x - l_Window->Pos.x + l_Window->Scroll.x, l_IO.MousePos.y - l_Window->Pos.y + l_Window->Scroll.y), .Before = m_Session.GetSelected().GetEntities(), .Additive = l_IO.KeyCtrl || l_IO.KeyShift, .Background = background };
+}
+
+// Drawn once the mouse is past a click's reach, selecting each row it touches as it goes, the one nearest the mouse last and so the primary. Escape puts the selection back
+void HierarchyPanel::UpdateBoxSelect()
+{
+    if (!m_Box)
+    {
+        return;
+    }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+    {
+        if (m_Box->Dragged)
+        {
+            m_Session.SetSelection(std::move(m_Box->Before));
+            m_Revealed = m_Session.GetSelection();
+        }
+
+        m_Box.reset();
+        m_Pressed = {};
+
+        return;
+    }
+
+    const ImGuiIO& l_IO = ImGui::GetIO();
+    const ImGuiWindow* l_Window = ImGui::GetCurrentWindow();
+    const ImVec2 l_Start(m_Box->Start.x + l_Window->Pos.x - l_Window->Scroll.x, m_Box->Start.y + l_Window->Pos.y - l_Window->Scroll.y);
+    const ImVec2 l_Mouse = l_IO.MousePos;
+    m_Box->Dragged = m_Box->Dragged || std::abs(l_Mouse.x - l_Start.x) > l_IO.MouseDragThreshold || std::abs(l_Mouse.y - l_Start.y) > l_IO.MouseDragThreshold;
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+    {
+        if (m_Box->Dragged)
+        {
+            m_SelectionAnchor = m_Session.GetSelection();
+        }
+        else if (m_Box->Background && !m_Box->Additive)
+        {
+            Select({});
+        }
+
+        m_Box.reset();
+
+        return;
+    }
+
+    if (!m_Box->Dragged)
+    {
+        return;
+    }
+
+    // The press is the box's from here, so its release neither selects its row alone nor renames it
+    m_Pressed = {};
+    m_SlowClick = {};
+
+    const float l_Band = ImGui::GetFrameHeight() * 0.5f;
+    const float l_Over = l_Mouse.y < l_Window->InnerRect.Min.y + l_Band ? l_Mouse.y - l_Window->InnerRect.Min.y - l_Band : std::max(l_Mouse.y - l_Window->InnerRect.Max.y + l_Band, 0.0f);
+    if (l_Over != 0.0f)
+    {
+        ImGui::SetScrollY(std::clamp(ImGui::GetScrollY() + l_Over * c_BoxScrollRate * l_IO.DeltaTime, 0.0f, ImGui::GetScrollMaxY()));
+    }
+
+    // From the box's start towards the mouse, whichever way that is down the rows
+    const ImVec2 l_Min(std::min(l_Start.x, l_Mouse.x), std::min(l_Start.y, l_Mouse.y));
+    const ImVec2 l_Max(std::max(l_Start.x, l_Mouse.x), std::max(l_Start.y, l_Mouse.y));
+    const bool l_Downwards = l_Mouse.y >= l_Start.y;
+    std::vector<Trinity::UUID> l_Boxed;
+    for (std::size_t it_Index = 0; it_Index < m_Rows.size(); ++it_Index)
+    {
+        const Row& l_Row = m_Rows[l_Downwards ? it_Index : m_Rows.size() - 1 - it_Index];
+        if (l_Row.Bottom > l_Min.y && l_Row.Top < l_Max.y)
+        {
+            l_Boxed.push_back(l_Row.Entity);
+        }
+    }
+
+    std::vector<Trinity::UUID> l_Selected;
+    if (m_Box->Additive)
+    {
+        const std::unordered_set<Trinity::UUID> l_Touched(l_Boxed.begin(), l_Boxed.end());
+        std::ranges::copy_if(m_Box->Before, std::back_inserter(l_Selected), [&l_Touched](Trinity::UUID entity) { return !l_Touched.contains(entity); });
+    }
+
+    l_Selected.insert(l_Selected.end(), l_Boxed.begin(), l_Boxed.end());
+    if (l_Selected != m_Session.GetSelected().GetEntities())
+    {
+        m_Session.SetSelection(std::move(l_Selected));
+    }
+
+    // Its primary is at the mouse, so the tree does not scroll to it
+    m_Revealed = m_Session.GetSelection();
+
+    ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+    l_DrawList.AddRectFilled(l_Min, l_Max, Trinity::Theme::GetColorU32(Trinity::ThemeColor::Accent, c_BoxSelectFill));
+    l_DrawList.AddRect(l_Min, l_Max, Trinity::Theme::GetColorU32(Trinity::ThemeColor::Accent));
 }
 
 // While the Hierarchy has focus, as in Unity. Copy, Paste, Duplicate and Delete are Forge's own
@@ -1309,6 +1443,47 @@ void HierarchyPanel::BeginRename(Trinity::Entity entity)
     m_Renaming = entity.GetUUID();
     m_RenameText = std::string(std::string_view(entity.Get<Trinity::TagComponent>().Tag));
     m_FocusRename = true;
+}
+
+// In the Hierarchy's order, with the primary moved last so it stays the primary
+void HierarchyPanel::SelectAll()
+{
+    Trinity::Scene& l_Scene = m_Session.GetScene();
+    const bool l_Searching = !m_Search.empty();
+    if (l_Searching)
+    {
+        // Matched afresh, since the panel may not have been drawn since the scene changed
+        UpdateSearch(l_Scene);
+    }
+
+    const Trinity::UUID l_Primary = m_Session.GetSelection();
+    std::vector<Trinity::UUID> l_Entities;
+    bool l_HasPrimary = false;
+    for (Trinity::Entity it_Entity = l_Scene.GetFirstRoot(); it_Entity; it_Entity = l_Scene.GetNextInHierarchyOrder(it_Entity))
+    {
+        const Trinity::UUID l_ID = it_Entity.GetUUID();
+        if (l_Searching && !m_Matched.contains(l_ID))
+        {
+            continue;
+        }
+
+        if (l_ID == l_Primary)
+        {
+            l_HasPrimary = true;
+
+            continue;
+        }
+
+        l_Entities.push_back(l_ID);
+    }
+
+    if (l_HasPrimary)
+    {
+        l_Entities.push_back(l_Primary);
+    }
+
+    m_Session.SetSelection(std::move(l_Entities));
+    m_Revealed = m_Session.GetSelection();
 }
 
 void HierarchyPanel::Rename(Trinity::UUID entity)

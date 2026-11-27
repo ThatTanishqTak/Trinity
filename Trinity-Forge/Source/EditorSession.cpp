@@ -1807,7 +1807,7 @@ void EditorSession::CloseProject()
     m_InspectingMixer = false;
     m_InspectedAsset = {};
     // Its components name the project's assets
-    m_CopiedEntity.reset();
+    m_CopiedEntities.clear();
     m_RecentScenes.clear();
     // Read again for the start screen, which shows it once no project is open
     ReadRecentProjects();
@@ -3639,6 +3639,12 @@ std::optional<std::string> EditorSession::CreateScene(std::string_view folder)
 // Copied without their .meta. The first scan gives them UUIDs, settings follow, the second imports
 std::optional<std::string> EditorSession::DuplicateAsset(std::string_view path)
 {
+    return CopyAsset(path, path.substr(0, path.find_last_of('/')));
+}
+
+// Beside its original it is numbered on from it, as a duplicate. Elsewhere only where its name is taken
+std::optional<std::string> EditorSession::CopyAsset(std::string_view path, std::string_view folder)
+{
     if (!m_Project || !m_Registry)
     {
         return std::nullopt;
@@ -3647,10 +3653,17 @@ std::optional<std::string> EditorSession::DuplicateAsset(std::string_view path)
     const std::filesystem::path l_Source = m_Project->ToNativePath(path);
     std::error_code l_Error;
     const bool l_Folder = std::filesystem::is_directory(l_Source, l_Error);
+    if (l_Folder && IsSameOrInside(folder, path))
+    {
+        TR_ERROR("Forge: {} cannot be copied into {}, which is itself or inside it", path, folder);
+
+        return std::nullopt;
+    }
+
     const std::string_view l_Name = path.substr(path.find_last_of('/') + 1);
     const std::size_t l_Dot = l_Folder ? std::string_view::npos : l_Name.find_last_of('.');
     const std::string_view l_Stem = l_Dot == std::string_view::npos || l_Dot == 0 ? l_Name : l_Name.substr(0, l_Dot);
-    const std::string l_Path = GetFreePath(*m_Project, path.substr(0, path.find_last_of('/')), l_Stem, l_Name.substr(l_Stem.size()), true);
+    const std::string l_Path = GetFreePath(*m_Project, folder, l_Stem, l_Name.substr(l_Stem.size()), folder == path.substr(0, path.find_last_of('/')));
     const std::filesystem::path l_Destination = m_Project->ToNativePath(l_Path);
 
     if (l_Folder)
@@ -3700,7 +3713,7 @@ std::optional<std::string> EditorSession::DuplicateAsset(std::string_view path)
         }
     }
 
-    TR_INFO("Forge: duplicated {} as {}", path, l_Path);
+    TR_INFO("Forge: copied {} as {}", path, l_Path);
     ScanAssets();
 
     return l_Path;
@@ -5382,73 +5395,141 @@ bool EditorSession::CreateCamera(Trinity::UUID parent)
 
 void EditorSession::CopyEntity(Trinity::UUID entity)
 {
+    CopyEntities({ entity });
+}
+
+void EditorSession::CopySelection()
+{
+    // From the scene shown, which while a copy plays is the copy
     Trinity::Scene& l_Scene = GetScene();
-    const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(entity);
-    if (!l_Entity)
+    const EditorSelection& l_Selection = GetSelected();
+    std::vector<Trinity::UUID> l_Roots;
+    for (Trinity::Entity it_Entity = l_Scene.GetFirstRoot(); it_Entity; it_Entity = l_Scene.GetNextInHierarchyOrder(it_Entity))
     {
-        return;
+        bool l_Held = !l_Selection.Contains(it_Entity.GetUUID());
+        for (Trinity::Entity it_Parent = it_Entity.GetParent(); it_Parent && !l_Held; it_Parent = it_Parent.GetParent())
+        {
+            l_Held = l_Selection.Contains(it_Parent.GetUUID());
+        }
+
+        if (!l_Held)
+        {
+            l_Roots.push_back(it_Entity.GetUUID());
+        }
     }
 
-    if (const std::optional<std::string> l_Problem = FindCopyProblem(l_Entity))
-    {
-        Notify(*l_Problem);
+    CopyEntities(l_Roots);
+}
 
-        return;
+// All of them or none, so a paste never brings back less than was picked. What was copied before stays if nothing is taken
+void EditorSession::CopyEntities(const std::vector<Trinity::UUID>& entities)
+{
+    Trinity::Scene& l_Scene = GetScene();
+    std::vector<CopiedEntity> l_Copied;
+    for (const Trinity::UUID it_ID : entities)
+    {
+        const Trinity::Entity l_Entity = l_Scene.FindEntityByUUID(it_ID);
+        if (!l_Entity)
+        {
+            continue;
+        }
+
+        if (const std::optional<std::string> l_Problem = FindCopyProblem(l_Entity))
+        {
+            Notify(*l_Problem);
+
+            return;
+        }
+
+        const Trinity::Entity l_Parent = l_Entity.GetParent();
+        l_Copied.push_back(CopiedEntity{ .Text = Trinity::SceneSerializer::SaveEntityToText(l_Scene, l_Entity), .Original = it_ID, .Parent = l_Parent ? l_Parent.GetUUID() : Trinity::UUID(), .World = l_Scene.ComputeWorldTransform(l_Entity) });
     }
 
-    const Trinity::Entity l_Parent = l_Entity.GetParent();
-    m_CopiedEntity = CopiedEntity{ .Text = Trinity::SceneSerializer::SaveEntityToText(l_Scene, l_Entity), .Original = entity, .Parent = l_Parent ? l_Parent.GetUUID() : Trinity::UUID(), .World = l_Scene.ComputeWorldTransform(l_Entity) };
+    if (!l_Copied.empty())
+    {
+        m_CopiedEntities = std::move(l_Copied);
+    }
 }
 
 bool EditorSession::PasteEntity()
 {
-    if (!m_CopiedEntity)
+    return PasteEntities(std::nullopt);
+}
+
+bool EditorSession::PasteEntityAsChild(Trinity::UUID parent)
+{
+    return GetEditedScene().FindEntityByUUID(parent) && PasteEntities(parent);
+}
+
+// One entity goes the way it always has. Several are refused together if any of them would be alone, and are one command to undo
+bool EditorSession::PasteEntities(std::optional<Trinity::UUID> parent)
+{
+    if (m_CopiedEntities.empty())
     {
         return false;
     }
 
     Trinity::Scene& l_Scene = GetEditedScene();
-    if (const Trinity::Entity l_Original = l_Scene.FindEntityByUUID(m_CopiedEntity->Original))
+    std::vector<Trinity::Scope<EditorCommand>> l_Commands;
+    for (const CopiedEntity& it_Copied : m_CopiedEntities)
     {
-        const Trinity::Entity l_Parent = l_Original.GetParent();
-        const Trinity::Entity l_Next = l_Original.GetNextSibling();
+        Trinity::UUID l_Parent = parent.value_or(Trinity::UUID());
+        Trinity::UUID l_Before;
+        if (const Trinity::Entity l_Original = parent ? Trinity::Entity() : l_Scene.FindEntityByUUID(it_Copied.Original))
+        {
+            const Trinity::Entity l_Next = l_Original.GetNextSibling();
+            l_Parent = l_Original.GetParent() ? l_Original.GetParent().GetUUID() : Trinity::UUID();
+            l_Before = l_Next ? l_Next.GetUUID() : Trinity::UUID();
+        }
+        else if (!parent && l_Scene.FindEntityByUUID(it_Copied.Parent))
+        {
+            l_Parent = it_Copied.Parent;
+        }
 
-        return PasteEntityAt(l_Parent ? l_Parent.GetUUID() : Trinity::UUID(), l_Next ? l_Next.GetUUID() : Trinity::UUID());
+        Trinity::Scope<EditorCommand> l_Command = CreatePaste(it_Copied, l_Parent, l_Before);
+        if (!l_Command)
+        {
+            return false;
+        }
+
+        l_Commands.push_back(std::move(l_Command));
     }
 
-    return PasteEntityAt(l_Scene.FindEntityByUUID(m_CopiedEntity->Parent) ? m_CopiedEntity->Parent : Trinity::UUID(), {});
+    if (l_Commands.size() == 1)
+    {
+        return GetHistory().Execute(std::move(l_Commands.front()));
+    }
+
+    std::string l_Label = std::format("Paste {} Entities", l_Commands.size());
+
+    return GetHistory().Execute(Trinity::CreateScope<GroupCommand>(std::move(l_Label), std::move(l_Commands)));
 }
 
-bool EditorSession::PasteEntityAsChild(Trinity::UUID parent)
-{
-    return m_CopiedEntity && GetEditedScene().FindEntityByUUID(parent) && PasteEntityAt(parent, {});
-}
-
-// Under its old parent it keeps its transform, as Duplicate does. Elsewhere, its place in the world
-bool EditorSession::PasteEntityAt(Trinity::UUID parent, Trinity::UUID before)
+// Under its old parent it keeps its transform, as Duplicate does. Elsewhere, its place in the world. Null, with a notice, where it cannot go
+Trinity::Scope<EditorCommand> EditorSession::CreatePaste(const CopiedEntity& copied, Trinity::UUID parent, Trinity::UUID before)
 {
     const Place l_Place = FindPlace(parent, before);
     if (IsPlaying() || !CanTakeChildren(l_Place.Parent))
     {
-        return false;
+        return nullptr;
     }
 
-    const std::vector<Trinity::UUID> l_Prefabs = Trinity::SceneSerializer::GetPrefabReferences(m_CopiedEntity->Text);
+    const std::vector<Trinity::UUID> l_Prefabs = Trinity::SceneSerializer::GetPrefabReferences(copied.Text);
     if (std::ranges::any_of(l_Prefabs, [this](Trinity::UUID prefab) { return RefuseHoldingPrefab(prefab); }))
     {
-        return false;
+        return nullptr;
     }
 
     if (std::ranges::any_of(l_Prefabs, [this](Trinity::UUID prefab) { return m_Prefabs.Find(prefab, m_Registry.get()) == nullptr; }))
     {
         Notify("What was copied holds a prefab instance whose prefab is missing or cannot be read, so it is not pasted until the prefab is back");
 
-        return false;
+        return nullptr;
     }
 
-    const std::optional<Trinity::TransformComponent> l_World = l_Place.Parent == m_CopiedEntity->Parent ? std::nullopt : std::optional(m_CopiedEntity->World);
+    const std::optional<Trinity::TransformComponent> l_World = l_Place.Parent == copied.Parent ? std::nullopt : std::optional(copied.World);
 
-    return GetHistory().Execute(Trinity::CreateScope<PasteEntityCommand>(m_CopiedEntity->Text, l_Place.Parent, FindAddedPlace(GetEditedScene(), l_Place.Before), l_World));
+    return Trinity::CreateScope<PasteEntityCommand>(copied.Text, l_Place.Parent, FindAddedPlace(GetEditedScene(), l_Place.Before), l_World);
 }
 
 bool EditorSession::EditPhysicsSettings(const Trinity::PhysicsSettings& settings, std::string field)

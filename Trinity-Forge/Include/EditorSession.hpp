@@ -320,6 +320,8 @@ public:
     [[nodiscard]] std::optional<std::string> CreateScene(std::string_view folder);
     // Named as Unity names a copy: Name 1. Each file copied gets its own UUID and keeps its settings
     [[nodiscard]] std::optional<std::string> DuplicateAsset(std::string_view path);
+    // The same into a folder, under its own name where that is free there. A folder goes into neither itself nor anything in it
+    [[nodiscard]] std::optional<std::string> CopyAsset(std::string_view path, std::string_view folder);
     // Chosen in a dialog at the next Update, so it never blocks mid-frame. Numbered if its name is used
     void RequestImportAsset(std::string folder);
     // Files and folders copied into the folder at the next Update, as a drop from the system's file manager asks, a folder with all that is in it. Then is told the paths they were given, where any were
@@ -451,6 +453,8 @@ public:
     // The same for every selected entity that no other selected one holds, as one command to undo
     bool DuplicateSelection();
     bool DeleteSelection();
+    // The selected entities none of whose ancestors is selected too, in the order they were picked, which the gizmo moves as one
+    [[nodiscard]] std::vector<Trinity::UUID> GetSelectedRoots();
     // A sprite of the texture at the point, its size in units, in one command
     bool CreateSprite(std::string name, Trinity::UUID texture, glm::vec3 position, glm::vec2 size);
     // Plays the clip or event as the scene starts. At the point if given, else at the parent's origin
@@ -464,10 +468,12 @@ public:
     bool CreateCamera(Trinity::UUID parent);
     // As it is now, to paste until the project closes. Refused with a notice, as Duplicate is
     void CopyEntity(Trinity::UUID entity);
-    [[nodiscard]] bool HasCopiedEntity() const { return m_CopiedEntity.has_value(); }
-    // After the original, else under its old parent, else among the roots. Not while a copy plays
+    // Every selected entity that no other selected one holds, in the Hierarchy's order. One that cannot be copied refuses them all
+    void CopySelection();
+    [[nodiscard]] bool HasCopiedEntity() const { return !m_CopiedEntities.empty(); }
+    // Each after its original, else under its old parent, else among the roots. Not while a copy plays
     bool PasteEntity();
-    // Last under the parent
+    // Last under the parent, in the order they were copied
     bool PasteEntityAsChild(Trinity::UUID parent);
     // Where the Scene panel's camera looks: the 3D camera's focus, or the 2D camera's centre at Z 0
     [[nodiscard]] glm::vec3 GetSpawnPoint() const { return m_SpawnPoint; }
@@ -597,9 +603,9 @@ private:
     void RememberScene();
     void ReadSceneMarks();
     void WriteSceneMarks();
-    bool PasteEntityAt(Trinity::UUID parent, Trinity::UUID before);
-    // The selected entities none of whose ancestors is selected too, in the order they were picked
-    [[nodiscard]] std::vector<Trinity::UUID> GetSelectedRoots();
+    void CopyEntities(const std::vector<Trinity::UUID>& entities);
+    bool PasteEntities(std::optional<Trinity::UUID> parent);
+    [[nodiscard]] Trinity::Scope<EditorCommand> CreatePaste(const CopiedEntity& copied, Trinity::UUID parent, Trinity::UUID before);
     [[nodiscard]] bool CanTakeChildren(Trinity::UUID parent);
     [[nodiscard]] Place FindPlace(Trinity::UUID parent, Trinity::UUID before);
     [[nodiscard]] glm::vec3 ToLocalPoint(Trinity::UUID parent, glm::vec3 point);
@@ -673,7 +679,7 @@ private:
     EditorSelection m_Selection;
     CommandStack m_History{ m_Scene, m_Selection };
     Trinity::UUID m_InspectedAsset;
-    std::optional<CopiedEntity> m_CopiedEntity;
+    std::vector<CopiedEntity> m_CopiedEntities;
     // The serializer's prefabs, as Forge opens a scene before the asset manager could load them
     PrefabTemplateCache m_Prefabs;
     // The prefab prefab mode has open, or null while the scene is edited

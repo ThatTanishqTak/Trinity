@@ -23,7 +23,8 @@ public:
     // While Listen waits, Forge's shortcuts are left alone, so the key pressed is only bound
     [[nodiscard]] bool IsListening() const { return m_Listening.has_value(); }
     // Delete and Duplicate are the panel's own while it has the focus
-    [[nodiscard]] bool IsFocused() const { return m_Focused; }
+    // Not from a frame it was last drawn in: as a tab behind another it is not drawn, and would stay focused for good
+    [[nodiscard]] bool IsFocused() const { return m_Focused && IsWindowFocused(); }
 
 protected:
     void OnImGuiRender() override;

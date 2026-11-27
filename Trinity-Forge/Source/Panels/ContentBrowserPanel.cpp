@@ -950,6 +950,11 @@ void ContentBrowserPanel::DrawItems()
         SelectRange(l_Items, *l_RangeTo);
     }
 
+    if (std::exchange(m_SelectAll, false))
+    {
+        SelectAll(l_Items);
+    }
+
     // Let go of where the item was not among those drawn, so no later frame scrolls to it unasked
     m_ScrollToSelected = false;
 
@@ -1231,6 +1236,29 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
     if (ImGui::MenuItem("Copy Path", "Ctrl+Alt+C", false, item != nullptr))
     {
         ImGui::SetClipboardText(item->Path.c_str());
+    }
+
+    if (ImGui::MenuItem("Copy", "Ctrl+C", false, l_Editable))
+    {
+        // With several items selected and this one of them, Copy is theirs
+        if (!m_AlsoSelected.empty() && IsSelected(item->Path))
+        {
+            CopySelected();
+        }
+        else
+        {
+            m_Copied = { item->Path };
+        }
+    }
+
+    if (ImGui::MenuItem(std::format("{} Paste", Trinity::Icons::c_Paste).c_str(), "Ctrl+V", false, !m_Copied.empty()))
+    {
+        PasteCopied();
+    }
+
+    if (!m_Copied.empty())
+    {
+        ImGui::SetItemTooltip("Copies what was copied into %s", m_Folder.c_str());
     }
 
     if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), "Ctrl+D", false, l_Editable))
@@ -1811,7 +1839,7 @@ void ContentBrowserPanel::AcceptMove(const std::string& folder)
     ImGui::EndDragDropTarget();
 }
 
-// With focus, Delete, F2, Ctrl+D and Ctrl+Alt+C act on its selection, and Ctrl+F goes to the search
+// With focus, Delete, F2, Ctrl+D, Ctrl+C and Ctrl+Alt+C act on its selection, Ctrl+A selects what is shown, Ctrl+V pastes into the open folder, and Ctrl+F goes to the search
 void ContentBrowserPanel::ReadShortcuts()
 {
     if (!m_Focused || ImGui::GetIO().WantTextInput)
@@ -1833,11 +1861,29 @@ void ContentBrowserPanel::ReadShortcuts()
         return;
     }
 
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_A))
+    {
+        m_SelectAll = true;
+
+        return;
+    }
+
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V))
+    {
+        if (!m_Copied.empty())
+        {
+            PasteCopied();
+        }
+
+        return;
+    }
+
     const bool l_Delete = ImGui::IsKeyPressed(ImGuiKey_Delete, false);
     const bool l_Rename = ImGui::IsKeyPressed(ImGuiKey_F2, false);
     const bool l_Duplicate = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D);
+    const bool l_Copy = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C);
     const bool l_CopyPath = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_C);
-    if (m_Selected.empty() || !(l_Delete || l_Rename || l_Duplicate || l_CopyPath))
+    if (m_Selected.empty() || !(l_Delete || l_Rename || l_Duplicate || l_Copy || l_CopyPath))
     {
         return;
     }
@@ -1851,6 +1897,10 @@ void ContentBrowserPanel::ReadShortcuts()
     if (l_CopyPath)
     {
         ImGui::SetClipboardText(l_Item->Path.c_str());
+    }
+    else if (l_Copy)
+    {
+        CopySelected();
     }
     else if (IsRoot(l_Item->Path))
     {
@@ -2236,6 +2286,74 @@ void ContentBrowserPanel::Duplicate(const Item& item)
     });
 }
 
+// Every selected item but a root, which is never copied. With none to take, what was copied before stays
+void ContentBrowserPanel::CopySelected()
+{
+    std::vector<std::string> l_Paths = GetSelectedPaths();
+    std::erase_if(l_Paths, [](const std::string& path) { return IsRoot(path); });
+    if (!l_Paths.empty())
+    {
+        m_Copied = std::move(l_Paths);
+    }
+}
+
+// Into the open folder, each within its own root as a move is. The copies are selected, as a duplicate is
+void ContentBrowserPanel::PasteCopied()
+{
+    m_Deferred.push_back([this]
+    {
+        std::vector<std::string> l_Copies;
+        for (const std::string& it_Path : m_Copied)
+        {
+            if (FindRoot(it_Path) != FindRoot(m_Folder))
+            {
+                TR_ERROR("Forge: {} stays in {}, so it was not pasted in {}", it_Path, FindRoot(it_Path) != nullptr ? FindRoot(it_Path)->Label : std::string_view("its folder"), m_Folder);
+
+                continue;
+            }
+
+            if (std::optional<std::string> l_Copy = m_Session.CopyAsset(it_Path, m_Folder))
+            {
+                l_Copies.push_back(std::move(*l_Copy));
+            }
+        }
+
+        m_Listings.clear();
+        if (!l_Copies.empty())
+        {
+            SetSelectedPaths(std::move(l_Copies));
+        }
+    });
+}
+
+// Every item shown, in the open folder or by the search. The one Properties shows stays the one it shows
+void ContentBrowserPanel::SelectAll(const std::vector<Item>& items)
+{
+    std::vector<std::string> l_Paths;
+    bool l_HasSelected = false;
+    for (const Item& it_Item : items)
+    {
+        if (it_Item.Path == m_Selected)
+        {
+            l_HasSelected = true;
+        }
+        else
+        {
+            l_Paths.push_back(it_Item.Path);
+        }
+    }
+
+    if (l_HasSelected)
+    {
+        l_Paths.push_back(m_Selected);
+    }
+
+    if (!l_Paths.empty())
+    {
+        SetSelectedPaths(std::move(l_Paths));
+    }
+}
+
 // Asks first, since a deleted file is gone for good
 void ContentBrowserPanel::AskDelete(const Item& item)
 {
@@ -2367,6 +2485,7 @@ void ContentBrowserPanel::ReleaseAll()
     m_Favorites.clear();
     m_FavoritesRead = false;
     m_Selected.clear();
+    m_Copied.clear();
     m_Renaming.clear();
     m_Search.clear();
     m_Filters = 0;

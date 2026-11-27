@@ -139,6 +139,12 @@ namespace
         return std::atan2(matrix[0][1], matrix[0][0]);
     }
 
+    // Scaled to nothing along an axis, so no place in the world maps back through it
+    bool IsFlat(const glm::mat4& matrix)
+    {
+        return glm::length(glm::vec3(matrix[0])) < 1e-6f || glm::length(glm::vec3(matrix[1])) < 1e-6f || glm::length(glm::vec3(matrix[2])) < 1e-6f;
+    }
+
     void TextLine(std::string_view text)
     {
         ImGui::TextUnformatted(text.data(), text.data() + text.size());
@@ -2237,6 +2243,8 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
         m_GizmoDragging = true;
         m_GizmoEntity = l_Entity.GetUUID();
         m_GizmoStart = l_Entity.Get<Trinity::TransformComponent>();
+        m_GizmoParentWorld = l_ParentWorld;
+        BeginGizmoGroup(l_Scene);
         m_Session.GetHistory().EndMerge();
     }
 
@@ -2261,15 +2269,86 @@ void ViewportPanel::DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize)
 
     if (l_Changed)
     {
-        Trinity::TransformComponent l_Value = m_Mode3D ? ApplyGizmo3D(l_ParentWorld) : ApplyGizmo(l_ParentWorld, IsSnapping());
-        m_Session.GetHistory().Execute(Trinity::CreateScope<SetComponentCommand<Trinity::TransformComponent>>(m_GizmoEntity, std::move(l_Value), c_GizmoFields[static_cast<std::size_t>(m_GizmoOperation)]));
+        ApplyGizmoGroup(m_Mode3D ? ApplyGizmo3D(m_GizmoParentWorld) : ApplyGizmo(m_GizmoParentWorld, IsSnapping()));
     }
+}
+
+// Every selected entity no other selected one holds, but the primary, as each is when the drag begins. One standing in for a missing prefab stays where it is, and so does one under a parent scaled to nothing
+void ViewportPanel::BeginGizmoGroup(Trinity::Scene& scene)
+{
+    m_GizmoMembers.clear();
+    m_GizmoMovesPrimary = false;
+    for (const Trinity::UUID it_Root : m_Session.GetSelectedRoots())
+    {
+        if (it_Root == m_GizmoEntity)
+        {
+            m_GizmoMovesPrimary = true;
+
+            continue;
+        }
+
+        const Trinity::Entity l_Entity = scene.FindEntityByUUID(it_Root);
+        if (!l_Entity || IsMissingPrefab(l_Entity))
+        {
+            continue;
+        }
+
+        const Trinity::Entity l_Parent = l_Entity.GetParent();
+        const glm::mat4 l_ParentWorld = l_Parent ? scene.ComputeWorldMatrix(l_Parent) : glm::mat4(1.0f);
+        if (!IsFlat(l_ParentWorld))
+        {
+            m_GizmoMembers.push_back({ .Entity = it_Root, .Start = l_Entity.Get<Trinity::TransformComponent>(), .ParentWorld = l_ParentWorld });
+        }
+    }
+}
+
+// The primary's change so far, which the others take as one change in the world: a move as it is, and a turn or a scale about the gizmo. A frame's changes are one group, the primary's last so it stays the primary, and the frames merge into one command to undo
+void ViewportPanel::ApplyGizmoGroup(Trinity::TransformComponent value)
+{
+    const char* l_Field = c_GizmoFields[static_cast<std::size_t>(m_GizmoOperation)];
+    const glm::mat4 l_Before = m_GizmoParentWorld * m_GizmoStart.GetMatrix();
+    const bool l_Moving = m_GizmoOperation == GizmoOperation::Translate;
+    // A turn or a scale is measured from where the primary began, which one scaled to nothing gives no measure of
+    if (m_GizmoMembers.empty() || (!l_Moving && IsFlat(l_Before)))
+    {
+        if (m_GizmoMovesPrimary)
+        {
+            m_Session.GetHistory().Execute(Trinity::CreateScope<SetComponentCommand<Trinity::TransformComponent>>(m_GizmoEntity, std::move(value), l_Field));
+        }
+
+        return;
+    }
+
+    const glm::mat4 l_After = m_GizmoParentWorld * value.GetMatrix();
+    const glm::mat4 l_Delta = l_Moving ? glm::translate(glm::mat4(1.0f), glm::vec3(l_After[3]) - glm::vec3(l_Before[3])) : l_After * glm::inverse(l_Before);
+    std::vector<Trinity::Scope<EditorCommand>> l_Commands;
+    for (const GizmoMember& it_Member : m_GizmoMembers)
+    {
+        l_Commands.push_back(Trinity::CreateScope<SetComponentCommand<Trinity::TransformComponent>>(it_Member.Entity, ApplyGizmoDelta(it_Member, l_Delta), l_Field));
+    }
+
+    if (m_GizmoMovesPrimary)
+    {
+        l_Commands.push_back(Trinity::CreateScope<SetComponentCommand<Trinity::TransformComponent>>(m_GizmoEntity, std::move(value), l_Field));
+    }
+
+    // One alone, as when the only other entity selected holds the primary, is named as one
+    if (l_Commands.size() == 1)
+    {
+        m_Session.GetHistory().Execute(std::move(l_Commands.front()));
+
+        return;
+    }
+
+    std::string l_Label = std::format("Edit {} {} of {} Entities", GetComponentLabel(Trinity::TransformComponent::c_TypeName), l_Field, l_Commands.size());
+    m_Session.GetHistory().Execute(Trinity::CreateScope<GroupCommand>(std::move(l_Label), std::move(l_Commands)));
 }
 
 void ViewportPanel::EndGizmoDrag()
 {
     m_GizmoDragging = false;
     m_GizmoEntity = {};
+    m_GizmoMembers.clear();
     m_Session.GetHistory().EndMerge();
     if (ImGui::GetActiveID() == m_GizmoID)
     {
@@ -2566,6 +2645,58 @@ Trinity::TransformComponent ViewportPanel::ApplyGizmo3D(const glm::mat4& parentW
                 if (l_Before > 1e-12f)
                 {
                     l_Value.Scale[it_Axis] = m_GizmoStart.Scale[it_Axis] * glm::length(glm::vec3(l_Local[it_Axis])) / l_Before;
+                }
+            }
+
+            break;
+        }
+    }
+
+    return l_Value;
+}
+
+// A carried entity's transform once the world's change is put through it: its place always, and its turn or each axis' length as the primary's own are worked out. In 2D only what a 2D gizmo changes
+Trinity::TransformComponent ViewportPanel::ApplyGizmoDelta(const GizmoMember& member, const glm::mat4& delta) const
+{
+    const glm::mat4 l_Start = member.Start.GetMatrix();
+    const glm::mat4 l_Local = glm::inverse(member.ParentWorld) * delta * member.ParentWorld * l_Start;
+    const glm::length_t l_Axes = m_Mode3D ? 3 : 2;
+
+    Trinity::TransformComponent l_Value = member.Start;
+    for (glm::length_t it_Axis = 0; it_Axis < l_Axes; ++it_Axis)
+    {
+        l_Value.Position[it_Axis] = l_Local[3][it_Axis];
+    }
+
+    switch (m_GizmoOperation)
+    {
+        case GizmoOperation::Translate:
+        {
+            break;
+        }
+        case GizmoOperation::Rotate:
+        {
+            if (!m_Mode3D)
+            {
+                l_Value.Rotation = glm::angleAxis(GetAngleZ(l_Local) - GetAngleZ(l_Start), glm::vec3(0.0f, 0.0f, 1.0f)) * member.Start.Rotation;
+                break;
+            }
+
+            Trinity::TransformComponent l_Before;
+            l_Before.SetMatrix(l_Start);
+            Trinity::TransformComponent l_Now;
+            l_Now.SetMatrix(l_Local);
+            l_Value.Rotation = glm::normalize(l_Now.Rotation * glm::inverse(l_Before.Rotation) * member.Start.Rotation);
+            break;
+        }
+        case GizmoOperation::Scale:
+        {
+            for (glm::length_t it_Axis = 0; it_Axis < l_Axes; ++it_Axis)
+            {
+                const float l_Before = glm::length(glm::vec3(l_Start[it_Axis]));
+                if (l_Before > 1e-12f)
+                {
+                    l_Value.Scale[it_Axis] = member.Start.Scale[it_Axis] * glm::length(glm::vec3(l_Local[it_Axis])) / l_Before;
                 }
             }
 

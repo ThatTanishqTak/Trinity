@@ -44,7 +44,7 @@ namespace
     constexpr std::string_view c_AlternateSuffix = ".alternate";
 
     // Read by each panel in its own ReadShortcuts, so these are told here by hand and are not yet a command's to change
-    constexpr std::array<Shortcuts::PanelKey, 26> c_PanelKeys{ {
+    constexpr std::array<Shortcuts::PanelKey, 29> c_PanelKeys{ {
         { "Scene", "Move", "W" },
         { "Scene", "Rotate", "E" },
         { "Scene", "Scale", "R" },
@@ -61,6 +61,9 @@ namespace
         { "Content Browser", "Rename", "F2" },
         { "Content Browser", "Delete", "Delete" },
         { "Content Browser", "Duplicate", "Ctrl+D" },
+        { "Content Browser", "Select All", "Ctrl+A" },
+        { "Content Browser", "Copy", "Ctrl+C" },
+        { "Content Browser", "Paste", "Ctrl+V" },
         { "Content Browser", "Copy Path", "Ctrl+Alt+C" },
         { "Content Browser", "Search", "Ctrl+F" },
         { "Content Browser", "Back", "Alt+Left" },

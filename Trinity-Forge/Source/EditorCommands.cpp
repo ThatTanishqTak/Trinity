@@ -2,7 +2,15 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
+#include <cstdint>
+#include <format>
+#include <limits>
 #include <span>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -97,6 +105,54 @@ namespace
         }
 
         return true;
+    }
+
+    // A copy named as an entity beside it is takes the first free of Name (1), Name (2) and on, counting on from a number its own name ends in. One whose name is free there keeps it, as one with no name does
+    void NameCopy(Trinity::Scene& scene, Trinity::Entity copy)
+    {
+        if (!copy.Has<Trinity::TagComponent>())
+        {
+            return;
+        }
+
+        std::unordered_set<std::string_view> l_Taken;
+        const Trinity::Entity l_Parent = copy.GetParent();
+        for (Trinity::Entity it_Sibling = l_Parent ? l_Parent.GetFirstChild() : scene.GetFirstRoot(); it_Sibling; it_Sibling = it_Sibling.GetNextSibling())
+        {
+            if (it_Sibling != copy && it_Sibling.Has<Trinity::TagComponent>())
+            {
+                l_Taken.insert(std::string_view(it_Sibling.Get<Trinity::TagComponent>().Tag));
+            }
+        }
+
+        Trinity::TagComponent& l_Tag = copy.Get<Trinity::TagComponent>();
+        const std::string_view l_Name(l_Tag.Tag);
+        if (l_Name.empty() || !l_Taken.contains(l_Name))
+        {
+            return;
+        }
+
+        std::string_view l_Base = l_Name;
+        std::uint32_t l_Number = 1;
+        const std::size_t l_Open = l_Name.rfind(" (");
+        if (l_Name.ends_with(')') && l_Open != std::string_view::npos && l_Open > 0)
+        {
+            const char* l_End = l_Name.data() + l_Name.size() - 1;
+            std::uint32_t l_Ending = 0;
+            if (const std::from_chars_result l_Read = std::from_chars(l_Name.data() + l_Open + 2, l_End, l_Ending); l_Read.ec == std::errc() && l_Read.ptr == l_End && l_Ending < std::numeric_limits<std::uint32_t>::max())
+            {
+                l_Base = l_Name.substr(0, l_Open);
+                l_Number = l_Ending + 1;
+            }
+        }
+
+        std::string l_Free = std::format("{} ({})", l_Base, l_Number);
+        while (l_Taken.contains(l_Free))
+        {
+            l_Free = std::format("{} ({})", l_Base, ++l_Number);
+        }
+
+        l_Tag.Tag = l_Free;
     }
 
     // An instance as its root's text where it sits, which RestoreInstances makes again there
@@ -1138,6 +1194,7 @@ bool DuplicateEntityCommand::Execute(Trinity::Scene& scene)
         static_cast<void>(Place(scene, l_Copy, GetID(l_Copy.GetParent()), FindAddedPlace(scene, l_Next.GetUUID())));
     }
 
+    NameCopy(scene, l_Copy);
     m_Copy = l_Copy.GetUUID();
     m_Parent = GetID(l_Copy.GetParent());
     m_Before = GetID(l_Copy.GetNextSibling());
@@ -1268,6 +1325,7 @@ bool PasteEntityCommand::Execute(Trinity::Scene& scene)
         scene.SetWorldTransform(*l_Pasted, *m_World);
     }
 
+    NameCopy(scene, *l_Pasted);
     m_Entity = l_Pasted->GetUUID();
     m_Text = Trinity::SceneSerializer::SaveEntityToText(scene, *l_Pasted);
     m_Label = l_Parent ? std::format("Paste {} under {}", GetEntityLabel(*l_Pasted), GetEntityLabel(l_Parent)) : std::format("Paste {}", GetEntityLabel(*l_Pasted));

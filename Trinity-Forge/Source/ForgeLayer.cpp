@@ -714,11 +714,12 @@ void ForgeLayer::RegisterShortcuts()
 
     l_Shortcuts.Add({ .ID = "edit.undo", .Category = "Edit", .Label = "Undo", .Chord = ImGuiMod_Ctrl | ImGuiKey_Z, .Repeats = true, .Run = [this] { m_Session.GetHistory().Undo(); } });
     l_Shortcuts.Add({ .ID = "edit.redo", .Category = "Edit", .Label = "Redo", .Chord = ImGuiMod_Ctrl | ImGuiKey_Y, .Alternate = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, .Repeats = true, .Run = [this] { m_Session.GetHistory().Redo(); } });
-    l_Shortcuts.Add({ .ID = "edit.copy", .Category = "Edit", .Label = "Copy", .Chord = ImGuiMod_Ctrl | ImGuiKey_C, .IsEnabled = [this, a_HasSelection] { return !m_ContentBrowser->IsFocused() && a_HasSelection(); }, .Run = [this] { m_Session.CopyEntity(m_Session.GetSelection()); } });
+    l_Shortcuts.Add({ .ID = "edit.copy", .Category = "Edit", .Label = "Copy", .Chord = ImGuiMod_Ctrl | ImGuiKey_C, .IsEnabled = [this, a_HasSelection] { return !m_ContentBrowser->IsFocused() && a_HasSelection(); }, .Run = [this] { m_Session.CopySelection(); } });
     l_Shortcuts.Add({ .ID = "edit.paste", .Category = "Edit", .Label = "Paste", .Chord = ImGuiMod_Ctrl | ImGuiKey_V, .IsEnabled = [this, a_EditsScene] { return a_EditsScene() && m_Session.HasCopiedEntity(); }, .Run = [this] { static_cast<void>(m_Session.PasteEntity()); } });
     l_Shortcuts.Add({ .ID = "edit.pasteAsChild", .Category = "Edit", .Label = "Paste As Child", .Chord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V, .IsEnabled = [this, a_EditsScene, a_HasSelection] { return a_EditsScene() && m_Session.HasCopiedEntity() && a_HasSelection(); }, .Run = [this] { static_cast<void>(m_Session.PasteEntityAsChild(m_Session.GetSelection())); } });
     l_Shortcuts.Add({ .ID = "edit.duplicate", .Category = "Edit", .Label = "Duplicate", .Chord = ImGuiMod_Ctrl | ImGuiKey_D, .IsEnabled = [a_EditsScene, a_HasSelection] { return a_EditsScene() && a_HasSelection(); }, .Run = [this] { static_cast<void>(m_Session.DuplicateSelection()); } });
     l_Shortcuts.Add({ .ID = "edit.delete", .Category = "Edit", .Label = "Delete", .Chord = ImGuiKey_Delete, .IsEnabled = [a_EditsScene, a_HasSelection] { return a_EditsScene() && a_HasSelection(); }, .Run = [this] { static_cast<void>(m_Session.DeleteSelection()); } });
+    l_Shortcuts.Add({ .ID = "edit.selectAll", .Category = "Edit", .Label = "Select All", .Chord = ImGuiMod_Ctrl | ImGuiKey_A, .IsEnabled = [a_HasProject, a_OwnsEditKeys] { return a_HasProject() && !a_OwnsEditKeys(); }, .Run = [this] { m_HierarchyPanel->SelectAll(); } });
     l_Shortcuts.Add({ .ID = "edit.preferences", .Category = "Edit", .Label = "Preferences", .Chord = ImGuiMod_Ctrl | ImGuiKey_Comma, .Run = [this] { m_PreferencesWindow.Open(); } });
 
     l_Shortcuts.Add({ .ID = "entity.createEmpty", .Category = "Entity", .Label = "Create Empty", .Chord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_N, .IsEnabled = [this] { return !m_Session.IsPlaying() && m_Session.HasProject(); }, .Run = [this] { CreateEmpty({}); } });
@@ -1465,7 +1466,7 @@ void ForgeLayer::DrawEditMenu()
     const bool l_HasSelection = !l_Playing && l_Selected;
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Copy, "Copy").c_str(), GetKeyText("edit.copy").c_str(), false, l_Selected))
     {
-        m_Session.CopyEntity(m_Session.GetSelection());
+        m_Session.CopySelection();
     }
 
     const bool l_CanPaste = !l_Playing && m_Session.HasCopiedEntity();
@@ -1487,6 +1488,11 @@ void ForgeLayer::DrawEditMenu()
     if (ImGui::MenuItem(WithIcon(Trinity::Icons::c_Trash, "Delete").c_str(), GetKeyText("edit.delete").c_str(), false, l_HasSelection))
     {
         static_cast<void>(m_Session.DeleteSelection());
+    }
+
+    if (ImGui::MenuItem("Select All", GetKeyText("edit.selectAll").c_str(), false, m_Session.HasProject()))
+    {
+        m_HierarchyPanel->SelectAll();
     }
 
     ImGui::Separator();

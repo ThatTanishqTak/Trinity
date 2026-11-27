@@ -138,6 +138,9 @@ private:
     void BeginRename(const Item& item);
     void RenameCreated(const std::optional<std::string>& path);
     void Duplicate(const Item& item);
+    void CopySelected();
+    void PasteCopied();
+    void SelectAll(const std::vector<Item>& items);
     void AskDelete(const Item& item);
     void AskDeleteSelected();
     void ToggleSelected(const Item& item);
@@ -184,6 +187,10 @@ private:
     // The item last selected without Shift, which a Shift-click selects from, and the item one landed on until the frame's items are known
     std::string m_SelectionAnchor;
     std::optional<std::string> m_RangeTo;
+    // Ctrl+A was pressed, which selects every item shown once the frame's items are known
+    bool m_SelectAll = false;
+    // What Copy took, by path, which Paste copies into the open folder until the project closes
+    std::vector<std::string> m_Copied;
     std::string m_Renaming;
     std::string m_RenameText;
     std::string m_Search;

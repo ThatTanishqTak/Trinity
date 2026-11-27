@@ -86,6 +86,14 @@ private:
         bool Orthographic = false;
     };
 
+    // A selected entity the gizmo's drag carries with the primary: its transform and its parent's place in the world as the drag began
+    struct GizmoMember
+    {
+        Trinity::UUID Entity{};
+        Trinity::TransformComponent Start{};
+        glm::mat4 ParentWorld{ 1.0f };
+    };
+
     void ClearBookmark(std::size_t index);
     void ReadBookmarks();
     void WriteBookmarks() const;
@@ -119,12 +127,15 @@ private:
     void DrawGizmo(glm::vec2 imageMin, glm::vec2 viewportSize);
     void DrawOrientation(glm::vec2 imageMin, glm::vec2 viewportSize);
     [[nodiscard]] bool IsSnapping() const;
+    void BeginGizmoGroup(Trinity::Scene& scene);
+    void ApplyGizmoGroup(Trinity::TransformComponent value);
     void EndGizmoDrag();
     void DrawToolbar();
     void DrawBreadcrumb();
 
     [[nodiscard]] Trinity::TransformComponent ApplyGizmo(const glm::mat4& parentWorld, bool snap) const;
     [[nodiscard]] Trinity::TransformComponent ApplyGizmo3D(const glm::mat4& parentWorld) const;
+    [[nodiscard]] Trinity::TransformComponent ApplyGizmoDelta(const GizmoMember& member, const glm::mat4& delta) const;
     [[nodiscard]] glm::vec3 GetDropPoint(glm::vec2 imageMin, glm::vec2 viewportSize) const;
 
     [[nodiscard]] glm::vec2 GetViewportSize() const;
@@ -183,6 +194,12 @@ private:
     glm::mat4 m_GizmoMatrix{ 1.0f };
     Trinity::TransformComponent m_GizmoStart;
     Trinity::UUID m_GizmoEntity;
+    // Where the primary's parent was in the world as the drag began, which the drag is measured in even as a selected parent moves
+    glm::mat4 m_GizmoParentWorld{ 1.0f };
+    // The other selected entities the drag carries, each one no other selected entity holds
+    std::vector<GizmoMember> m_GizmoMembers;
+    // Not when another selected entity holds the primary, whose move carries it
+    bool m_GizmoMovesPrimary = true;
     std::uint32_t m_GizmoID = 0;
     float m_ToolbarWidth = 0.0f;
     float m_ToolbarHeight = 0.0f;

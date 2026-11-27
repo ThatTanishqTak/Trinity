@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -30,6 +31,8 @@ public:
     [[nodiscard]] const std::unordered_set<Trinity::UUID>* GetSearchMatches() const { return m_Search.empty() ? nullptr : &m_Matched; }
     // Starts typing a new name in the entity's row, as F2 does, and Create Empty for its entity
     void Rename(Trinity::UUID entity);
+    // Every entity, or while the search holds anything every one it matches. The primary stays the primary
+    void SelectAll();
 
 protected:
     void OnImGuiRender() override;
@@ -42,12 +45,26 @@ private:
         std::vector<std::pair<Trinity::ScriptLanguage, std::string>> Scripts;
     };
 
-    // A row as the tree drew it, in order, with whether its children show, for the keys next frame
+    // A row as the tree drew it, in order, with whether its children show, for the keys next frame, and where it is on screen, for the box
     struct Row
     {
         Trinity::UUID Entity;
         bool HasChildren = false;
         bool Open = false;
+        float Top = 0.0f;
+        float Bottom = 0.0f;
+    };
+
+    // A selecting drag: where it began in the tree's content, so scrolling keeps it, and what was selected then
+    struct BoxSelect
+    {
+        ImVec2 Start{ 0.0f, 0.0f };
+        std::vector<Trinity::UUID> Before{};
+        // With Ctrl or Shift held as it began, so the rows it reaches join what was selected
+        bool Additive = false;
+        // Begun below the rows, where a click alone clears the selection
+        bool Background = false;
+        bool Dragged = false;
     };
 
     void DrawSearch();
@@ -60,6 +77,8 @@ private:
     void DrawRenameField(Trinity::Entity entity);
     void DrawContextMenu(Trinity::Entity entity);
     void DrawBackground();
+    void BeginBoxSelect(bool background);
+    void UpdateBoxSelect();
     void DrawCreateMenus(Trinity::UUID parent);
     void AcceptDrop(Trinity::Entity target);
     void ReadShortcuts();
@@ -90,6 +109,8 @@ private:
     Trinity::UUID m_Pressed;
     // The row last selected without Shift, which a Shift-click selects from
     Trinity::UUID m_SelectionAnchor;
+    // While a press right of a row's name or below the rows is held
+    std::optional<BoxSelect> m_Box;
     // The search text, and while there is any, the entities it matches and those shown with parents
     std::string m_Search;
     std::unordered_set<Trinity::UUID> m_Matched;
