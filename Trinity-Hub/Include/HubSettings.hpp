@@ -26,6 +26,8 @@ struct HubSettings
     std::string ProjectsDirectory;
     // The Projects page as a grid of pictures rather than a list
     bool ProjectsGrid = false;
+    // Hub's own title bar in place of the system's: a bar across the window's top with Hub's name and the window's buttons. Off, or where the platform keeps its own, the system's is there
+    bool CustomTitleBar = true;
     // The projects kept first on the Projects page, each by its .trproj as UTF-8
     std::vector<std::string> Favorites;
 

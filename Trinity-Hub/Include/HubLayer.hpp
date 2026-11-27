@@ -10,13 +10,14 @@
 #include "Pages/HubPage.hpp"
 
 #include <Trinity.hpp>
+#include <Trinity/Tools/WindowChrome.hpp>
 
 #include <cstddef>
 #include <filesystem>
 #include <string>
 #include <vector>
 
-// Hub's one window, as Unity Hub's: a sidebar of its pages beside the chosen page, with no docking
+// Hub's one window, as Unity Hub's: a sidebar of its pages beside the chosen page, with no docking. On a window that gives the system's title bar up, Hub's own is across its top
 class HubLayer final : public Trinity::Layer
 {
 public:
@@ -29,6 +30,8 @@ public:
 
 private:
     void DrawSidebar();
+    // Hub's own title bar, across the window's top: Trinity's mark and Hub's name, then the window's three buttons at its end. The window is dragged by it wherever it holds nothing to click
+    void DrawTitleBar();
     void ShowPage(std::size_t page);
 
     std::filesystem::path m_Directory;
@@ -48,4 +51,6 @@ private:
     Trinity::Scope<HubPage> m_NewProject;
     std::size_t m_Page = 0;
     bool m_NewProjectShown = false;
+    // The window's buttons and its dragging, which Forge's title bar has too
+    Trinity::Tools::WindowChrome m_Chrome;
 };

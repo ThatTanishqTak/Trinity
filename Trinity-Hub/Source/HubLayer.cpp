@@ -12,6 +12,8 @@
 
 #include <imgui.h>
 
+#include <cmath>
+#include <cstdint>
 #include <format>
 #include <string>
 #include <string_view>
@@ -23,6 +25,8 @@ namespace
     constexpr ImGuiWindowFlags c_ShellFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
     // As Unity Hub's default projects location, in Documents, or in Hub's working folder without
     constexpr std::string_view c_ProjectsFolder = "Trinity Projects";
+    // Trinity's mark before Hub's name in its title bar, against the size of the text, as in Forge's
+    constexpr float c_MarkInFonts = 0.9f;
 }
 
 HubLayer::HubLayer(std::filesystem::path directory, std::filesystem::path installsDirectory, std::string releasesUrl) : Layer("Hub"), m_Directory(std::move(directory)), m_DefaultInstallsDirectory(std::move(installsDirectory)), m_DefaultProjectsDirectory(Trinity::Process::GetDocumentsDirectory() / std::filesystem::path(c_ProjectsFolder)), m_Releases(std::move(releasesUrl)), m_Projects(m_Directory / std::filesystem::path(Trinity::ProjectList::c_FileName)), m_Launcher(m_Directory)
@@ -83,6 +87,7 @@ void HubLayer::OnAttach()
 // A dialog asked for opens here, between frames, and every page takes what its jobs finished
 void HubLayer::OnUpdate([[maybe_unused]] Trinity::Timestep timestep)
 {
+    m_Chrome.Update(Trinity::Application::Get().GetWindow(), m_Settings.CustomTitleBar);
     m_PathPrompt.Update();
     m_Installs.Update();
     m_Requirements.Update(m_Installs);
@@ -109,6 +114,11 @@ void HubLayer::OnImGuiRender()
     ImGui::PopStyleVar(3);
     if (l_Open)
     {
+        if (m_Chrome.IsActive())
+        {
+            DrawTitleBar();
+        }
+
         DrawSidebar();
         ImGui::SameLine(0.0f, 0.0f);
 
@@ -127,7 +137,40 @@ void HubLayer::OnImGuiRender()
     ImGui::End();
 }
 
-// The pages by icon and name, the chosen one lit, under Hub's name, with its version at the foot
+// In the sidebar's colour, with a line under it, and as tall as Forge's. The sidebar and the page begin below it
+void HubLayer::DrawTitleBar()
+{
+    Trinity::Window& l_Window = Trinity::Application::Get().GetWindow();
+    const ImGuiStyle& l_Style = ImGui::GetStyle();
+    const ImVec2 l_Min = ImGui::GetWindowPos();
+    const ImVec2 l_Max(l_Min.x + ImGui::GetWindowWidth(), l_Min.y + Trinity::Tools::WindowChrome::GetHeight());
+    const float l_Middle = (l_Min.y + l_Max.y) * 0.5f;
+    ImDrawList& l_DrawList = *ImGui::GetWindowDrawList();
+    l_DrawList.AddRectFilled(l_Min, l_Max, ImGui::GetColorU32(ImGuiCol_MenuBarBg));
+    l_DrawList.AddLine(ImVec2(l_Min.x, l_Max.y - 1.0f), ImVec2(l_Max.x, l_Max.y - 1.0f), ImGui::GetColorU32(ImGuiCol_Border));
+
+    // Trinity's mark and Hub's name, which the sidebar leaves to the bar
+    const float l_Mark = std::round(ImGui::GetFontSize() * c_MarkInFonts);
+    const float l_Left = l_Min.x + l_Style.ItemSpacing.x;
+    Trinity::Tools::WindowChrome::DrawMark(l_DrawList, ImVec2(l_Left + l_Mark * 0.5f, l_Middle), l_Mark);
+    l_DrawList.AddText(ImVec2(l_Left + l_Mark + l_Style.ItemSpacing.x, std::round(l_Middle - ImGui::GetFontSize() * 0.5f)), ImGui::GetColorU32(ImGuiCol_Text), "Trinity Hub");
+
+    // Minimise, maximise or restore, and close, against the bar's right end as Windows has them
+    const ImVec2 l_ButtonsMin(l_Max.x - Trinity::Tools::WindowChrome::GetButtonsWidth(), l_Min.y);
+    m_Chrome.DrawButtons(l_Window, l_ButtonsMin, l_Max, [] { Trinity::Application::Get().RequestClose(); });
+
+    // The bar is the only part of the shell its sidebar and its page do not cover, so the mouse over the shell itself with nothing under it is on the bar's empty part
+    const ImVec2 l_Mouse = ImGui::GetMousePos();
+    m_Chrome.DragBy(l_Mouse.y >= l_Min.y && l_Mouse.y < l_Max.y && ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered());
+
+    // The buttons keep all but a sliver of the window's top edge, which elsewhere along the bar resizes it. In the window's own pixels, from its top left
+    const ImVec2 l_Origin = ImGui::GetMainViewport()->Pos;
+    l_Window.SetTitleBarControls({ { static_cast<std::int32_t>(std::floor(l_ButtonsMin.x - l_Origin.x)), static_cast<std::int32_t>(std::floor(l_ButtonsMin.y - l_Origin.y)), static_cast<std::int32_t>(std::ceil(l_Max.x - l_Origin.x)), static_cast<std::int32_t>(std::ceil(l_Max.y - l_Origin.y)) } });
+
+    ImGui::SetCursorScreenPos(ImVec2(l_Min.x, l_Max.y));
+}
+
+// The pages by icon and name, the chosen one lit, with Hub's version at the foot. Hub's name is over them only where the system's title bar is, as Hub's own title bar says it
 void HubLayer::DrawSidebar()
 {
     const float l_Width = ImGui::GetFontSize() * 13.0f;
@@ -136,11 +179,14 @@ void HubLayer::DrawSidebar()
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(l_Padding, l_Padding));
     if (ImGui::BeginChild("##HubSidebar", ImVec2(l_Width, 0.0f), ImGuiChildFlags_AlwaysUseWindowPadding))
     {
-        ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), ImGui::GetStyle().FontSizeBase * 1.3f);
-        ImGui::TextUnformatted("Trinity Hub");
-        ImGui::PopFont();
-        ImGui::Spacing();
-        ImGui::Spacing();
+        if (!m_Chrome.IsActive())
+        {
+            ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), ImGui::GetStyle().FontSizeBase * 1.3f);
+            ImGui::TextUnformatted("Trinity Hub");
+            ImGui::PopFont();
+            ImGui::Spacing();
+            ImGui::Spacing();
+        }
 
         const float l_Row = ImGui::GetFrameHeight() * 1.4f;
         ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 0.5f));

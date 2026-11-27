@@ -84,6 +84,21 @@ void SettingsPage::DrawAppearance()
     {
         ImGui::SetTooltip("%s", std::format("On top of the monitor's own scale, which Hub follows by itself, so text is {:.0f} px now", ImGui::GetFontSize()).c_str());
     }
+
+    // Greyed out where it is asked for and the window still has the system's, which is a platform that keeps its own
+    const bool l_Supported = !m_Settings.CustomTitleBar || Trinity::Application::Get().GetWindow().HasCustomTitleBar();
+    HubPages::DrawLabel("Custom Title Bar");
+    ImGui::BeginDisabled(!l_Supported);
+    if (ImGui::Checkbox("##CustomTitleBar", &m_Settings.CustomTitleBar))
+    {
+        Change();
+    }
+
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
+    {
+        ImGui::SetTooltip("%s", l_Supported ? "Hub's own title bar in place of the system's, in Hub's colours. Off, the system's title bar is back" : "This platform keeps its own title bar");
+    }
 }
 
 // The buttons come first and the folder below them, so a long path never pushes them off the page

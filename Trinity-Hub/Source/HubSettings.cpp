@@ -105,6 +105,12 @@ HubSettings HubSettings::Load()
     l_Settings.InstallsDirectory = ReadScalar(l_Root, "InstallsDirectory");
     l_Settings.ProjectsDirectory = ReadScalar(l_Root, "ProjectsDirectory");
     l_Settings.ProjectsGrid = ReadScalar(l_Root, "ProjectsView") == c_GridView;
+    // A file from before the setting says nothing of it, and keeps Hub's own
+    if (const std::string l_TitleBar = ReadScalar(l_Root, "CustomTitleBar"); !l_TitleBar.empty())
+    {
+        l_Settings.CustomTitleBar = l_TitleBar != "false";
+    }
+
     if (const YAML::Node l_Favorites = l_Root["Favorites"]; l_Favorites && l_Favorites.IsSequence())
     {
         for (const YAML::Node& it_Favorite : l_Favorites)
@@ -158,6 +164,7 @@ void HubSettings::Save() const
     l_Emitter << YAML::Key << "InstallsDirectory" << YAML::Value << YAML::DoubleQuoted << InstallsDirectory;
     l_Emitter << YAML::Key << "ProjectsDirectory" << YAML::Value << YAML::DoubleQuoted << ProjectsDirectory;
     l_Emitter << YAML::Key << "ProjectsView" << YAML::Value << (ProjectsGrid ? c_GridView : c_ListView);
+    l_Emitter << YAML::Key << "CustomTitleBar" << YAML::Value << CustomTitleBar;
     l_Emitter << YAML::Key << "Favorites" << YAML::Value << YAML::BeginSeq;
     for (const std::string& it_Favorite : Favorites)
     {
