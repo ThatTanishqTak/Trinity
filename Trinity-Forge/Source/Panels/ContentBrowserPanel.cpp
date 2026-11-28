@@ -747,7 +747,7 @@ void ContentBrowserPanel::DrawToolbar()
         Go(true);
     }
 
-    ImGui::SetItemTooltip("Back (Alt+Left)");
+    ImGui::SetItemTooltip("%s", m_Session.GetShortcuts().WithKey("Back", "contentBrowser.back").c_str());
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::BeginDisabled(m_HistoryAt + 1 >= m_History.size());
@@ -756,7 +756,7 @@ void ContentBrowserPanel::DrawToolbar()
         Go(false);
     }
 
-    ImGui::SetItemTooltip("Forward (Alt+Right)");
+    ImGui::SetItemTooltip("%s", m_Session.GetShortcuts().WithKey("Forward", "contentBrowser.forward").c_str());
     ImGui::EndDisabled();
     ImGui::SameLine();
     const Root* l_Root = FindRoot(m_Folder);
@@ -1215,7 +1215,7 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
         Open(*item);
     }
 
-    if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), "Delete", false, l_Editable))
+    if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), m_Session.GetShortcuts().GetKeyText("edit.delete").c_str(), false, l_Editable))
     {
         // With several items selected and this one of them, Delete is theirs
         if (!m_AlsoSelected.empty() && IsSelected(item->Path))
@@ -1228,17 +1228,17 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
         }
     }
 
-    if (ImGui::MenuItem("Rename", "F2", false, l_Editable))
+    if (ImGui::MenuItem("Rename", m_Session.GetShortcuts().GetKeyText("edit.rename").c_str(), false, l_Editable))
     {
         BeginRename(*item);
     }
 
-    if (ImGui::MenuItem("Copy Path", "Ctrl+Alt+C", false, item != nullptr))
+    if (ImGui::MenuItem("Copy Path", m_Session.GetShortcuts().GetKeyText("contentBrowser.copyPath").c_str(), false, item != nullptr))
     {
         ImGui::SetClipboardText(item->Path.c_str());
     }
 
-    if (ImGui::MenuItem("Copy", "Ctrl+C", false, l_Editable))
+    if (ImGui::MenuItem("Copy", m_Session.GetShortcuts().GetKeyText("edit.copy").c_str(), false, l_Editable))
     {
         // With several items selected and this one of them, Copy is theirs
         if (!m_AlsoSelected.empty() && IsSelected(item->Path))
@@ -1251,7 +1251,7 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
         }
     }
 
-    if (ImGui::MenuItem(std::format("{} Paste", Trinity::Icons::c_Paste).c_str(), "Ctrl+V", false, !m_Copied.empty()))
+    if (ImGui::MenuItem(std::format("{} Paste", Trinity::Icons::c_Paste).c_str(), m_Session.GetShortcuts().GetKeyText("edit.paste").c_str(), false, !m_Copied.empty()))
     {
         PasteCopied();
     }
@@ -1261,7 +1261,7 @@ void ContentBrowserPanel::DrawAssetMenu(const Item* item)
         ImGui::SetItemTooltip("Copies what was copied into %s", m_Folder.c_str());
     }
 
-    if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), "Ctrl+D", false, l_Editable))
+    if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), m_Session.GetShortcuts().GetKeyText("edit.duplicate").c_str(), false, l_Editable))
     {
         Duplicate(*item);
     }
@@ -1839,7 +1839,7 @@ void ContentBrowserPanel::AcceptMove(const std::string& folder)
     ImGui::EndDragDropTarget();
 }
 
-// With focus, Delete, F2, Ctrl+D, Ctrl+C and Ctrl+Alt+C act on its selection, Ctrl+A selects what is shown, Ctrl+V pastes into the open folder, and Ctrl+F goes to the search
+// The commands' asks while it has the focus: Delete, Rename, Duplicate, Copy and Copy Path act on its selection, Select All selects what is shown, Paste pastes into the open folder, Find goes to the search, and Back and Forward through the folders opened
 void ContentBrowserPanel::ReadShortcuts()
 {
     if (!m_Focused || ImGui::GetIO().WantTextInput)
@@ -1847,28 +1847,29 @@ void ContentBrowserPanel::ReadShortcuts()
         return;
     }
 
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Alt | ImGuiKey_LeftArrow) || ImGui::IsKeyChordPressed(ImGuiMod_Alt | ImGuiKey_RightArrow))
+    const PanelAction l_Action = TakeAction();
+    if (l_Action == PanelAction::Back || l_Action == PanelAction::Forward)
     {
-        Go(ImGui::IsKeyDown(ImGuiKey_LeftArrow));
+        Go(l_Action == PanelAction::Back);
 
         return;
     }
 
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F))
+    if (l_Action == PanelAction::Find)
     {
         m_FocusSearch = true;
 
         return;
     }
 
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_A))
+    if (l_Action == PanelAction::SelectAll)
     {
         m_SelectAll = true;
 
         return;
     }
 
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V))
+    if (l_Action == PanelAction::Paste)
     {
         if (!m_Copied.empty())
         {
@@ -1878,11 +1879,11 @@ void ContentBrowserPanel::ReadShortcuts()
         return;
     }
 
-    const bool l_Delete = ImGui::IsKeyPressed(ImGuiKey_Delete, false);
-    const bool l_Rename = ImGui::IsKeyPressed(ImGuiKey_F2, false);
-    const bool l_Duplicate = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D);
-    const bool l_Copy = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C);
-    const bool l_CopyPath = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_C);
+    const bool l_Delete = l_Action == PanelAction::Delete;
+    const bool l_Rename = l_Action == PanelAction::Rename;
+    const bool l_Duplicate = l_Action == PanelAction::Duplicate;
+    const bool l_Copy = l_Action == PanelAction::Copy;
+    const bool l_CopyPath = l_Action == PanelAction::CopyPath;
     if (m_Selected.empty() || !(l_Delete || l_Rename || l_Duplicate || l_Copy || l_CopyPath))
     {
         return;

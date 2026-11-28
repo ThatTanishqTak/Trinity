@@ -568,7 +568,9 @@ NearestInstance FindNearestInstance(Trinity::Entity entity)
 
 bool IsDefaultOverride(Trinity::Entity root, const Trinity::SceneSerializer::PrefabOverride& change)
 {
-    return change.Type == Trinity::SceneSerializer::PrefabOverride::Kind::Value && change.Entity == root.GetUUID() && change.Component == Trinity::TransformComponent::c_TypeName && (change.Path == "Position" || change.Path == "Rotation");
+    const bool l_Placed = change.Component == Trinity::TransformComponent::c_TypeName && (change.Path == "Position" || change.Path == "Rotation");
+
+    return change.Type == Trinity::SceneSerializer::PrefabOverride::Kind::Value && change.Entity == root.GetUUID() && (l_Placed || change.Component == Trinity::TagComponent::c_TypeName);
 }
 
 Trinity::UUID FindAddedPlace(Trinity::Scene& scene, Trinity::UUID before)

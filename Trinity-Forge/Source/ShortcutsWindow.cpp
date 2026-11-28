@@ -9,6 +9,7 @@
 #include <cfloat>
 #include <format>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -63,6 +64,15 @@ namespace
 
             ImGui::EndTable();
         }
+    }
+
+    // Which of two commands on one key, one of a panel and one of none, runs where. The panel's runs while its panel has the focus, and the other everywhere else
+    std::string DescribeSharing(const Shortcuts::Command& command, const Shortcuts::Command& sharer)
+    {
+        const Shortcuts::Command& l_Panel = command.Panel.empty() ? sharer : command;
+        const Shortcuts::Command& l_Everywhere = command.Panel.empty() ? command : sharer;
+
+        return std::format("{}: {} runs on it while the {} panel has the focus, and {}: {} everywhere else", l_Panel.Category, l_Panel.Label, l_Panel.Panel, l_Everywhere.Category, l_Everywhere.Label);
     }
 }
 
@@ -163,7 +173,7 @@ void ShortcutsWindow::Draw()
             }
 
             l_Any = l_Any || !l_Rows.empty();
-            DrawGroup(std::format("{} (while it has the focus, not yet changeable)", it_Panel), l_Rows);
+            DrawGroup(std::format("{} (with the mouse)", it_Panel), l_Rows);
         }
 
         if (!l_Any)
@@ -244,9 +254,9 @@ void ShortcutsWindow::DrawCommands(std::string_view category, bool& any)
             ImGui::PopStyleColor();
         }
 
-        if (const Shortcuts::PanelKey* l_Panel = Shortcuts::FindPanelUser(it_Command->Chord))
+        if (const Shortcuts::Command* l_Sharer = l_Shortcuts.FindSharer(it_Command->Chord, it_Command->ID))
         {
-            ImGui::SetItemTooltip("%s", std::format("Click to press another key. {} reads {} for {} while it has the focus, which this command now takes from it", l_Panel->Panel, l_Panel->Keys, l_Panel->Label).c_str());
+            ImGui::SetItemTooltip("%s", std::format("Click to press another key. {}", DescribeSharing(*it_Command, *l_Sharer)).c_str());
         }
         else
         {
@@ -321,9 +331,10 @@ void ShortcutsWindow::DrawKeyPopup()
         ImGui::TextColored(Trinity::Theme::GetColor(Trinity::ThemeColor::Warning), "%s", std::format("{} {}: {} Uses the shortcut", Trinity::Icons::c_Warning, l_User->Category, l_User->Label).c_str());
     }
 
-    if (const Shortcuts::PanelKey* l_Panel = Shortcuts::FindPanelUser(m_Pressed))
+    // Shared with a command of another panel, or of none, which both keep
+    if (const Shortcuts::Command* l_Sharer = l_Shortcuts.FindSharer(m_Pressed, l_Command->ID))
     {
-        ImGui::TextColored(Trinity::Theme::GetColor(Trinity::ThemeColor::Warning), "%s", std::format("{} {} reads it for {} while it has the focus, and would no longer get it", Trinity::Icons::c_Warning, l_Panel->Panel, l_Panel->Label).c_str());
+        ImGui::TextDisabled("%s", std::format("{} {}", Trinity::Icons::c_InfoCircle, DescribeSharing(*l_Command, *l_Sharer)).c_str());
     }
 
     ImGui::Spacing();

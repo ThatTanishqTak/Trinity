@@ -43,6 +43,13 @@ public:
 
     // Frames the selection, gliding there once the panel is next drawn. follow keeps it framed
     void RequestFrame(bool follow) { m_FrameRequest = follow; }
+    // Unity's W, E and R, X, Z and Ctrl+\: the gizmo's operation by Move, Rotate and Scale's order, its axes, where it sits, and snapping
+    void SetGizmoOperation(std::size_t operation);
+    void ToggleGizmoSpace();
+    void ToggleGizmoPivot();
+    void ToggleSnap();
+    // Whether its keys act: it has the focus, and no gizmo drag or flight is under way
+    [[nodiscard]] bool TakesKeys() const { return IsWindowFocused() && !m_GizmoDragging && !m_Flying; }
     // The camera as it is, kept under the number for this scene. Each person's own, as the camera is
     void SaveBookmark(std::size_t index);
     // The camera glides to where the bookmark was saved, the panel turning 2D or 3D as it was then
@@ -103,9 +110,8 @@ private:
     void FollowScene();
     void SaveCamera();
     void MarkCameraChanged();
-    void HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered, bool focused);
-    void HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered, bool focused);
-    void HandleGizmoKeys();
+    void HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered);
+    void HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered);
     void Frame(glm::vec2 viewportSize, bool follow);
     void UpdateGlide(glm::vec2 viewportSize);
     void StopGlide();

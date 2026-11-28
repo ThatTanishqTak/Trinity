@@ -554,13 +554,13 @@ void AudioMixerPanel::DrawSnapshots(const Trinity::AudioMixerData& data, bool ed
         if (ImGui::BeginPopupContextItem("##SnapshotMenu"))
         {
             ImGui::BeginDisabled(!editable);
-            if (ImGui::MenuItem("Rename", "F2"))
+            if (ImGui::MenuItem("Rename", m_Session.GetShortcuts().GetKeyText("edit.rename").c_str()))
             {
                 Choose(Chosen::Snapshot, l_Snapshot.ID, l_Selection.Item);
                 BeginRename(Chosen::Snapshot, l_Snapshot.ID, 0, l_Snapshot.Name);
             }
 
-            if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), "Ctrl+D"))
+            if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), m_Session.GetShortcuts().GetKeyText("edit.duplicate").c_str()))
             {
                 AddSnapshot(data, l_Snapshot.ID);
             }
@@ -570,7 +570,7 @@ void AudioMixerPanel::DrawSnapshots(const Trinity::AudioMixerData& data, bool ed
                 SetStartSnapshot(data, l_Snapshot.ID);
             }
 
-            if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), "Delete", false, !l_Start))
+            if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), m_Session.GetShortcuts().GetKeyText("edit.delete").c_str(), false, !l_Start))
             {
                 RemoveSnapshot(data, l_Snapshot.ID);
             }
@@ -693,13 +693,13 @@ void AudioMixerPanel::DrawGroupMenu(const Trinity::AudioMixerData& data, const T
     }
 
     ImGui::Separator();
-    if (ImGui::MenuItem("Rename", "F2"))
+    if (ImGui::MenuItem("Rename", m_Session.GetShortcuts().GetKeyText("edit.rename").c_str()))
     {
         Choose(Chosen::Item, m_Session.GetMixerSelection().Snapshot, group.ID);
         BeginRename(Chosen::Item, group.ID, 0, group.Name);
     }
 
-    if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), "Ctrl+D"))
+    if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), m_Session.GetShortcuts().GetKeyText("edit.duplicate").c_str()))
     {
         DuplicateGroup(data, group.ID);
     }
@@ -716,7 +716,7 @@ void AudioMixerPanel::DrawGroupMenu(const Trinity::AudioMixerData& data, const T
         MoveGroup(data, group.ID, group.Parent, l_Index + 2 < l_Siblings.size() ? l_Siblings[l_Index + 2]->ID : Trinity::UUID(), "down");
     }
 
-    if (ImGui::MenuItem(std::format("{} Remove", Trinity::Icons::c_Trash).c_str(), "Delete"))
+    if (ImGui::MenuItem(std::format("{} Remove", Trinity::Icons::c_Trash).c_str(), m_Session.GetShortcuts().GetKeyText("edit.delete").c_str()))
     {
         RemoveGroup(data, group.ID);
     }
@@ -758,12 +758,12 @@ void AudioMixerPanel::DrawExposed(const Trinity::AudioMixerData& data, bool edit
         if (ImGui::BeginPopupContextItem("##ExposedMenu"))
         {
             ImGui::BeginDisabled(!editable);
-            if (ImGui::MenuItem("Rename", "F2"))
+            if (ImGui::MenuItem("Rename", m_Session.GetShortcuts().GetKeyText("edit.rename").c_str()))
             {
                 BeginRename(Chosen::Exposed, {}, it_Exposed, l_Exposed.Name);
             }
 
-            if (ImGui::MenuItem(std::format("{} Remove", Trinity::Icons::c_Trash).c_str(), "Delete"))
+            if (ImGui::MenuItem(std::format("{} Remove", Trinity::Icons::c_Trash).c_str(), m_Session.GetShortcuts().GetKeyText("edit.delete").c_str()))
             {
                 RemoveExposed(data, it_Exposed);
             }
@@ -1057,7 +1057,7 @@ void AudioMixerPanel::DrawEffectMenu(const Trinity::AudioMixerData& data, const 
         Edit(std::move(l_After), std::format("{} {} in {}", l_Effect.Bypass ? "Stop bypassing" : "Bypass", l_Name, std::string_view(group.Name)));
     }
 
-    if (ImGui::MenuItem(std::format("{} Remove", Trinity::Icons::c_Trash).c_str(), "Delete"))
+    if (ImGui::MenuItem(std::format("{} Remove", Trinity::Icons::c_Trash).c_str(), m_Session.GetShortcuts().GetKeyText("edit.delete").c_str()))
     {
         RemoveEffect(data, l_Effect.ID);
     }
@@ -1080,7 +1080,7 @@ void AudioMixerPanel::DrawRenameField(const Trinity::AudioMixerData& data)
     }
 }
 
-// Delete, Ctrl+D and F2 act on what was chosen last, while the panel has focus and can edit
+// Delete, Duplicate and Rename act on what was chosen last, as the Edit commands ask while the panel has focus and can edit
 void AudioMixerPanel::ReadShortcuts(const Trinity::AudioMixerData& data, bool editable)
 {
     if (!m_Focused || !editable || m_Renaming != Chosen::None || ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
@@ -1088,9 +1088,10 @@ void AudioMixerPanel::ReadShortcuts(const Trinity::AudioMixerData& data, bool ed
         return;
     }
 
-    const bool l_Delete = ImGui::IsKeyChordPressed(ImGuiKey_Delete);
-    const bool l_Duplicate = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D);
-    const bool l_Rename = ImGui::IsKeyChordPressed(ImGuiKey_F2);
+    const PanelAction l_Action = TakeAction();
+    const bool l_Delete = l_Action == PanelAction::Delete;
+    const bool l_Duplicate = l_Action == PanelAction::Duplicate;
+    const bool l_Rename = l_Action == PanelAction::Rename;
     const EditorSession::MixerSelection l_Selection = m_Session.GetMixerSelection();
     if (m_Chosen == Chosen::Snapshot)
     {

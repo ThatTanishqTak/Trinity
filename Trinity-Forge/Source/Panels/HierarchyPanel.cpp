@@ -782,7 +782,7 @@ void HierarchyPanel::DrawMarks(Trinity::Entity entity)
     };
 
     const bool l_Hidden = m_Session.IsHidden(l_ID);
-    if (a_Draw("Hide", l_Hidden, l_Hidden ? Trinity::Icons::c_EyeSlash : Trinity::Icons::c_Eye, l_Hidden ? "Hidden in the Scene panel. Click to show it and what is under it, Alt-click for it alone" : "Hide it and what is under it in the Scene panel, Alt-click for it alone (H)", l_Min.x))
+    if (a_Draw("Hide", l_Hidden, l_Hidden ? Trinity::Icons::c_EyeSlash : Trinity::Icons::c_Eye, l_Hidden ? "Hidden in the Scene panel. Click to show it and what is under it, Alt-click for it alone" : m_Session.GetShortcuts().WithKey("Hide it and what is under it in the Scene panel, Alt-click for it alone", "hierarchy.hide").c_str(), l_Min.x))
     {
         Mark(l_ID, false, !l_Hidden, l_Alone);
     }
@@ -880,7 +880,7 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
 
     ImGui::Separator();
 
-    if (ImGui::MenuItem("Rename", "F2", false, entity.Has<Trinity::TagComponent>() && !IsMissingPrefab(entity)))
+    if (ImGui::MenuItem("Rename", m_Session.GetShortcuts().GetKeyText("edit.rename").c_str(), false, entity.Has<Trinity::TagComponent>() && !IsMissingPrefab(entity)))
     {
         BeginRename(entity);
     }
@@ -903,7 +903,7 @@ void HierarchyPanel::DrawContextMenu(Trinity::Entity entity)
 
     // The gutter's two marks, which change nothing of the scene and so are open while it plays
     const bool l_Hidden = m_Session.IsHidden(l_ID);
-    if (ImGui::MenuItem(std::format("{} {}", l_Hidden ? Trinity::Icons::c_Eye : Trinity::Icons::c_EyeSlash, l_Hidden ? "Show in Scene" : "Hide in Scene").c_str(), "H"))
+    if (ImGui::MenuItem(std::format("{} {}", l_Hidden ? Trinity::Icons::c_Eye : Trinity::Icons::c_EyeSlash, l_Hidden ? "Show in Scene" : "Hide in Scene").c_str(), m_Session.GetShortcuts().GetKeyText("hierarchy.hide").c_str()))
     {
         Mark(l_ID, false, !l_Hidden, false);
     }
@@ -1194,34 +1194,36 @@ void HierarchyPanel::ReadShortcuts()
     }
 
     ReadTreeKeys();
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F))
-    {
-        m_FocusSearch = true;
+}
 
-        return;
-    }
+// As Ctrl+F asks while the Hierarchy has the focus
+void HierarchyPanel::FocusSearch()
+{
+    m_FocusSearch = true;
+    RequestFocus();
+}
 
-    if (m_FrameSelection && (ImGui::IsKeyChordPressed(ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Shift | ImGuiKey_F)))
-    {
-        m_FrameSelection(ImGui::GetIO().KeyShift);
-
-        return;
-    }
-
+// Unity's H, which hides the selection or shows it again by what the last one picked is
+void HierarchyPanel::ToggleHidden()
+{
     const Trinity::Entity l_Selected = m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection());
-    if (l_Selected && l_Selected.Has<Trinity::TagComponent>() && ImGui::IsKeyPressed(ImGuiKey_F2, false))
-    {
-        BeginRename(l_Selected);
-    }
-
-    // Unity's H, which hides the selection or shows it again by what the last one picked is
-    if (l_Selected && ImGui::IsKeyChordPressed(ImGuiKey_H))
+    if (l_Selected)
     {
         Mark(l_Selected.GetUUID(), false, !m_Session.IsHidden(l_Selected.GetUUID()), false);
     }
 }
 
-// Unity's tree keys, through the rows the last frame drew. Ctrl+Up and Ctrl+Down reorder
+// The last picked among its siblings, as Ctrl+Up and Ctrl+Down ask. Not while a copy plays
+void HierarchyPanel::MoveSelected(bool up)
+{
+    const Trinity::Entity l_Selected = m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection());
+    if (l_Selected && !m_Session.IsPlaying())
+    {
+        Reorder(l_Selected, up);
+    }
+}
+
+// Unity's tree keys, through the rows the last frame drew
 void HierarchyPanel::ReadTreeKeys()
 {
     const ImGuiID l_Owner = ImGui::GetID("##TreeKeys");
@@ -1302,14 +1304,6 @@ void HierarchyPanel::ReadTreeKeys()
         {
             l_Target = std::min(l_Index + 1, l_Last);
         }
-    }
-    else if (!m_ReadOnly && a_Pressed(ImGuiMod_Ctrl | ImGuiKey_UpArrow))
-    {
-        Reorder(l_Selected, true);
-    }
-    else if (!m_ReadOnly && a_Pressed(ImGuiMod_Ctrl | ImGuiKey_DownArrow))
-    {
-        Reorder(l_Selected, false);
     }
     else if (ImGui::IsKeyChordPressed(ImGuiKey_Enter, ImGuiInputFlags_None, l_Owner) || ImGui::IsKeyChordPressed(ImGuiKey_KeypadEnter, ImGuiInputFlags_None, l_Owner))
     {

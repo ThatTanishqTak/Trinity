@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
 
 // Where a panel goes in the default layout. A Floating one is in no dock there and is closed until asked for, opening as a window of its own in the middle, which can be docked as any other
 enum class DockSlot : std::uint8_t
@@ -12,6 +13,22 @@ enum class DockSlot : std::uint8_t
     Right,
     Bottom,
     Floating
+};
+
+// What a command asks of the panel with the focus, done at its next draw on what it has chosen, as its keys once were
+enum class PanelAction : std::uint8_t
+{
+    None,
+    Rename,
+    Delete,
+    Duplicate,
+    Copy,
+    Paste,
+    SelectAll,
+    Find,
+    CopyPath,
+    Back,
+    Forward
 };
 
 // A dockable Forge window. ImGui knows it by its ID alone, so its icon and title can change
@@ -43,6 +60,8 @@ public:
     [[nodiscard]] bool IsWindowFocused() const { return m_WindowFocused; }
     // Called in place of Draw for a frame the panel is left out of, as the others are while one is maximised
     void Skip();
+    // Taken by its next draw, if it can act then. Let go of once that draw is over, so a later one never acts on it
+    void RequestAction(PanelAction action) { m_Action = action; }
 
 protected:
     virtual void OnImGuiRender() = 0;
@@ -50,6 +69,7 @@ protected:
     void SetBorderless(bool borderless) { m_Borderless = borderless; }
     // One that is not leaves its keys to what it shows, as the Game panel does while the scene plays
     void SetNavigable(bool navigable) { m_Navigable = navigable; }
+    [[nodiscard]] PanelAction TakeAction() { return std::exchange(m_Action, PanelAction::None); }
 
 private:
     std::string m_Title;
@@ -63,4 +83,5 @@ private:
     bool m_FocusRequested = false;
     bool m_WindowHovered = false;
     bool m_WindowFocused = false;
+    PanelAction m_Action = PanelAction::None;
 };

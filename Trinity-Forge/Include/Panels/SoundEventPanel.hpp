@@ -20,10 +20,6 @@ public:
 
     void SetAsset(Trinity::UUID asset);
 
-    // Delete, Duplicate and Rename are the panel's own while it has the focus
-    // Not from a frame it was last drawn in: as a tab behind another it is not drawn, and would stay focused for good
-    [[nodiscard]] bool IsFocused() const { return m_Focused && IsWindowFocused(); }
-
 protected:
     void OnImGuiRender() override;
 

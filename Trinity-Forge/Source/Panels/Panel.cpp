@@ -32,6 +32,7 @@ void Panel::Skip()
 {
     m_WindowHovered = false;
     m_WindowFocused = false;
+    m_Action = PanelAction::None;
 }
 
 void Panel::Draw()
@@ -83,4 +84,5 @@ void Panel::Draw()
 
     ImGui::End();
     SetOpen(l_Open);
+    m_Action = PanelAction::None;
 }

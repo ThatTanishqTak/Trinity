@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <initializer_list>
 #include <cfloat>
 #include <chrono>
 #include <cmath>
@@ -696,9 +697,22 @@ void ForgeLayer::RegisterShortcuts()
     const auto a_Request = [this](EditorSession::Command command) { return [this, command] { m_Session.Request(command); }; };
     const auto a_HasProject = [this] { return m_Session.HasProject(); };
     const auto a_HasSelection = [this] { return static_cast<bool>(m_Session.GetScene().FindEntityByUUID(m_Session.GetSelection())); };
-    const auto a_OwnsEditKeys = [this] { return m_ContentBrowser->IsFocused() || m_InputActionsPanel->IsFocused() || m_AudioMixerPanel->IsFocused() || m_SoundEventPanel->IsFocused(); };
-    // Not while a copy plays, which nothing may change, nor from a panel with its own Duplicate, Delete and Paste
-    const auto a_EditsScene = [this, a_OwnsEditKeys] { return !m_Session.IsPlaying() && !a_OwnsEditKeys(); };
+    // As Unity's Edit menu does, the shared Edit commands act in the panel with the focus where it has its own, and on the scene's selection elsewhere
+    const auto a_AssetPanel = [this]() -> Panel*
+    {
+        for (Panel* it_Panel : std::initializer_list<Panel*>{ m_ContentBrowser, m_AudioMixerPanel, m_SoundEventPanel, m_InputActionsPanel })
+        {
+            if (it_Panel->IsWindowFocused())
+            {
+                return it_Panel;
+            }
+        }
+
+        return nullptr;
+    };
+    const auto a_InBrowser = [this] { return m_ContentBrowser->IsWindowFocused(); };
+    // Not while a copy plays, which nothing may change, nor while an asset panel has the focus
+    const auto a_EditsScene = [this, a_AssetPanel] { return !m_Session.IsPlaying() && a_AssetPanel() == nullptr; };
 
     l_Shortcuts.Add({ .ID = "file.newScene", .Category = "File", .Label = "New Scene", .Chord = ImGuiMod_Ctrl | ImGuiKey_N, .Run = a_Request(EditorSession::Command::NewScene) });
     l_Shortcuts.Add({ .ID = "file.openScene", .Category = "File", .Label = "Open Scene", .Chord = ImGuiMod_Ctrl | ImGuiKey_O, .Run = a_Request(EditorSession::Command::OpenScene) });
@@ -714,12 +728,93 @@ void ForgeLayer::RegisterShortcuts()
 
     l_Shortcuts.Add({ .ID = "edit.undo", .Category = "Edit", .Label = "Undo", .Chord = ImGuiMod_Ctrl | ImGuiKey_Z, .Repeats = true, .Run = [this] { m_Session.GetHistory().Undo(); } });
     l_Shortcuts.Add({ .ID = "edit.redo", .Category = "Edit", .Label = "Redo", .Chord = ImGuiMod_Ctrl | ImGuiKey_Y, .Alternate = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, .Repeats = true, .Run = [this] { m_Session.GetHistory().Redo(); } });
-    l_Shortcuts.Add({ .ID = "edit.copy", .Category = "Edit", .Label = "Copy", .Chord = ImGuiMod_Ctrl | ImGuiKey_C, .IsEnabled = [this, a_HasSelection] { return !m_ContentBrowser->IsFocused() && a_HasSelection(); }, .Run = [this] { m_Session.CopySelection(); } });
-    l_Shortcuts.Add({ .ID = "edit.paste", .Category = "Edit", .Label = "Paste", .Chord = ImGuiMod_Ctrl | ImGuiKey_V, .IsEnabled = [this, a_EditsScene] { return a_EditsScene() && m_Session.HasCopiedEntity(); }, .Run = [this] { static_cast<void>(m_Session.PasteEntity()); } });
+    l_Shortcuts.Add({ .ID = "edit.copy", .Category = "Edit", .Label = "Copy", .Chord = ImGuiMod_Ctrl | ImGuiKey_C, .IsEnabled = [a_InBrowser, a_HasSelection] { return a_InBrowser() || a_HasSelection(); }, .Run = [this, a_InBrowser]
+    {
+        if (a_InBrowser())
+        {
+            m_ContentBrowser->RequestAction(PanelAction::Copy);
+        }
+        else
+        {
+            m_Session.CopySelection();
+        }
+    } });
+    l_Shortcuts.Add({ .ID = "edit.paste", .Category = "Edit", .Label = "Paste", .Chord = ImGuiMod_Ctrl | ImGuiKey_V, .IsEnabled = [this, a_InBrowser, a_EditsScene] { return a_InBrowser() || (a_EditsScene() && m_Session.HasCopiedEntity()); }, .Run = [this, a_InBrowser]
+    {
+        if (a_InBrowser())
+        {
+            m_ContentBrowser->RequestAction(PanelAction::Paste);
+        }
+        else
+        {
+            static_cast<void>(m_Session.PasteEntity());
+        }
+    } });
     l_Shortcuts.Add({ .ID = "edit.pasteAsChild", .Category = "Edit", .Label = "Paste As Child", .Chord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V, .IsEnabled = [this, a_EditsScene, a_HasSelection] { return a_EditsScene() && m_Session.HasCopiedEntity() && a_HasSelection(); }, .Run = [this] { static_cast<void>(m_Session.PasteEntityAsChild(m_Session.GetSelection())); } });
-    l_Shortcuts.Add({ .ID = "edit.duplicate", .Category = "Edit", .Label = "Duplicate", .Chord = ImGuiMod_Ctrl | ImGuiKey_D, .IsEnabled = [a_EditsScene, a_HasSelection] { return a_EditsScene() && a_HasSelection(); }, .Run = [this] { static_cast<void>(m_Session.DuplicateSelection()); } });
-    l_Shortcuts.Add({ .ID = "edit.delete", .Category = "Edit", .Label = "Delete", .Chord = ImGuiKey_Delete, .IsEnabled = [a_EditsScene, a_HasSelection] { return a_EditsScene() && a_HasSelection(); }, .Run = [this] { static_cast<void>(m_Session.DeleteSelection()); } });
-    l_Shortcuts.Add({ .ID = "edit.selectAll", .Category = "Edit", .Label = "Select All", .Chord = ImGuiMod_Ctrl | ImGuiKey_A, .IsEnabled = [a_HasProject, a_OwnsEditKeys] { return a_HasProject() && !a_OwnsEditKeys(); }, .Run = [this] { m_HierarchyPanel->SelectAll(); } });
+    l_Shortcuts.Add({ .ID = "edit.duplicate", .Category = "Edit", .Label = "Duplicate", .Chord = ImGuiMod_Ctrl | ImGuiKey_D, .IsEnabled = [a_AssetPanel, a_EditsScene, a_HasSelection] { return a_AssetPanel() != nullptr || (a_EditsScene() && a_HasSelection()); }, .Run = [this, a_AssetPanel]
+    {
+        if (Panel* l_Panel = a_AssetPanel())
+        {
+            l_Panel->RequestAction(PanelAction::Duplicate);
+        }
+        else
+        {
+            static_cast<void>(m_Session.DuplicateSelection());
+        }
+    } });
+    l_Shortcuts.Add({ .ID = "edit.delete", .Category = "Edit", .Label = "Delete", .Chord = ImGuiKey_Delete, .IsEnabled = [a_AssetPanel, a_EditsScene, a_HasSelection] { return a_AssetPanel() != nullptr || (a_EditsScene() && a_HasSelection()); }, .Run = [this, a_AssetPanel]
+    {
+        if (Panel* l_Panel = a_AssetPanel())
+        {
+            l_Panel->RequestAction(PanelAction::Delete);
+        }
+        else
+        {
+            static_cast<void>(m_Session.DeleteSelection());
+        }
+    } });
+    // Unity's F2. Away from an asset panel it renames the last picked in the Hierarchy, as Create Empty does
+    l_Shortcuts.Add({ .ID = "edit.rename", .Category = "Edit", .Label = "Rename", .Chord = ImGuiKey_F2, .IsEnabled = [a_AssetPanel, a_EditsScene, a_HasSelection] { return a_AssetPanel() != nullptr || (a_EditsScene() && a_HasSelection()); }, .Run = [this, a_AssetPanel]
+    {
+        if (Panel* l_Panel = a_AssetPanel())
+        {
+            l_Panel->RequestAction(PanelAction::Rename);
+
+            return;
+        }
+
+        m_HierarchyPanel->SetOpen(true);
+        m_HierarchyPanel->RequestFocus();
+        m_HierarchyPanel->Rename(m_Session.GetSelection());
+    } });
+    l_Shortcuts.Add({ .ID = "edit.selectAll", .Category = "Edit", .Label = "Select All", .Chord = ImGuiMod_Ctrl | ImGuiKey_A, .IsEnabled = [a_HasProject, a_AssetPanel, a_InBrowser] { return a_HasProject() && (a_InBrowser() || a_AssetPanel() == nullptr); }, .Run = [this, a_InBrowser]
+    {
+        if (a_InBrowser())
+        {
+            m_ContentBrowser->RequestAction(PanelAction::SelectAll);
+        }
+        else
+        {
+            m_HierarchyPanel->SelectAll();
+        }
+    } });
+    // The Content Browser's search while it has the focus, and the Hierarchy's anywhere else
+    l_Shortcuts.Add({ .ID = "edit.find", .Category = "Edit", .Label = "Find", .Chord = ImGuiMod_Ctrl | ImGuiKey_F, .IsEnabled = a_HasProject, .Run = [this, a_InBrowser]
+    {
+        if (a_InBrowser())
+        {
+            m_ContentBrowser->RequestAction(PanelAction::Find);
+        }
+        else
+        {
+            m_HierarchyPanel->SetOpen(true);
+            m_HierarchyPanel->FocusSearch();
+        }
+    } });
+    // Unity's F, from the Scene panel or the Hierarchy. Shift+F then follows it, as Lock View
+    const auto a_FramesScene = [this] { return m_ViewportPanel->TakesKeys() || m_HierarchyPanel->IsWindowFocused(); };
+    l_Shortcuts.Add({ .ID = "edit.frame", .Category = "Edit", .Label = "Frame Selection", .Chord = ImGuiKey_F, .IsEnabled = a_HasSelection, .IsKeyInScope = a_FramesScene, .Run = [this] { m_ViewportPanel->RequestFrame(false); } });
+    l_Shortcuts.Add({ .ID = "edit.frameFollow", .Category = "Edit", .Label = "Frame and Follow Selection", .Chord = ImGuiMod_Shift | ImGuiKey_F, .IsEnabled = a_HasSelection, .IsKeyInScope = a_FramesScene, .Run = [this] { m_ViewportPanel->RequestFrame(true); } });
     l_Shortcuts.Add({ .ID = "edit.preferences", .Category = "Edit", .Label = "Preferences", .Chord = ImGuiMod_Ctrl | ImGuiKey_Comma, .Run = [this] { m_PreferencesWindow.Open(); } });
 
     l_Shortcuts.Add({ .ID = "entity.createEmpty", .Category = "Entity", .Label = "Create Empty", .Chord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_N, .IsEnabled = [this] { return !m_Session.IsPlaying() && m_Session.HasProject(); }, .Run = [this] { CreateEmpty({}); } });
@@ -806,19 +901,44 @@ void ForgeLayer::RegisterShortcuts()
     } });
     l_Shortcuts.Add({ .ID = "window.theme", .Category = "Window", .Label = "Toggle Theme", .Run = [this] { m_Session.SetPreferenceVariable("ui.theme", Trinity::Theme::IsLight() ? Trinity::Theme::c_Dark : Trinity::Theme::c_Light); } });
 
+    // Unity's keys for the gizmo, while the Scene panel has the focus and nothing is dragged or flown
+    const auto a_SceneKeys = [this] { return m_ViewportPanel->TakesKeys(); };
+    const std::array<std::pair<const char*, const char*>, 3> l_Operations{ { { "scene.move", "Move" },{ "scene.rotate", "Rotate" },{ "scene.scale", "Scale" } } };
+    const std::array<ImGuiKey, 3> l_OperationKeys{ ImGuiKey_W, ImGuiKey_E, ImGuiKey_R };
+    for (std::size_t it_Operation = 0; it_Operation < l_Operations.size(); ++it_Operation)
+    {
+        l_Shortcuts.Add({ .ID = l_Operations[it_Operation].first, .Category = "Scene", .Label = l_Operations[it_Operation].second, .Chord = l_OperationKeys[it_Operation], .IsKeyInScope = a_SceneKeys, .Panel = "Scene", .Run = [this, it_Operation] { m_ViewportPanel->SetGizmoOperation(it_Operation); } });
+    }
+
+    l_Shortcuts.Add({ .ID = "scene.axes", .Category = "Scene", .Label = "Local or World Axes", .Chord = ImGuiKey_X, .IsKeyInScope = a_SceneKeys, .Panel = "Scene", .Run = [this] { m_ViewportPanel->ToggleGizmoSpace(); } });
+    l_Shortcuts.Add({ .ID = "scene.pivot", .Category = "Scene", .Label = "Pivot or Centre", .Chord = ImGuiKey_Z, .IsKeyInScope = a_SceneKeys, .Panel = "Scene", .Run = [this] { m_ViewportPanel->ToggleGizmoPivot(); } });
+    l_Shortcuts.Add({ .ID = "scene.snap", .Category = "Scene", .Label = "Toggle Snapping", .Chord = ImGuiMod_Ctrl | ImGuiKey_Backslash, .IsKeyInScope = a_SceneKeys, .Panel = "Scene", .Run = [this] { m_ViewportPanel->ToggleSnap(); } });
+
     // Unreal's keys for them: a number goes to the bookmark and Ctrl with it saves one, while the mouse is over the Scene panel or it has the focus. Not while the Game panel has the focus of a scene that plays, whose own keys the numbers may be
     const auto a_OverScene = [this] { return !(m_Session.IsPlaying() && m_GamePanel->IsWindowFocused()) && (m_ViewportPanel->IsWindowHovered() || m_ViewportPanel->IsWindowFocused()); };
     for (std::size_t it_Index = 0; it_Index < ViewportPanel::c_BookmarkCount; ++it_Index)
     {
         const ImGuiKey l_Key = static_cast<ImGuiKey>(ImGuiKey_1 + static_cast<int>(it_Index));
-        l_Shortcuts.Add({ .ID = std::format("bookmark.go{}", it_Index + 1), .Category = "Bookmarks", .Label = std::format("Go to Bookmark {}", it_Index + 1), .Chord = l_Key, .IsEnabled = a_HasProject, .IsKeyInScope = a_OverScene, .Run = [this, it_Index] { m_ViewportPanel->GoToBookmark(it_Index); } });
+        l_Shortcuts.Add({ .ID = std::format("bookmark.go{}", it_Index + 1), .Category = "Bookmarks", .Label = std::format("Go to Bookmark {}", it_Index + 1), .Chord = l_Key, .IsEnabled = a_HasProject, .IsKeyInScope = a_OverScene, .Panel = "Scene", .Run = [this, it_Index] { m_ViewportPanel->GoToBookmark(it_Index); } });
     }
 
     for (std::size_t it_Index = 0; it_Index < ViewportPanel::c_BookmarkCount; ++it_Index)
     {
         const ImGuiKey l_Key = static_cast<ImGuiKey>(ImGuiKey_1 + static_cast<int>(it_Index));
-        l_Shortcuts.Add({ .ID = std::format("bookmark.save{}", it_Index + 1), .Category = "Bookmarks", .Label = std::format("Save Bookmark {}", it_Index + 1), .Chord = ImGuiMod_Ctrl | l_Key, .IsEnabled = a_HasProject, .IsKeyInScope = a_OverScene, .Run = [this, it_Index] { m_ViewportPanel->SaveBookmark(it_Index); } });
+        l_Shortcuts.Add({ .ID = std::format("bookmark.save{}", it_Index + 1), .Category = "Bookmarks", .Label = std::format("Save Bookmark {}", it_Index + 1), .Chord = ImGuiMod_Ctrl | l_Key, .IsEnabled = a_HasProject, .IsKeyInScope = a_OverScene, .Panel = "Scene", .Run = [this, it_Index] { m_ViewportPanel->SaveBookmark(it_Index); } });
     }
+
+    // The Hierarchy's own, while it has the focus
+    const auto a_InHierarchy = [this] { return m_HierarchyPanel->IsWindowFocused(); };
+    l_Shortcuts.Add({ .ID = "hierarchy.hide", .Category = "Hierarchy", .Label = "Hide or Show in Scene", .Chord = ImGuiKey_H, .IsEnabled = a_HasSelection, .IsKeyInScope = a_InHierarchy, .Panel = "Hierarchy", .Run = [this] { m_HierarchyPanel->ToggleHidden(); } });
+    l_Shortcuts.Add({ .ID = "hierarchy.moveUp", .Category = "Hierarchy", .Label = "Move Up Among Siblings", .Chord = ImGuiMod_Ctrl | ImGuiKey_UpArrow, .Repeats = true, .IsEnabled = a_HasSelection, .IsKeyInScope = a_InHierarchy, .Panel = "Hierarchy", .Run = [this] { m_HierarchyPanel->MoveSelected(true); } });
+    l_Shortcuts.Add({ .ID = "hierarchy.moveDown", .Category = "Hierarchy", .Label = "Move Down Among Siblings", .Chord = ImGuiMod_Ctrl | ImGuiKey_DownArrow, .Repeats = true, .IsEnabled = a_HasSelection, .IsKeyInScope = a_InHierarchy, .Panel = "Hierarchy", .Run = [this] { m_HierarchyPanel->MoveSelected(false); } });
+
+    // The Content Browser's own, which act at its next draw, and so only while it has the focus
+    const auto a_AskBrowser = [this](PanelAction action) { return [this, action] { m_ContentBrowser->RequestAction(action); }; };
+    l_Shortcuts.Add({ .ID = "contentBrowser.copyPath", .Category = "Content Browser", .Label = "Copy Path", .Chord = ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_C, .IsEnabled = a_InBrowser, .IsKeyInScope = a_InBrowser, .Panel = "Content Browser", .Run = a_AskBrowser(PanelAction::CopyPath) });
+    l_Shortcuts.Add({ .ID = "contentBrowser.back", .Category = "Content Browser", .Label = "Back", .Chord = ImGuiMod_Alt | ImGuiKey_LeftArrow, .IsEnabled = a_InBrowser, .IsKeyInScope = a_InBrowser, .Panel = "Content Browser", .Run = a_AskBrowser(PanelAction::Back) });
+    l_Shortcuts.Add({ .ID = "contentBrowser.forward", .Category = "Content Browser", .Label = "Forward", .Chord = ImGuiMod_Alt | ImGuiKey_RightArrow, .IsEnabled = a_InBrowser, .IsKeyInScope = a_InBrowser, .Panel = "Content Browser", .Run = a_AskBrowser(PanelAction::Forward) });
 
     // Last, so each key someone changed finds the command it was changed for
     l_Shortcuts.ReadKeys();

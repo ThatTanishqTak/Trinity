@@ -30,6 +30,8 @@ public:
         std::function<bool()> IsEnabled{};
         // Asked of its key alone, and not by the Command Palette: where the key acts, as over one panel. A command without it acts everywhere
         std::function<bool()> IsKeyInScope{};
+        // The panel its key acts in, as its tab names it, or empty for everywhere. Keys clash only among commands of one panel, or among those of none, and a panel's key goes before an everywhere one's while that panel has it
+        std::string_view Panel{};
         std::function<void()> Run{};
         // The keys it was added with, which Add fills in and a reset puts back
         ImGuiKeyChord Default = ImGuiKey_None;
@@ -38,7 +40,7 @@ public:
         [[nodiscard]] bool IsDefault() const { return Chord == Default && Alternate == DefaultAlternate; }
     };
 
-    // A key a panel reads for itself while it has the focus, listed beside the commands and not theirs to run
+    // What a panel does with the mouse, listed beside the commands and not theirs to run
     struct PanelKey
     {
         std::string_view Panel;
@@ -53,16 +55,18 @@ public:
 
     // The command's key as a menu shows it beside the item. Empty for a command with no key, and for an ID that names none
     [[nodiscard]] std::string GetKeyText(std::string_view id) const;
+    // The text with the command's key after it in brackets, as a tooltip names it, or the text alone while the command has no key
+    [[nodiscard]] std::string WithKey(std::string_view text, std::string_view id) const;
     // Ctrl, Alt, Shift and Super in that order, then the key, by its sign where it has one. Empty for none
     [[nodiscard]] static std::string FormatChord(ImGuiKeyChord chord);
 
     // The reverse of FormatChord, for a saved key. ImGuiKey_None for text that names no key
     [[nodiscard]] static ImGuiKeyChord ParseChord(std::string_view text);
 
-    // Another command that runs on the key, by either of its two, or null
+    // Another command of the same panel, or of none, that runs on the key, by either of its two, or null
     [[nodiscard]] const Command* FindUser(ImGuiKeyChord chord, std::string_view except) const;
-    // A key a panel reads for itself that the chord is too, which a command given it takes from the panel, or null
-    [[nodiscard]] static const PanelKey* FindPanelUser(ImGuiKeyChord chord);
+    // A command the key is shared with, of a panel where the other acts everywhere or the other way round, which runs first in its panel, or null
+    [[nodiscard]] const Command* FindSharer(ImGuiKeyChord chord, std::string_view except) const;
 
     // The command's key from now on, taken from any other command that ran on it. ImGuiKey_None leaves the command with none. Saved at once
     void SetKey(std::string_view id, ImGuiKeyChord chord);
@@ -71,7 +75,7 @@ public:
     // Once every command is added, so each saved key finds its command
     void ReadKeys();
 
-    // Runs the first command in the list whose key was pressed this frame where it acts, and that is ready. True if one ran
+    // Runs the first command whose key was pressed this frame where it acts, and that is ready, a panel's before an everywhere one's. True if one ran
     bool Dispatch() const;
 
 private:

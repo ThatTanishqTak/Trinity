@@ -872,7 +872,7 @@ void SoundEventPanel::DrawContainerMenu(const Trinity::SoundEventData& data, con
     }
 
     ImGui::Separator();
-    if (ImGui::MenuItem("Rename", "F2"))
+    if (ImGui::MenuItem("Rename", m_Session.GetShortcuts().GetKeyText("edit.rename").c_str()))
     {
         BeginRename(Chosen::Container, container.ID);
     }
@@ -882,7 +882,7 @@ void SoundEventPanel::DrawContainerMenu(const Trinity::SoundEventData& data, con
         return;
     }
 
-    if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), "Ctrl+D"))
+    if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), m_Session.GetShortcuts().GetKeyText("edit.duplicate").c_str()))
     {
         DuplicateContainer(data, container.ID);
     }
@@ -899,7 +899,7 @@ void SoundEventPanel::DrawContainerMenu(const Trinity::SoundEventData& data, con
         MoveContainer(data, container.ID, container.Parent, l_Index + 2 < l_Siblings.size() ? l_Siblings[l_Index + 2]->ID : Trinity::UUID(), "down");
     }
 
-    if (ImGui::MenuItem(std::format("{} Remove", Trinity::Icons::c_Trash).c_str(), "Delete"))
+    if (ImGui::MenuItem(std::format("{} Remove", Trinity::Icons::c_Trash).c_str(), m_Session.GetShortcuts().GetKeyText("edit.delete").c_str()))
     {
         RemoveContainer(data, container.ID);
     }
@@ -993,12 +993,12 @@ void SoundEventPanel::DrawParameters(const Trinity::SoundEventData& data)
 
         if (ImGui::BeginPopupContextItem("##ParameterMenu"))
         {
-            if (ImGui::MenuItem("Rename", "F2"))
+            if (ImGui::MenuItem("Rename", m_Session.GetShortcuts().GetKeyText("edit.rename").c_str()))
             {
                 BeginRename(Chosen::Parameter, it_Parameter.ID);
             }
 
-            if (ImGui::MenuItem(std::format("{} Remove", Trinity::Icons::c_Trash).c_str(), "Delete"))
+            if (ImGui::MenuItem(std::format("{} Remove", Trinity::Icons::c_Trash).c_str(), m_Session.GetShortcuts().GetKeyText("edit.delete").c_str()))
             {
                 RemoveParameter(data, it_Parameter.ID);
             }
@@ -1792,7 +1792,7 @@ void SoundEventPanel::DrawCurves(Trinity::UUID asset, const Trinity::SoundEventD
 void SoundEventPanel::DrawCurveMenu(const Trinity::SoundEventData& data, const Trinity::SoundContainer& container, const Trinity::SoundParameter& parameter, const std::vector<CurvePoint>& chosen)
 {
     const std::vector<Trinity::SoundCurveTarget> l_Shown = GetShownTargets(container, parameter.ID);
-    if (ImGui::MenuItem(std::format("{} Remove Chosen Points", Trinity::Icons::c_Trash).c_str(), "Delete", false, !chosen.empty()))
+    if (ImGui::MenuItem(std::format("{} Remove Chosen Points", Trinity::Icons::c_Trash).c_str(), m_Session.GetShortcuts().GetKeyText("edit.delete").c_str(), false, !chosen.empty()))
     {
         RemovePoints(data, container.ID, parameter.ID, chosen);
     }
@@ -1910,7 +1910,7 @@ void SoundEventPanel::DrawPointFields(const Trinity::SoundEventData& data, const
     ImGui::SetItemTooltip("%s", std::format("Its {} there. Ctrl+click to type", l_Target.Name).c_str());
 }
 
-// Delete, Ctrl+D and F2 act on what was chosen last. In the curve editor, Delete takes its points
+// Delete, Duplicate and Rename act on what was chosen last, as the Edit commands ask. In the curve editor, Delete and Backspace take its points
 void SoundEventPanel::ReadShortcuts(const Trinity::SoundEventData& data)
 {
     if (!m_Focused || !m_TextKey.empty() || ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
@@ -1919,7 +1919,8 @@ void SoundEventPanel::ReadShortcuts(const Trinity::SoundEventData& data)
     }
 
     const EditorSession::SoundEventSelection& l_Selection = m_Session.GetSoundEventSelection();
-    const bool l_Delete = ImGui::IsKeyChordPressed(ImGuiKey_Delete);
+    const PanelAction l_Action = TakeAction();
+    const bool l_Delete = l_Action == PanelAction::Delete;
     if (m_CurveFocused)
     {
         const Trinity::SoundContainer* l_Container = data.FindContainer(l_Selection.Container);
@@ -1932,8 +1933,8 @@ void SoundEventPanel::ReadShortcuts(const Trinity::SoundEventData& data)
         return;
     }
 
-    const bool l_Duplicate = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D);
-    const bool l_Rename = ImGui::IsKeyChordPressed(ImGuiKey_F2);
+    const bool l_Duplicate = l_Action == PanelAction::Duplicate;
+    const bool l_Rename = l_Action == PanelAction::Rename;
     if (m_Chosen == Chosen::Parameter)
     {
         if (data.FindParameter(l_Selection.Parameter) == nullptr)

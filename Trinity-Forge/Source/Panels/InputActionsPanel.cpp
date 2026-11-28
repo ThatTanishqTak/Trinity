@@ -502,13 +502,13 @@ void InputActionsPanel::DrawMaps(const Trinity::InputActionsData& data)
             }
 
             ImGui::Separator();
-            if (ImGui::MenuItem("Rename", "F2"))
+            if (ImGui::MenuItem("Rename", m_Session.GetShortcuts().GetKeyText("edit.rename").c_str()))
             {
                 Select(data, l_This);
                 m_FocusNameFrame = ImGui::GetFrameCount() + 1;
             }
 
-            if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), "Ctrl+D"))
+            if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), m_Session.GetShortcuts().GetKeyText("edit.duplicate").c_str()))
             {
                 Duplicate(data, l_This);
             }
@@ -523,7 +523,7 @@ void InputActionsPanel::DrawMaps(const Trinity::InputActionsData& data)
                 Move(data, l_This, 1);
             }
 
-            if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), "Delete"))
+            if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), m_Session.GetShortcuts().GetKeyText("edit.delete").c_str()))
             {
                 Remove(data, l_This);
             }
@@ -623,7 +623,7 @@ void InputActionsPanel::DrawActions(const Trinity::InputActionsData& data)
             }
 
             ImGui::Separator();
-            if (ImGui::MenuItem("Rename", "F2"))
+            if (ImGui::MenuItem("Rename", m_Session.GetShortcuts().GetKeyText("edit.rename").c_str()))
             {
                 Select(data, l_This);
                 m_FocusNameFrame = ImGui::GetFrameCount() + 1;
@@ -634,7 +634,7 @@ void InputActionsPanel::DrawActions(const Trinity::InputActionsData& data)
                 ImGui::SetClipboardText(std::format("{}/{}", std::string_view(l_Map.Name), std::string_view(l_Action.Name)).c_str());
             }
 
-            if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), "Ctrl+D"))
+            if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), m_Session.GetShortcuts().GetKeyText("edit.duplicate").c_str()))
             {
                 Duplicate(data, l_This);
             }
@@ -649,7 +649,7 @@ void InputActionsPanel::DrawActions(const Trinity::InputActionsData& data)
                 Move(data, l_This, 1);
             }
 
-            if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), "Delete"))
+            if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), m_Session.GetShortcuts().GetKeyText("edit.delete").c_str()))
             {
                 Remove(data, l_This);
             }
@@ -683,7 +683,7 @@ void InputActionsPanel::DrawActions(const Trinity::InputActionsData& data)
                         BeginListen(l_Binding, 0);
                     }
 
-                    if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), "Ctrl+D"))
+                    if (ImGui::MenuItem(std::format("{} Duplicate", Trinity::Icons::c_Copy).c_str(), m_Session.GetShortcuts().GetKeyText("edit.duplicate").c_str()))
                     {
                         Duplicate(data, l_Binding);
                     }
@@ -698,7 +698,7 @@ void InputActionsPanel::DrawActions(const Trinity::InputActionsData& data)
                         Move(data, l_Binding, 1);
                     }
 
-                    if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), "Delete"))
+                    if (ImGui::MenuItem(std::format("{} Delete", Trinity::Icons::c_Trash).c_str(), m_Session.GetShortcuts().GetKeyText("edit.delete").c_str()))
                     {
                         Remove(data, l_Binding);
                     }
@@ -1225,7 +1225,7 @@ void InputActionsPanel::CommitName(const Trinity::InputActionsData& data)
     }
 }
 
-// Delete, Ctrl+D and F2 act on what is chosen while the panel has focus and nothing is typed
+// Delete, Duplicate and Rename act on what is chosen, as the Edit commands ask while the panel has focus and nothing is typed
 void InputActionsPanel::ReadShortcuts(const Trinity::InputActionsData& data)
 {
     if (!m_Focused || m_Selected.Map < 0 || ImGui::GetIO().WantTextInput || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) || m_Listening)
@@ -1233,15 +1233,16 @@ void InputActionsPanel::ReadShortcuts(const Trinity::InputActionsData& data)
         return;
     }
 
-    if (ImGui::IsKeyChordPressed(ImGuiKey_Delete))
+    const PanelAction l_Action = TakeAction();
+    if (l_Action == PanelAction::Delete)
     {
         Remove(data, m_Selected);
     }
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_D))
+    else if (l_Action == PanelAction::Duplicate)
     {
         Duplicate(data, m_Selected);
     }
-    else if (ImGui::IsKeyChordPressed(ImGuiKey_F2) && m_Selected.Binding < 0)
+    else if (l_Action == PanelAction::Rename && m_Selected.Binding < 0)
     {
         m_FocusNameFrame = ImGui::GetFrameCount() + 1;
     }

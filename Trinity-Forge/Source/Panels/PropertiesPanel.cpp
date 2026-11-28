@@ -2122,7 +2122,9 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
         if (s_Marks != nullptr)
         {
             s_Marks->Component = Trinity::TagComponent::c_TypeName;
-            if (const std::vector<PrefabOverride> l_Overrides = FindRowOverrides(*s_Marks, "Tag"); !l_Overrides.empty())
+            std::vector<PrefabOverride> l_Overrides = FindRowOverrides(*s_Marks, "Tag");
+            std::erase_if(l_Overrides, [](const PrefabOverride& change) { return IsDefaultOverride(s_Marks->Root, change); });
+            if (!l_Overrides.empty())
             {
                 DrawOverrideBar(l_Top);
                 OverrideMenu("##NameOverride", l_Overrides, std::format("name of {}", GetEntityLabel(entity)));

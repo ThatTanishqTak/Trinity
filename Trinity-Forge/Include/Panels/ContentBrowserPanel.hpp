@@ -39,7 +39,6 @@ public:
     // In OnPrepareRender: the thumbnails readied this frame submitted, each to its own view
     void PrepareThumbnails() { m_PrefabThumbnails.Prepare(); }
 
-    [[nodiscard]] bool IsFocused() const { return m_Focused; }
     // Opens the asset's folder with its file selected and scrolled to, and leaves Properties showing what it shows. A sub-asset's file is the one it was imported from. False for an asset in none of the browser's folders
     bool Reveal(Trinity::UUID asset);
     // The folder that is open, which is where files dropped on Forge are imported

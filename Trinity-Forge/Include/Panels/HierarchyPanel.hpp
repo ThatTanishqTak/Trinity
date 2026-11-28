@@ -33,6 +33,12 @@ public:
     void Rename(Trinity::UUID entity);
     // Every entity, or while the search holds anything every one it matches. The primary stays the primary
     void SelectAll();
+    // To the search field, as Find asks
+    void FocusSearch();
+    // Hides the selection or shows it again, as H asks
+    void ToggleHidden();
+    // The last picked before the sibling above or after the one below, as Ctrl+Up and Ctrl+Down ask
+    void MoveSelected(bool up);
 
 protected:
     void OnImGuiRender() override;

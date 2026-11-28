@@ -43,36 +43,9 @@ namespace
     // After a command's ID in the file, for its second key
     constexpr std::string_view c_AlternateSuffix = ".alternate";
 
-    // Read by each panel in its own ReadShortcuts, so these are told here by hand and are not yet a command's to change
-    constexpr std::array<Shortcuts::PanelKey, 30> c_PanelKeys{ {
-        { "Scene", "Move", "W" },
-        { "Scene", "Rotate", "E" },
-        { "Scene", "Scale", "R" },
-        { "Scene", "Local or World Axes", "X" },
-        { "Scene", "Pivot or Centre", "Z" },
-        { "Scene", "Toggle Snapping", "Ctrl+\\" },
-        { "Scene", "Frame Selection", "F" },
-        { "Scene", "Frame and Follow Selection", "Shift+F" },
-        { "Hierarchy", "Rename", "F2" },
-        { "Hierarchy", "Hide or Show in Scene", "H" },
-        { "Hierarchy", "Frame Selection", "F" },
-        { "Hierarchy", "Frame and Follow Selection", "Shift+F" },
-        { "Hierarchy", "Search", "Ctrl+F" },
-        { "Hierarchy", "Move Up or Down Among Siblings", "Ctrl+Up, Ctrl+Down" },
-        { "Content Browser", "Rename", "F2" },
-        { "Content Browser", "Delete", "Delete" },
-        { "Content Browser", "Duplicate", "Ctrl+D" },
-        { "Content Browser", "Select All", "Ctrl+A" },
-        { "Content Browser", "Copy", "Ctrl+C" },
-        { "Content Browser", "Paste", "Ctrl+V" },
-        { "Content Browser", "Copy Path", "Ctrl+Alt+C" },
-        { "Content Browser", "Search", "Ctrl+F" },
-        { "Content Browser", "Back", "Alt+Left" },
-        { "Content Browser", "Forward", "Alt+Right" },
+    // What a panel does with the mouse, told here by hand beside the commands, as no key runs it
+    constexpr std::array<Shortcuts::PanelKey, 3> c_PanelKeys{ {
         { "Content Browser", "Thumbnail Size", "Ctrl+Wheel" },
-        { "Audio Mixer, Sound Event, Input Actions", "Rename", "F2" },
-        { "Audio Mixer, Sound Event, Input Actions", "Delete", "Delete" },
-        { "Audio Mixer, Sound Event, Input Actions", "Duplicate", "Ctrl+D" },
         { "Properties", "Drag a Number", "Drag its label" },
         { "Properties", "Type a Number", "Ctrl+Click its field" }
     } };
@@ -104,6 +77,13 @@ std::string Shortcuts::GetKeyText(std::string_view id) const
     const Command* l_Command = Find(id);
 
     return l_Command != nullptr ? FormatChord(l_Command->Chord) : std::string();
+}
+
+std::string Shortcuts::WithKey(std::string_view text, std::string_view id) const
+{
+    const std::string l_Key = GetKeyText(id);
+
+    return l_Key.empty() ? std::string(text) : std::format("{} ({})", text, l_Key);
 }
 
 std::string Shortcuts::FormatChord(ImGuiKeyChord chord)
@@ -165,33 +145,21 @@ ImGuiKeyChord Shortcuts::ParseChord(std::string_view text)
 
 const Shortcuts::Command* Shortcuts::FindUser(ImGuiKeyChord chord, std::string_view except) const
 {
-    const auto a_Found = std::ranges::find_if(m_Commands, [chord, except](const Command& command) { return command.ID != except && chord != ImGuiKey_None && (command.Chord == chord || command.Alternate == chord); });
+    const Command* l_Except = Find(except);
+    const std::string_view l_Panel = l_Except != nullptr ? l_Except->Panel : std::string_view();
+    const auto a_Found = std::ranges::find_if(m_Commands, [chord, except, l_Panel](const Command& command) { return command.ID != except && command.Panel == l_Panel && chord != ImGuiKey_None && (command.Chord == chord || command.Alternate == chord); });
 
     return a_Found != m_Commands.end() ? &*a_Found : nullptr;
 }
 
-// By how the key is written, each of a panel's keys being told as text, some of them two with a comma between
-const Shortcuts::PanelKey* Shortcuts::FindPanelUser(ImGuiKeyChord chord)
+// Two panels' commands on one key never meet, since each acts in its own panel alone
+const Shortcuts::Command* Shortcuts::FindSharer(ImGuiKeyChord chord, std::string_view except) const
 {
-    const std::string l_Text = FormatChord(chord);
-    const auto a_Found = std::ranges::find_if(c_PanelKeys, [&l_Text](const PanelKey& key)
-    {
-        std::string_view l_Keys = key.Keys;
-        while (!l_Text.empty() && !l_Keys.empty())
-        {
-            const std::size_t l_Comma = l_Keys.find(", ");
-            if (l_Keys.substr(0, l_Comma) == l_Text)
-            {
-                return true;
-            }
+    const Command* l_Except = Find(except);
+    const std::string_view l_Panel = l_Except != nullptr ? l_Except->Panel : std::string_view();
+    const auto a_Found = std::ranges::find_if(m_Commands, [chord, l_Panel](const Command& command) { return command.Panel != l_Panel && (command.Panel.empty() || l_Panel.empty()) && chord != ImGuiKey_None && (command.Chord == chord || command.Alternate == chord); });
 
-            l_Keys = l_Comma != std::string_view::npos ? l_Keys.substr(l_Comma + 2) : std::string_view();
-        }
-
-        return false;
-    });
-
-    return a_Found != c_PanelKeys.end() ? &*a_Found : nullptr;
+    return a_Found != m_Commands.end() ? &*a_Found : nullptr;
 }
 
 Shortcuts::Command* Shortcuts::FindCommand(std::string_view id)
@@ -209,9 +177,14 @@ void Shortcuts::SetKey(std::string_view id, ImGuiKeyChord chord)
         return;
     }
 
-    // A key runs one command, so the others let go of it, whichever of their two it was
+    // A key runs one command of a panel, or of none, so the others there let go of it, whichever of their two it was
     for (Command& it_Other : m_Commands)
     {
+        if (it_Other.Panel != l_Command->Panel)
+        {
+            continue;
+        }
+
         if (chord != ImGuiKey_None && it_Other.Chord == chord)
         {
             it_Other.Chord = ImGuiKey_None;
@@ -241,6 +214,11 @@ void Shortcuts::ResetKey(std::string_view id)
     const auto a_IsEither = [l_Default, l_Alternate](ImGuiKeyChord chord) { return chord != ImGuiKey_None && (chord == l_Default || chord == l_Alternate); };
     for (Command& it_Other : m_Commands)
     {
+        if (it_Other.Panel != l_Command->Panel)
+        {
+            continue;
+        }
+
         if (a_IsEither(it_Other.Chord))
         {
             it_Other.Chord = ImGuiKey_None;
@@ -338,15 +316,23 @@ void Shortcuts::WriteKeys() const
 // The modifiers held must be the key's own and no more, so Ctrl+S is not pressed with Ctrl+Shift+S, and the order of the list decides nothing between them
 bool Shortcuts::Dispatch() const
 {
-    for (const Command& it_Command : m_Commands)
+    for (const bool it_PanelsFirst : { true, false })
     {
-        const ImGuiInputFlags l_Flags = it_Command.Repeats ? ImGuiInputFlags_Repeat : ImGuiInputFlags_None;
-        const bool l_Pressed = (it_Command.Chord != ImGuiKey_None && ImGui::IsKeyChordPressed(it_Command.Chord, l_Flags)) || (it_Command.Alternate != ImGuiKey_None && ImGui::IsKeyChordPressed(it_Command.Alternate, l_Flags));
-        if (l_Pressed && (!it_Command.IsKeyInScope || it_Command.IsKeyInScope()) && (!it_Command.IsEnabled || it_Command.IsEnabled()))
+        for (const Command& it_Command : m_Commands)
         {
-            it_Command.Run();
+            if (it_Command.Panel.empty() == it_PanelsFirst)
+            {
+                continue;
+            }
 
-            return true;
+            const ImGuiInputFlags l_Flags = it_Command.Repeats ? ImGuiInputFlags_Repeat : ImGuiInputFlags_None;
+            const bool l_Pressed = (it_Command.Chord != ImGuiKey_None && ImGui::IsKeyChordPressed(it_Command.Chord, l_Flags)) || (it_Command.Alternate != ImGuiKey_None && ImGui::IsKeyChordPressed(it_Command.Alternate, l_Flags));
+            if (l_Pressed && (!it_Command.IsKeyInScope || it_Command.IsKeyInScope()) && (!it_Command.IsEnabled || it_Command.IsEnabled()))
+            {
+                it_Command.Run();
+
+                return true;
+            }
         }
     }
 

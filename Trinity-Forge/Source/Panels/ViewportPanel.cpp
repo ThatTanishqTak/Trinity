@@ -678,11 +678,11 @@ void ViewportPanel::OnImGuiRender()
 
     if (m_Mode3D)
     {
-        HandleInput3D(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize, ImGui::IsWindowHovered(), l_Focused);
+        HandleInput3D(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize, ImGui::IsWindowHovered());
     }
     else
     {
-        HandleInput(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize, ImGui::IsWindowHovered(), l_Focused);
+        HandleInput(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize, ImGui::IsWindowHovered());
     }
 
     UpdateBoxSelect(glm::vec2(l_ImageMin.x, l_ImageMin.y), l_ViewportSize);
@@ -1035,8 +1035,8 @@ void ViewportPanel::DrawBookmarks()
     ImGui::EndPopup();
 }
 
-// Middle drag pans, the wheel zooms to the cursor, F frames, Shift+F follows, a left click picks
-void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered, bool focused)
+// Middle drag pans, the wheel zooms to the cursor, a left click picks. F and the gizmo keys are commands, which Forge runs
+void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered)
 {
     const ImGuiIO& l_IO = ImGui::GetIO();
     const glm::vec2 l_Mouse = glm::vec2(l_IO.MousePos.x, l_IO.MousePos.y) - imageMin;
@@ -1066,17 +1066,6 @@ void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool
         MarkCameraChanged();
     }
 
-    // W, E and R pick the gizmo's operation and X its axes, as long as no drag is under way
-    if (focused && !l_IO.WantTextInput && !m_GizmoDragging)
-    {
-        if (ImGui::IsKeyChordPressed(ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Shift | ImGuiKey_F))
-        {
-            Frame(viewportSize, l_IO.KeyShift);
-        }
-
-        HandleGizmoKeys();
-    }
-
     // A click on the gizmo is the gizmo's, not a pick. An audio icon is picked at once. Ctrl or Shift adds to the selection or takes from it
     if (hovered && !m_GizmoHovered && !m_GizmoDragging && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
@@ -1094,8 +1083,8 @@ void ViewportPanel::HandleInput(glm::vec2 imageMin, glm::vec2 viewportSize, bool
     }
 }
 
-// Right button looks and W, A, S, D fly. Alt+left orbits, middle pans. Gizmo keys wait while flying
-void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered, bool focused)
+// Right button looks and W, A, S, D fly. Alt+left orbits, middle pans. The gizmo keys, which Forge runs as commands, wait while flying
+void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bool hovered)
 {
     const ImGuiIO& l_IO = ImGui::GetIO();
     const glm::vec2 l_Mouse = glm::vec2(l_IO.MousePos.x, l_IO.MousePos.y) - imageMin;
@@ -1186,16 +1175,6 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
         MarkCameraChanged();
     }
 
-    if (focused && !l_IO.WantTextInput && !m_GizmoDragging && !m_Flying)
-    {
-        if (ImGui::IsKeyChordPressed(ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Shift | ImGuiKey_F))
-        {
-            Frame(viewportSize, l_IO.KeyShift);
-        }
-
-        HandleGizmoKeys();
-    }
-
     // A click on the gizmo, or with Alt held, is no pick. Light markers and audio icons pick at once
     if (hovered && !l_IO.KeyAlt && !m_GizmoHovered && !m_GizmoDragging && !m_OrientationHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
     {
@@ -1217,37 +1196,28 @@ void ViewportPanel::HandleInput3D(glm::vec2 imageMin, glm::vec2 viewportSize, bo
     }
 }
 
-// W, E and R pick the gizmo's operation, X its axes, Z where it sits, and Ctrl+\ toggles snapping, as in Unity
-void ViewportPanel::HandleGizmoKeys()
+void ViewportPanel::SetGizmoOperation(std::size_t operation)
 {
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Backslash))
-    {
-        m_Snap = !m_Snap;
-        ImGui::MarkIniSettingsDirty();
-    }
+    m_GizmoOperation = static_cast<GizmoOperation>(std::min(operation, c_GizmoOperationNames.size() - 1));
+    ImGui::MarkIniSettingsDirty();
+}
 
-    constexpr std::array<ImGuiKey, 3> c_OperationKeys{ ImGuiKey_W, ImGuiKey_E, ImGuiKey_R };
-    for (std::size_t it_Operation = 0; it_Operation < c_OperationKeys.size(); ++it_Operation)
-    {
-        if (ImGui::IsKeyPressed(c_OperationKeys[it_Operation], false))
-        {
-            m_GizmoOperation = static_cast<GizmoOperation>(it_Operation);
-            ImGui::MarkIniSettingsDirty();
-        }
-    }
+void ViewportPanel::ToggleGizmoSpace()
+{
+    m_GizmoLocal = !m_GizmoLocal;
+    ImGui::MarkIniSettingsDirty();
+}
 
-    if (ImGui::IsKeyPressed(ImGuiKey_X, false))
-    {
-        m_GizmoLocal = !m_GizmoLocal;
-        ImGui::MarkIniSettingsDirty();
-    }
+void ViewportPanel::ToggleGizmoPivot()
+{
+    m_GizmoCentre = !m_GizmoCentre;
+    ImGui::MarkIniSettingsDirty();
+}
 
-    // Z alone, since Ctrl+Z undoes
-    if (ImGui::IsKeyChordPressed(ImGuiKey_Z))
-    {
-        m_GizmoCentre = !m_GizmoCentre;
-        ImGui::MarkIniSettingsDirty();
-    }
+void ViewportPanel::ToggleSnap()
+{
+    m_Snap = !m_Snap;
+    ImGui::MarkIniSettingsDirty();
 }
 
 // The light whose marker is nearest the mouse. A light has no surface to draw an ID on
@@ -2884,7 +2854,9 @@ void ViewportPanel::DrawToolbar()
         ImGui::SameLine();
 
         constexpr std::array<const char*, 3> c_Icons{ Trinity::Icons::c_Arrows, Trinity::Icons::c_RotateRight, Trinity::Icons::c_Expand };
-        constexpr std::array<const char*, 3> c_Tips{ "Move (W)", "Rotate about Z (E)", "Scale (R)" };
+        const Shortcuts& l_Shortcuts = m_Session.GetShortcuts();
+        constexpr std::array<const char*, 3> c_Tips{ "Move", "Rotate about Z", "Scale" };
+        constexpr std::array<const char*, 3> c_OperationCommands{ "scene.move", "scene.rotate", "scene.scale" };
         for (std::size_t it_Operation = 0; it_Operation < c_Icons.size(); ++it_Operation)
         {
             const bool l_Current = static_cast<std::size_t>(m_GizmoOperation) == it_Operation;
@@ -2894,7 +2866,7 @@ void ViewportPanel::DrawToolbar()
                 ImGui::MarkIniSettingsDirty();
             }
 
-            ImGui::SetItemTooltip("%s", m_Mode3D && it_Operation == 1 ? "Rotate (E)" : c_Tips[it_Operation]);
+            ImGui::SetItemTooltip("%s", l_Shortcuts.WithKey(m_Mode3D && it_Operation == 1 ? "Rotate" : c_Tips[it_Operation], c_OperationCommands[it_Operation]).c_str());
             ImGui::SameLine();
         }
 
@@ -2904,7 +2876,7 @@ void ViewportPanel::DrawToolbar()
             ImGui::MarkIniSettingsDirty();
         }
 
-        ImGui::SetItemTooltip("The gizmo's axes: the entity's own, or the world's (X)");
+        ImGui::SetItemTooltip("%s", l_Shortcuts.WithKey("The gizmo's axes: the entity's own, or the world's", "scene.axes").c_str());
 
         ImGui::SameLine();
         if (ImGui::Button(std::format("{} {}###Pivot", m_GizmoCentre ? Trinity::Icons::c_Crosshairs : Trinity::Icons::c_DotCircle, m_GizmoCentre ? "Centre" : "Pivot").c_str()))
@@ -2913,7 +2885,7 @@ void ViewportPanel::DrawToolbar()
             ImGui::MarkIniSettingsDirty();
         }
 
-        ImGui::SetItemTooltip("With several entities selected, the gizmo sits on the one picked last, or at the middle of them all (Z)");
+        ImGui::SetItemTooltip("%s", l_Shortcuts.WithKey("With several entities selected, the gizmo sits on the one picked last, or at the middle of them all", "scene.pivot").c_str());
 
         // The preferences' steps, which Edit > Preferences shows too
         EditorPreferences l_Preferences = m_Session.GetPreferences();
@@ -2936,7 +2908,7 @@ void ViewportPanel::DrawToolbar()
             ImGui::MarkIniSettingsDirty();
         }
 
-        ImGui::SetItemTooltip("Snap (Ctrl+\\): while on, every drag goes by these steps. Holding Ctrl while dragging does the opposite");
+        ImGui::SetItemTooltip("%s", std::format("{}: while on, every drag goes by these steps. Holding Ctrl while dragging does the opposite", l_Shortcuts.WithKey("Snap", "scene.snap")).c_str());
         a_Step("##SnapTranslate", 0, "%g", "Move snap, in units");
         a_Step("##SnapRotate", 1, "%g\xC2\xB0", "Rotate snap, in degrees");
         a_Step("##SnapScale", 2, "%g", "Scale snap");

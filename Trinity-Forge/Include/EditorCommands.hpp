@@ -75,7 +75,7 @@ struct NearestInstance
 };
 
 [[nodiscard]] NearestInstance FindNearestInstance(Trinity::Entity entity);
-// Whether the change is the instance root's Position or Rotation, which are never marked overrides
+// Whether the change is the instance root's Position, Rotation or name, which are never marked overrides, as Unity marks none of them
 [[nodiscard]] bool IsDefaultOverride(Trinity::Entity root, const Trinity::SceneSerializer::PrefabOverride& change);
 // An entity added under an instance's entity goes after the prefab's own children there
 [[nodiscard]] Trinity::UUID FindAddedPlace(Trinity::Scene& scene, Trinity::UUID before);
