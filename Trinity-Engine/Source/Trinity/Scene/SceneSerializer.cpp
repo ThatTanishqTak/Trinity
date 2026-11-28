@@ -3372,6 +3372,47 @@ namespace Trinity
             return YAML::Dump(left) == YAML::Dump(right);
         }
 
+        // Down through maps and through lists of the same length, so only what differs is named. A path already named takes in all under it
+        void CollectDifferingPaths(const YAML::Node& base, const YAML::Node& text, const std::string& path, std::vector<std::string>& paths)
+        {
+            if (std::ranges::find(paths, path) != paths.end())
+            {
+                return;
+            }
+
+            if (!text.IsDefined() || text.Type() != base.Type() || (base.IsSequence() && base.size() != text.size()))
+            {
+                paths.push_back(path);
+
+                return;
+            }
+
+            if (base.IsSequence())
+            {
+                for (std::size_t it_Index = 0; it_Index < base.size(); ++it_Index)
+                {
+                    CollectDifferingPaths(base[it_Index], text[it_Index], std::format("{}/{}", path, it_Index), paths);
+                }
+
+                return;
+            }
+
+            if (base.IsMap())
+            {
+                for (const auto& it_Field : base)
+                {
+                    CollectDifferingPaths(it_Field.second, text[it_Field.first.Scalar()], std::format("{}/{}", path, it_Field.first.Scalar()), paths);
+                }
+
+                return;
+            }
+
+            if (!IsSameYaml(base, text))
+            {
+                paths.push_back(path);
+            }
+        }
+
         // Gives the target what after has and before had otherwise, a map key by key. A sequence goes over element by element where all three are as long, though one of four whole, as a quaternion's parts mean nothing apart. True if the target changed
         bool MergeYaml(const YAML::Node& before, const YAML::Node& after, YAML::Node target)
         {
@@ -4953,6 +4994,51 @@ namespace Trinity
             }
 
             return l_Keys;
+        }
+
+        // A text that will not parse is passed over, and a base that will not gives none
+        std::vector<std::string> GetDifferingComponentPaths(std::string_view base, std::span<const std::string> texts)
+        {
+            std::vector<std::string> l_Paths;
+            YAML::Node l_Base;
+            try
+            {
+                const YAML::Node l_BaseRoot = YAML::Load(std::string(base));
+                l_Base = l_BaseRoot.IsMap() ? l_BaseRoot["Value"] : YAML::Node();
+            }
+            catch (const YAML::Exception&)
+            {
+                return l_Paths;
+            }
+
+            if (!l_Base.IsMap())
+            {
+                return l_Paths;
+            }
+
+            for (const std::string& it_Text : texts)
+            {
+                try
+                {
+                    const YAML::Node l_TextRoot = YAML::Load(it_Text);
+                    const YAML::Node l_Text = l_TextRoot.IsMap() ? l_TextRoot["Value"] : YAML::Node();
+                    if (!l_Text.IsMap())
+                    {
+                        continue;
+                    }
+
+                    for (const auto& it_Field : l_Base)
+                    {
+                        CollectDifferingPaths(it_Field.second, l_Text[it_Field.first.Scalar()], it_Field.first.Scalar(), l_Paths);
+                    }
+                }
+                catch (const YAML::Exception&)
+                {
+                    continue;
+                }
+            }
+
+            return l_Paths;
         }
 
         // Any YAML that will not parse leaves the text as it is, as keys that hold the same already do, so it stays what SaveComponentToText gave

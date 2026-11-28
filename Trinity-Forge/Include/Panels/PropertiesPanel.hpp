@@ -16,6 +16,9 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 struct ImGuiInputTextCallbackData;
 
@@ -59,6 +62,7 @@ private:
     void DrawOverrides(Trinity::Entity entity);
     void CommitName(Trinity::Entity entity);
     void DrawTransform(Trinity::Entity entity);
+    [[nodiscard]] glm::vec3 GetEulerDegrees(Trinity::Entity entity);
     void DrawCamera(Trinity::Entity entity);
     void DrawSpriteRenderer(Trinity::Entity entity);
     void DrawMeshRenderer(Trinity::Entity entity);
@@ -130,6 +134,9 @@ private:
     std::string m_NameText;
     Trinity::UUID m_NameEntity;
     bool m_NameActive = false;
+    // The entities selected as the name was last shown, which a typed name goes to, and whether their names differed
+    std::vector<Trinity::UUID> m_NameEntities;
+    bool m_NameMixed = false;
     std::string m_AssetFilter;
     std::string m_ActionFilter;
     // Add Component's search, the highlighted choice, which Enter adds, and whether to scroll to it
@@ -141,6 +148,8 @@ private:
     Trinity::UUID m_EulerEntity;
     glm::quat m_EulerRotation = glm::identity<glm::quat>();
     glm::vec3 m_EulerDegrees{ 0.0f };
+    // The other selected entities' angles, each with the rotation they were worked out from
+    std::unordered_map<Trinity::UUID, std::pair<glm::quat, glm::vec3>> m_OtherEulers;
     // The list, by its ImGui ID, and the element last edited, so another element is its own command
     std::uint32_t m_EditedList = 0;
     std::size_t m_EditedElement = 0;

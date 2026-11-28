@@ -4,6 +4,7 @@
 
 #include <imgui.h>
 
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -34,6 +35,13 @@ namespace Trinity
 
         // After a row's label, which then drags the first of the drag fields below that follows it on the row, from its left end to the field's
         TRINITY_API void ScrubWithLastItem();
+
+        // What a field shows in place of a value that several things edited together hold differently
+        inline constexpr const char* c_MixedText = "\u2014";
+        // The next drag field shows c_MixedText in place of its value: all of it, or the axes of a DragFloat2, 3 or 4 whose bits are set. Until it is typed into, which shows the value
+        TRINITY_API void SetNextMixed(std::uint32_t axes);
+        // Taken by the field it was for, and by whatever else must not leave it for a later field. None set gives 0
+        [[nodiscard]] TRINITY_API std::uint32_t TakeNextMixed();
 
         // ImGui's DragScalar, DragFloat and DragInt, dragged from the row's label as from the field itself where ScrubWithLastItem came after the label
         TRINITY_API bool DragScalar(const char* label, ImGuiDataType type, void* value, float speed = 1.0f, const void* minimum = nullptr, const void* maximum = nullptr, const char* format = nullptr, ImGuiSliderFlags flags = ImGuiSliderFlags_None);

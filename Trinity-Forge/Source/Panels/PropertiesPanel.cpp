@@ -13,6 +13,9 @@
 #include <array>
 #include <cctype>
 #include <cfloat>
+#include <charconv>
+#include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <format>
@@ -20,6 +23,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <system_error>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -29,6 +33,8 @@
 namespace
 {
     constexpr float c_LabelWidthInFonts = 8.0f;
+    // How far apart two angles may be, in degrees, and still read as one, as the field shows hundredths
+    constexpr float c_EulerTolerance = 0.005f;
     constexpr const char* c_TexturePickerPopup = "##TexturePicker";
     constexpr const char* c_EnvironmentPickerPopup = "##EnvironmentPicker";
     constexpr const char* c_MeshPickerPopup = "##MeshPicker";
@@ -119,6 +125,27 @@ namespace
     OverrideMarks* s_Marks = nullptr;
     // Set while Properties draws an entity, so an edit of it reaches the others selected with it
     EditorSession* s_Session = nullptr;
+
+    // Where the other entities selected with the last picked hold the component whose section is being drawn otherwise than it does, which Label gives each row's field. Set while several are selected
+    struct MixedMarks
+    {
+        std::string_view Component{};
+        std::string Prefix{};
+        std::vector<std::string> Paths{};
+    };
+
+    MixedMarks* s_Mixed = nullptr;
+
+    // The row Label last began: its keys while its field shows the dash, and whether an edit there gives every entity the whole value, as a dropdown's pick does, not only what changed of the last picked
+    struct MixedRow
+    {
+        std::vector<std::string> Keys{};
+        bool CopyWhole = false;
+    };
+
+    MixedRow s_Row;
+    // While a dropdown showing the dash is open, none of its items is the one picked, so picking any sets it
+    bool s_ComboMixed = false;
 
     // What a row's arrow asked to be put back to a new component's, the row named as the command names it
     struct ResetRequest
@@ -333,9 +360,46 @@ namespace
         }
     }
 
-    // A label on the left and the widget filling the row. In an instance an overridden row is bold
+    // Every bit for a row whose whole value differs. One bit for each element that does of a row of one key, as an axis of a Position, or for each axis of a row of several, as Lock Position's
+    std::uint32_t GetMixedAxes(const std::vector<std::string>& keys)
+    {
+        constexpr std::uint32_t c_Whole = ~0u;
+        std::uint32_t l_Axes = 0;
+        for (const std::string& it_Path : s_Mixed->Paths)
+        {
+            for (std::size_t it_Key = 0; it_Key < keys.size(); ++it_Key)
+            {
+                const std::string& l_Key = keys[it_Key];
+                if (!IsShownAt(it_Path, l_Key))
+                {
+                    continue;
+                }
+
+                if (keys.size() > 1)
+                {
+                    const char l_Last = l_Key.empty() ? '\0' : l_Key.back();
+                    l_Axes |= l_Last >= 'X' && l_Last <= 'Z' ? 1u << (l_Last - 'X') : c_Whole;
+
+                    continue;
+                }
+
+                const std::string_view l_Rest = it_Path.size() > l_Key.size() ? std::string_view(it_Path).substr(l_Key.size() + 1) : std::string_view();
+                std::uint32_t l_Index = 0;
+                const std::from_chars_result l_Read = std::from_chars(l_Rest.data(), l_Rest.data() + l_Rest.size(), l_Index);
+                const bool l_Element = !l_Rest.empty() && l_Read.ec == std::errc() && l_Read.ptr == l_Rest.data() + l_Rest.size() && l_Index < 32;
+                l_Axes |= l_Element ? 1u << l_Index : c_Whole;
+            }
+        }
+
+        return l_Axes;
+    }
+
+    // A label on the left and the widget filling the row. In an instance an overridden row is bold. Where the selected entities differ, the row's field shows the dash
     void Label(const char* label, float reserve = 0.0f)
     {
+        s_Row = {};
+        s_ComboMixed = false;
+        static_cast<void>(Trinity::Widgets::TakeNextMixed());
         ImGui::AlignTextToFramePadding();
         const float l_Top = ImGui::GetCursorScreenPos().y;
         const std::vector<PrefabOverride> l_Overrides = s_Marks != nullptr && !s_Marks->Component.empty() && label[0] != '\0' ? FindRowOverrides(*s_Marks, label) : std::vector<PrefabOverride>();
@@ -362,6 +426,198 @@ namespace
         DrawResetArrow(label, l_Top, l_Overrides, l_Marked);
         ImGui::SameLine(ImGui::GetFontSize() * c_LabelWidthInFonts);
         ImGui::SetNextItemWidth(reserve > 0.0f ? -reserve : -FLT_MIN);
+        if (s_Mixed == nullptr || s_Mixed->Component.empty() || s_Mixed->Paths.empty() || label[0] == '\0')
+        {
+            return;
+        }
+
+        std::vector<std::string> l_Keys = GetRowKeys(s_Mixed->Component, s_Mixed->Prefix, label);
+        if (const std::uint32_t l_Axes = GetMixedAxes(l_Keys); l_Axes != 0)
+        {
+            Trinity::Widgets::SetNextMixed(l_Axes);
+            s_Row.Keys = std::move(l_Keys);
+        }
+    }
+
+    // Whether the field a row's label was for shows the dash, which it takes so no later field does. A field of one whole value, as a dropdown, then has its edit give every entity all of it
+    bool TakeMixed(bool whole)
+    {
+        const bool l_Mixed = Trinity::Widgets::TakeNextMixed() != 0;
+        s_Row.CopyWhole = s_Row.CopyWhole || (l_Mixed && whole);
+
+        return l_Mixed;
+    }
+
+    // ImGui's dash in the box. One of a row of boxes takes its axis's bit alone, and each box's edit goes over as it is
+    bool MixedCheckbox(const char* label, bool* value, int axis = -1)
+    {
+        bool l_Mixed = false;
+        if (axis < 0)
+        {
+            l_Mixed = TakeMixed(true);
+        }
+        else
+        {
+            const std::uint32_t l_Axes = Trinity::Widgets::TakeNextMixed();
+            l_Mixed = (l_Axes & (1u << axis)) != 0;
+            Trinity::Widgets::SetNextMixed(l_Axes & ~(1u << axis));
+        }
+
+        ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, l_Mixed);
+        const bool l_Changed = ImGui::Checkbox(label, value);
+        ImGui::PopItemFlag();
+
+        return l_Changed;
+    }
+
+    // As ImGui's Combo, whose items each pick even the one the last picked holds while the dash shows
+    bool MixedCombo(const char* label, int* current, const char* items)
+    {
+        if (!TakeMixed(true))
+        {
+            return ImGui::Combo(label, current, items);
+        }
+
+        bool l_Changed = false;
+        if (ImGui::BeginCombo(label, Trinity::Widgets::c_MixedText))
+        {
+            int l_Index = 0;
+            for (const char* it_Item = items; *it_Item != '\0'; it_Item += std::strlen(it_Item) + 1)
+            {
+                ImGui::PushID(l_Index);
+                if (ImGui::Selectable(it_Item, false))
+                {
+                    *current = l_Index;
+                    l_Changed = true;
+                }
+
+                ImGui::PopID();
+                ++l_Index;
+            }
+
+            ImGui::EndCombo();
+        }
+
+        return l_Changed;
+    }
+
+    // Its items read s_ComboMixed, so each picks while the dash shows
+    bool MixedBeginCombo(const char* label, const char* preview, ImGuiComboFlags flags = ImGuiComboFlags_None)
+    {
+        s_ComboMixed = TakeMixed(true);
+
+        return ImGui::BeginCombo(label, s_ComboMixed ? Trinity::Widgets::c_MixedText : preview, flags);
+    }
+
+    // The swatch alone, which opens the picker, with the dash beside it
+    bool MixedColorEdit(const char* label, float* color, bool alpha, ImGuiColorEditFlags flags)
+    {
+        const bool l_Mixed = TakeMixed(true);
+        const ImGuiColorEditFlags l_Flags = l_Mixed ? flags | ImGuiColorEditFlags_NoInputs : flags;
+        const bool l_Changed = alpha ? ImGui::ColorEdit4(label, color, l_Flags) : ImGui::ColorEdit3(label, color, l_Flags);
+        if (l_Mixed)
+        {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", Trinity::Widgets::c_MixedText);
+        }
+
+        return l_Changed;
+    }
+
+    bool MixedColorEdit3(const char* label, float* color, ImGuiColorEditFlags flags = ImGuiColorEditFlags_None)
+    {
+        return MixedColorEdit(label, color, false, flags);
+    }
+
+    bool MixedColorEdit4(const char* label, float* color, ImGuiColorEditFlags flags = ImGuiColorEditFlags_None)
+    {
+        return MixedColorEdit(label, color, true, flags);
+    }
+
+    // The value shows again while typed into, so what is typed reads as a number
+    bool MixedSliderScalar(const char* label, ImGuiDataType type, void* value, const void* minimum, const void* maximum, const char* format, ImGuiSliderFlags flags)
+    {
+        const bool l_Mixed = TakeMixed(false) && !ImGui::TempInputIsActive(ImGui::GetID(label));
+
+        return ImGui::SliderScalar(label, type, value, minimum, maximum, l_Mixed ? Trinity::Widgets::c_MixedText : format, flags);
+    }
+
+    bool MixedSliderFloat(const char* label, float* value, float minimum, float maximum, const char* format, ImGuiSliderFlags flags)
+    {
+        return MixedSliderScalar(label, ImGuiDataType_Float, value, &minimum, &maximum, format, flags);
+    }
+
+    bool MixedSliderInt(const char* label, int* value, int minimum, int maximum, const char* format, ImGuiSliderFlags flags)
+    {
+        return MixedSliderScalar(label, ImGuiDataType_S32, value, &minimum, &maximum, format, flags);
+    }
+
+    // As ImGui's DragScalarN lays its fields out, each showing the dash where the entities differ in it
+    bool MixedDragScalarN(const char* label, ImGuiDataType type, void* values, int count, float speed, const void* minimum, const void* maximum, const char* format, ImGuiSliderFlags flags)
+    {
+        const std::uint32_t l_Mixed = Trinity::Widgets::TakeNextMixed();
+        if (l_Mixed == 0)
+        {
+            return ImGui::DragScalarN(label, type, values, count, speed, minimum, maximum, format, flags);
+        }
+
+        bool l_Changed = false;
+        const std::size_t l_Size = ImGui::DataTypeGetInfo(type)->Size;
+        ImGui::BeginGroup();
+        ImGui::PushID(label);
+        ImGui::PushMultiItemsWidths(count, ImGui::CalcItemWidth());
+        for (int it_Index = 0; it_Index < count; ++it_Index)
+        {
+            ImGui::PushID(it_Index);
+            if (it_Index > 0)
+            {
+                ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+            }
+
+            const bool l_Dash = (l_Mixed & (1u << it_Index)) != 0 && !ImGui::TempInputIsActive(ImGui::GetID(""));
+            l_Changed |= ImGui::DragScalar("", type, static_cast<char*>(values) + l_Size * static_cast<std::size_t>(it_Index), speed, minimum, maximum, l_Dash ? Trinity::Widgets::c_MixedText : format, flags);
+            ImGui::PopID();
+            ImGui::PopItemWidth();
+        }
+
+        ImGui::PopID();
+        ImGui::EndGroup();
+
+        return l_Changed;
+    }
+
+    bool MixedDragFloat4(const char* label, float* values, float speed, float minimum, float maximum, const char* format, ImGuiSliderFlags flags)
+    {
+        return MixedDragScalarN(label, ImGuiDataType_Float, values, 4, speed, &minimum, &maximum, format, flags);
+    }
+
+    bool MixedDragInt2(const char* label, int* values, float speed, int minimum, int maximum, const char* format, ImGuiSliderFlags flags)
+    {
+        return MixedDragScalarN(label, ImGuiDataType_S32, values, 2, speed, &minimum, &maximum, format, flags);
+    }
+
+    // Empty under the dash until typed into, which then gives every entity what is typed
+    bool MixedInputText(const char* label, std::string* text)
+    {
+        if (!TakeMixed(true))
+        {
+            return ImGui::InputText(label, text);
+        }
+
+        static std::string s_Typed;
+        if (ImGui::GetActiveID() != ImGui::GetID(label))
+        {
+            s_Typed.clear();
+        }
+
+        if (!ImGui::InputTextWithHint(label, Trinity::Widgets::c_MixedText, &s_Typed))
+        {
+            return false;
+        }
+
+        *text = s_Typed;
+
+        return true;
     }
 
     // One entity's edit as one command. With several selected, what the edit changes goes to each of the others that has the component too, all of it as one command, the edited entity's last
@@ -378,6 +634,11 @@ namespace
             const std::string l_After = Trinity::SceneSerializer::SaveComponentToText(entity, l_Name);
             entity.Get<T>() = std::move(l_Kept);
 
+            // A field that showed the dash for one whole value gives every entity all of it, though the last picked held it already
+            std::string l_FieldKey;
+            std::ranges::copy_if(field, std::back_inserter(l_FieldKey), [](char character) { return character != ' '; });
+            const bool l_Whole = s_Row.CopyWhole && std::ranges::any_of(s_Row.Keys, [&l_FieldKey](const std::string& key) { return EqualsIgnoringCase(key, l_FieldKey); });
+
             Trinity::Scene& l_Scene = s_Session->GetEditedScene();
             for (const Trinity::UUID it_Other : s_Session->GetSelected().GetEntities())
             {
@@ -389,6 +650,11 @@ namespace
 
                 const std::string l_Text = Trinity::SceneSerializer::SaveComponentToText(l_Other, l_Name);
                 std::string l_Merged = Trinity::SceneSerializer::MergeComponentText(l_Before, l_After, l_Text);
+                if (l_Whole)
+                {
+                    l_Merged = Trinity::SceneSerializer::CopyComponentKeys(l_After, l_Merged, s_Row.Keys);
+                }
+
                 if (l_Merged != l_Text)
                 {
                     l_Commands.push_back(Trinity::CreateScope<SetComponentTextCommand>(it_Other, std::string(l_Name), std::move(l_Merged), std::format("Edit {} {} of {}", GetComponentLabel(l_Name), field, GetEntityLabel(l_Other)), field));
@@ -419,12 +685,12 @@ namespace
         }
     }
 
-    // A section with the name of the component it shows, or its own, in bold and open by default
-    bool BeginSection(std::string_view name, const char* icon, ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_None)
+    // A section with the name of the component it shows, or its own, in bold and open by default, the note after the name
+    bool BeginSection(std::string_view name, const char* icon, ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_None, std::string_view note = {})
     {
         Trinity::Theme::PushHeaderColors();
         ImGui::PushFont(Trinity::ImGuiLayer::GetFont(Trinity::UIFont::Bold), 0.0f);
-        const bool l_Open = ImGui::CollapsingHeader(std::format("{} {}###{}", icon, GetComponentLabel(name), name).c_str(), ImGuiTreeNodeFlags_DefaultOpen | flags);
+        const bool l_Open = ImGui::CollapsingHeader(std::format("{} {}{}###{}", icon, GetComponentLabel(name), note, name).c_str(), ImGuiTreeNodeFlags_DefaultOpen | flags);
         ImGui::PopFont();
         Trinity::Theme::PopHeaderColors();
 
@@ -665,16 +931,17 @@ namespace
         return a_Shape != l_Model->SubAssets.end() && a_Shape->Importer == Trinity::GetCollisionShapeAssetType(kind) ? a_Shape->ID : Trinity::UUID();
     }
 
-    // Three boxes on one row, one for each axis
+    // Three boxes on one row, one for each axis, each showing the dash where the selected entities differ in it
     bool AxisCheckboxes(const char* id, glm::bvec3& axes)
     {
         ImGui::PushID(id);
-        bool l_Changed = ImGui::Checkbox("X", &axes.x);
+        bool l_Changed = MixedCheckbox("X", &axes.x, 0);
         ImGui::SameLine();
-        l_Changed |= ImGui::Checkbox("Y", &axes.y);
+        l_Changed |= MixedCheckbox("Y", &axes.y, 1);
         ImGui::SameLine();
-        l_Changed |= ImGui::Checkbox("Z", &axes.z);
+        l_Changed |= MixedCheckbox("Z", &axes.z, 2);
         ImGui::PopID();
+        static_cast<void>(Trinity::Widgets::TakeNextMixed());
 
         return l_Changed;
     }
@@ -685,11 +952,11 @@ namespace
         const auto a_Name = [&layers](std::uint32_t index) { return std::format("{}: {}", index, layers.GetName(index)); };
 
         bool l_Changed = false;
-        if (ImGui::BeginCombo("##Layer", a_Name(layer).c_str()))
+        if (MixedBeginCombo("##Layer", a_Name(layer).c_str()))
         {
             for (std::uint32_t it_Layer = 0; it_Layer < Trinity::c_MaxCollisionLayers; ++it_Layer)
             {
-                const bool l_Selected = it_Layer == layer;
+                const bool l_Selected = it_Layer == layer && !s_ComboMixed;
                 ImGui::PushID(static_cast<int>(it_Layer));
                 if (ImGui::Selectable(a_Name(it_Layer).c_str(), l_Selected) && !l_Selected)
                 {
@@ -770,7 +1037,7 @@ namespace
     {
         bool l_Changed = false;
         PushSlotColor(preview);
-        const bool l_Open = ImGui::BeginCombo("##ConnectedBody", preview.Text.c_str());
+        const bool l_Open = MixedBeginCombo("##ConnectedBody", preview.Text.c_str());
         PopSlotColor(preview);
         // Only what the list offers lights it up
         if (!l_Open && ImGui::BeginDragDropTarget())
@@ -794,7 +1061,7 @@ namespace
             return l_Changed;
         }
 
-        if (ImGui::Selectable("World", !connected) && connected)
+        if (ImGui::Selectable("World", !connected && !s_ComboMixed) && (connected || s_ComboMixed))
         {
             connected = {};
             l_Changed = true;
@@ -807,7 +1074,7 @@ namespace
                 continue;
             }
 
-            const bool l_Selected = connected == it_Entity.GetUUID();
+            const bool l_Selected = connected == it_Entity.GetUUID() && !s_ComboMixed;
             ImGui::PushID(it_Entity.GetUUID().ToString().c_str());
             if (ImGui::Selectable(GetEntityLabel(it_Entity).c_str(), l_Selected) && !l_Selected)
             {
@@ -849,7 +1116,7 @@ namespace
     bool OutputCombo(const Trinity::AudioMixerData* mixer, Trinity::UUID& output, const SlotText& preview)
     {
         PushSlotColor(preview);
-        const bool l_Open = ImGui::BeginCombo("##Output", preview.Text.c_str(), ImGuiComboFlags_HeightLarge);
+        const bool l_Open = MixedBeginCombo("##Output", preview.Text.c_str(), ImGuiComboFlags_HeightLarge);
         PopSlotColor(preview);
         if (!l_Open)
         {
@@ -874,7 +1141,7 @@ namespace
             }
 
             const bool l_Master = it_Group == 0;
-            const bool l_Selected = output == l_Group.ID || (l_Master && !output);
+            const bool l_Selected = (output == l_Group.ID || (l_Master && !output)) && !s_ComboMixed;
             ImGui::PushID(l_Group.ID.ToString().c_str());
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + static_cast<float>(l_Depths[it_Group]) * ImGui::GetStyle().IndentSpacing);
             if (ImGui::Selectable(std::string(std::string_view(l_Group.Name)).c_str(), l_Selected) && !l_Selected)
@@ -1063,6 +1330,52 @@ namespace
         return Trinity::SceneSerializer::SaveComponentToText(l_Entity, name);
     }
 
+    // How many of the selected entities have a component, and where the others hold it otherwise than the last picked does, for the scene and selection the key names
+    struct MixedComponent
+    {
+        std::string Key;
+        std::size_t Having = 0;
+        std::vector<std::string> Paths;
+    };
+
+    // By component. While a copy plays it moves on its own, so it is worked out every frame
+    std::unordered_map<std::string, MixedComponent> s_MixedComponents;
+
+    const MixedComponent& FindMixed(Trinity::Entity entity, std::string_view name)
+    {
+        const std::vector<Trinity::UUID>& l_Selected = s_Session->GetSelected().GetEntities();
+        std::uint64_t l_Hash = 1469598103934665603ull;
+        for (const Trinity::UUID it_ID : l_Selected)
+        {
+            l_Hash = (l_Hash ^ it_ID.GetValue()) * 1099511628211ull;
+        }
+
+        std::string l_Key = s_Session->IsPlaying() ? std::string() : std::format("{} {} {}", s_Session->GetHistory().GetRevision(), l_Hash, entity.GetUUID());
+        MixedComponent& l_Mixed = s_MixedComponents[std::string(name)];
+        if (!l_Key.empty() && l_Mixed.Key == l_Key)
+        {
+            return l_Mixed;
+        }
+
+        l_Mixed.Key = std::move(l_Key);
+        l_Mixed.Having = 1;
+        std::vector<std::string> l_Texts;
+        Trinity::Scene& l_Scene = *entity.GetScene();
+        for (const Trinity::UUID it_ID : l_Selected)
+        {
+            const Trinity::Entity l_Other = it_ID != entity.GetUUID() ? l_Scene.FindEntityByUUID(it_ID) : Trinity::Entity();
+            if (l_Other && Trinity::SceneSerializer::HasComponent(l_Other, name))
+            {
+                ++l_Mixed.Having;
+                l_Texts.push_back(Trinity::SceneSerializer::SaveComponentToText(l_Other, name));
+            }
+        }
+
+        l_Mixed.Paths = l_Texts.empty() ? std::vector<std::string>() : Trinity::SceneSerializer::GetDifferingComponentPaths(Trinity::SceneSerializer::SaveComponentToText(entity, name), l_Texts);
+
+        return l_Mixed;
+    }
+
     // A component's text as last compared with a new one's, and the keys at which the two differed
     struct ChangedKeys
     {
@@ -1210,7 +1523,7 @@ namespace
 
         bool l_Changed = false;
         PushSlotColor(l_Preview);
-        const bool l_Open = ImGui::BeginCombo("##Value", l_Preview.Text.c_str());
+        const bool l_Open = MixedBeginCombo("##Value", l_Preview.Text.c_str());
         PopSlotColor(l_Preview);
         if (!l_Open && l_Preview.Broken && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
@@ -1238,7 +1551,7 @@ namespace
             return l_Changed;
         }
 
-        if (ImGui::Selectable("None", !value) && value)
+        if (ImGui::Selectable("None", !value && !s_ComboMixed) && (value || s_ComboMixed))
         {
             value = {};
             l_Changed = true;
@@ -1246,7 +1559,7 @@ namespace
 
         for (Trinity::Entity it_Entity = scene.GetFirstRoot(); it_Entity; it_Entity = scene.GetNextInHierarchyOrder(it_Entity))
         {
-            const bool l_Selected = value == it_Entity.GetUUID();
+            const bool l_Selected = value == it_Entity.GetUUID() && !s_ComboMixed;
             ImGui::PushID(it_Entity.GetUUID().ToString().c_str());
             if (ImGui::Selectable(GetEntityLabel(it_Entity).c_str(), l_Selected) && !l_Selected)
             {
@@ -1374,7 +1687,7 @@ namespace
         }
 
         Label("Trigger");
-        EditField<T>(history, entity, "Trigger", [](T& collider) { return ImGui::Checkbox("##Trigger", &collider.Trigger); });
+        EditField<T>(history, entity, "Trigger", [](T& collider) { return MixedCheckbox("##Trigger", &collider.Trigger); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("Reports what enters and leaves it without pushing anything");
@@ -1420,7 +1733,7 @@ namespace
         }
 
         Label("Trigger");
-        EditField<T>(history, entity, "Trigger", [](T& collider) { return ImGui::Checkbox("##Trigger", &collider.Trigger); });
+        EditField<T>(history, entity, "Trigger", [](T& collider) { return MixedCheckbox("##Trigger", &collider.Trigger); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("Reports what enters and leaves it without pushing anything");
@@ -1429,7 +1742,7 @@ namespace
         const bool l_Trigger = entity.Get<T>().Trigger;
         Label("One Way");
         ImGui::BeginDisabled(l_Trigger);
-        EditField<T>(history, entity, "OneWay", [](T& collider) { return ImGui::Checkbox("##OneWay", &collider.OneWay); });
+        EditField<T>(history, entity, "OneWay", [](T& collider) { return MixedCheckbox("##OneWay", &collider.OneWay); });
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
         {
@@ -1656,9 +1969,16 @@ void PropertiesPanel::OnImGuiRender()
         ImGui::PopStyleColor();
     }
 
-    if (const std::size_t l_Count = m_Session.GetSelected().GetCount(); l_Count > 1 && !l_Playing)
+    const std::size_t l_Count = m_Session.GetSelected().GetCount();
+    if (l_Count > 1 && !l_Playing)
     {
-        ImGui::TextDisabled("%s", std::format("{} entities selected. This is the last one picked, and an edit of a field goes to every one of them that has its component", l_Count).c_str());
+        ImGui::TextDisabled("%s", std::format("{} entities selected. A field shows {} where they differ, and an edit of it goes to every one of them that has its component", l_Count, Trinity::Widgets::c_MixedText).c_str());
+    }
+
+    std::optional<MixedMarks> l_Mixed;
+    if (l_Count > 1)
+    {
+        s_Mixed = &l_Mixed.emplace();
     }
 
     // What the entity's instance changes of its prefab, read once a frame for every section to mark
@@ -1709,6 +2029,10 @@ void PropertiesPanel::OnImGuiRender()
     ImGui::EndDisabled();
     s_Marks = nullptr;
     s_Session = nullptr;
+    s_Mixed = nullptr;
+    s_Row = {};
+    s_ComboMixed = false;
+    static_cast<void>(Trinity::Widgets::TakeNextMixed());
 
     // A script dropped anywhere on the entity's sections is added to it, as on Unity's Inspector
     if (!l_Playing && !l_Missing && ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->InnerRect, ImGui::GetID("##AddScriptDrop")))
@@ -1758,7 +2082,7 @@ void PropertiesPanel::OnImGuiRender()
     }
 }
 
-// The name follows the Tag while not typed into, and is one command when the field is left
+// The name follows the Tag while not typed into, and is one command when the field is left. With several selected it names them all, and is empty under the dash while their names differ
 void PropertiesPanel::DrawName(Trinity::Entity entity)
 {
     if (!entity.Has<Trinity::TagComponent>())
@@ -1769,7 +2093,16 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
     {
         if (!m_NameActive)
         {
-            m_NameText = std::string(std::string_view(entity.Get<Trinity::TagComponent>().Tag));
+            const std::string_view l_Name(entity.Get<Trinity::TagComponent>().Tag);
+            Trinity::Scene& l_Scene = *entity.GetScene();
+            m_NameEntities = m_Session.GetSelected().GetEntities();
+            m_NameMixed = std::ranges::any_of(m_NameEntities, [&l_Scene, l_Name](Trinity::UUID other)
+            {
+                const Trinity::Entity l_Other = l_Scene.FindEntityByUUID(other);
+
+                return l_Other && l_Other.Has<Trinity::TagComponent>() && std::string_view(l_Other.Get<Trinity::TagComponent>().Tag) != l_Name;
+            });
+            m_NameText = m_NameMixed ? std::string() : std::string(l_Name);
         }
 
         const float l_Top = ImGui::GetCursorScreenPos().y;
@@ -1777,7 +2110,7 @@ void PropertiesPanel::DrawName(Trinity::Entity entity)
         ImGui::TextUnformatted(Trinity::Icons::c_CubeOutline);
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-FLT_MIN);
-        ImGui::InputText("##Name", &m_NameText);
+        ImGui::InputTextWithHint("##Name", m_NameMixed ? Trinity::Widgets::c_MixedText : "", &m_NameText);
         m_NameActive = ImGui::IsItemActive();
         m_NameEntity = entity.GetUUID();
         if (ImGui::IsItemDeactivated())
@@ -2063,22 +2396,67 @@ void PropertiesPanel::DrawOverrides(Trinity::Entity entity)
     ImGui::EndCombo();
 }
 
+// Every entity selected as the field was typed into, the last picked last, as one command. Left empty under the dash, nothing is renamed
 void PropertiesPanel::CommitName(Trinity::Entity entity)
 {
-    if (!entity || !entity.Has<Trinity::TagComponent>() || std::string_view(entity.Get<Trinity::TagComponent>().Tag) == m_NameText)
+    if (!entity || !entity.Has<Trinity::TagComponent>() || (m_NameMixed && m_NameText.empty()))
     {
         return;
     }
 
-    Trinity::TagComponent l_Value = entity.Get<Trinity::TagComponent>();
-    l_Value.Tag = m_NameText;
+    std::vector<Trinity::Scope<EditorCommand>> l_Commands;
+    Trinity::Scene& l_Scene = *entity.GetScene();
+    for (const Trinity::UUID it_ID : m_NameEntities)
+    {
+        const Trinity::Entity l_Other = it_ID != entity.GetUUID() ? l_Scene.FindEntityByUUID(it_ID) : Trinity::Entity();
+        if (l_Other && l_Other.Has<Trinity::TagComponent>() && std::string_view(l_Other.Get<Trinity::TagComponent>().Tag) != m_NameText)
+        {
+            Trinity::TagComponent l_Value = l_Other.Get<Trinity::TagComponent>();
+            l_Value.Tag = m_NameText;
+            l_Commands.push_back(Trinity::CreateScope<SetComponentCommand<Trinity::TagComponent>>(it_ID, std::move(l_Value), "Name"));
+        }
+    }
+
+    if (std::string_view(entity.Get<Trinity::TagComponent>().Tag) != m_NameText)
+    {
+        Trinity::TagComponent l_Value = entity.Get<Trinity::TagComponent>();
+        l_Value.Tag = m_NameText;
+        l_Commands.push_back(Trinity::CreateScope<SetComponentCommand<Trinity::TagComponent>>(entity.GetUUID(), std::move(l_Value), "Name"));
+    }
+
+    if (l_Commands.empty())
+    {
+        return;
+    }
 
     // The command selects what it renamed, which is not what was clicked to leave the field
-    const Trinity::UUID l_Selection = m_Session.GetSelection();
+    const std::vector<Trinity::UUID> l_Selection = m_Session.GetSelected().GetEntities();
     CommandStack& l_History = m_Session.GetHistory();
-    l_History.Execute(Trinity::CreateScope<SetComponentCommand<Trinity::TagComponent>>(entity.GetUUID(), std::move(l_Value), "Name"));
+    if (l_Commands.size() == 1)
+    {
+        l_History.Execute(std::move(l_Commands.front()));
+    }
+    else
+    {
+        std::string l_Label = std::format("Rename {} Entities", l_Commands.size());
+        l_History.Execute(Trinity::CreateScope<GroupCommand>(std::move(l_Label), std::move(l_Commands)));
+    }
+
     l_History.EndMerge();
     m_Session.SetSelection(l_Selection);
+}
+
+// Kept as long as its rotation is what they were worked out from, as the last picked's are
+glm::vec3 PropertiesPanel::GetEulerDegrees(Trinity::Entity entity)
+{
+    const glm::quat& l_Rotation = entity.Get<Trinity::TransformComponent>().Rotation;
+    const auto [a_Kept, l_Added] = m_OtherEulers.try_emplace(entity.GetUUID(), l_Rotation, glm::degrees(glm::eulerAngles(l_Rotation)));
+    if (!l_Added && a_Kept->second.first != l_Rotation)
+    {
+        a_Kept->second = { l_Rotation, glm::degrees(glm::eulerAngles(l_Rotation)) };
+    }
+
+    return a_Kept->second.second;
 }
 
 // Rotation shows as X, Y and Z degrees, kept while selected, so a drag never jumps between angles
@@ -2093,6 +2471,12 @@ void PropertiesPanel::DrawTransform(Trinity::Entity entity)
     const Trinity::TransformComponent& l_Transform = entity.Get<Trinity::TransformComponent>();
     if (m_EulerEntity != entity.GetUUID() || m_EulerRotation != l_Transform.Rotation)
     {
+        // Another last picked starts the others' angles afresh too
+        if (m_EulerEntity != entity.GetUUID())
+        {
+            m_OtherEulers.clear();
+        }
+
         m_EulerEntity = entity.GetUUID();
         m_EulerRotation = l_Transform.Rotation;
         m_EulerDegrees = glm::degrees(glm::eulerAngles(l_Transform.Rotation));
@@ -2101,15 +2485,56 @@ void PropertiesPanel::DrawTransform(Trinity::Entity entity)
     Label("Position");
     EditField<Trinity::TransformComponent>(l_History, entity, "Position", [](Trinity::TransformComponent& transform) { return Trinity::Widgets::DragFloat3("##Position", &transform.Position.x, 0.05f, 0.0f, 0.0f, "%.3f", ImGuiSliderFlags_None, 0.0f); });
 
+    // The others' angles, each kept as the last picked's are, so the dash shows on the axes they differ in, and a turn of one axis leaves each one's others as they were
     Label("Rotation");
+    std::vector<Trinity::Entity> l_Others;
+    std::uint32_t l_Mixed = 0;
+    for (const Trinity::UUID it_ID : m_Session.GetSelected().GetCount() > 1 ? m_Session.GetSelected().GetEntities() : std::vector<Trinity::UUID>())
+    {
+        const Trinity::Entity l_Other = it_ID != entity.GetUUID() ? entity.GetScene()->FindEntityByUUID(it_ID) : Trinity::Entity();
+        if (l_Other && l_Other.Has<Trinity::TransformComponent>())
+        {
+            const glm::vec3 l_Theirs = GetEulerDegrees(l_Other);
+            for (glm::length_t it_Axis = 0; it_Axis < 3; ++it_Axis)
+            {
+                l_Mixed |= std::abs(l_Theirs[it_Axis] - m_EulerDegrees[it_Axis]) > c_EulerTolerance ? 1u << it_Axis : 0u;
+            }
+
+            l_Others.push_back(l_Other);
+        }
+    }
+
+    static_cast<void>(Trinity::Widgets::TakeNextMixed());
+    Trinity::Widgets::SetNextMixed(l_Mixed);
     glm::vec3 l_Degrees = m_EulerDegrees;
     if (Trinity::Widgets::DragFloat3("##Rotation", &l_Degrees.x, 0.5f, 0.0f, 0.0f, "%.2f\xC2\xB0", ImGuiSliderFlags_None, 0.0f))
     {
+        const glm::bvec3 l_Turned = glm::notEqual(l_Degrees, m_EulerDegrees);
+        std::vector<Trinity::Scope<EditorCommand>> l_Commands;
+        for (const Trinity::Entity it_Other : l_Others)
+        {
+            glm::vec3& l_Theirs = m_OtherEulers.at(it_Other.GetUUID()).second;
+            l_Theirs = glm::mix(l_Theirs, l_Degrees, glm::vec3(l_Turned));
+            Trinity::TransformComponent l_Value = it_Other.Get<Trinity::TransformComponent>();
+            l_Value.Rotation = glm::quat(glm::radians(l_Theirs));
+            m_OtherEulers.at(it_Other.GetUUID()).first = l_Value.Rotation;
+            l_Commands.push_back(Trinity::CreateScope<SetComponentCommand<Trinity::TransformComponent>>(it_Other.GetUUID(), std::move(l_Value), "Rotation"));
+        }
+
         Trinity::TransformComponent l_Value = l_Transform;
         l_Value.Rotation = glm::quat(glm::radians(l_Degrees));
         m_EulerDegrees = l_Degrees;
         m_EulerRotation = l_Value.Rotation;
-        ExecuteEdit<Trinity::TransformComponent>(l_History, entity, std::move(l_Value), "Rotation");
+        l_Commands.push_back(Trinity::CreateScope<SetComponentCommand<Trinity::TransformComponent>>(entity.GetUUID(), std::move(l_Value), "Rotation"));
+        if (l_Commands.size() == 1)
+        {
+            l_History.Execute(std::move(l_Commands.front()));
+        }
+        else
+        {
+            std::string l_Label = std::format("Edit {} Rotation of {} Entities", GetComponentLabel(Trinity::TransformComponent::c_TypeName), l_Commands.size());
+            l_History.Execute(Trinity::CreateScope<GroupCommand>(std::move(l_Label), std::move(l_Commands)));
+        }
     }
 
     Label("Scale");
@@ -2129,7 +2554,7 @@ void PropertiesPanel::DrawCamera(Trinity::Entity entity)
     EditField<Trinity::CameraComponent>(l_History, entity, "Projection", [](Trinity::CameraComponent& camera)
     {
         int l_Projection = static_cast<int>(camera.Projection);
-        const bool l_Changed = ImGui::Combo("##Projection", &l_Projection, "Orthographic\0Perspective\0");
+        const bool l_Changed = MixedCombo("##Projection", &l_Projection, "Orthographic\0Perspective\0");
         camera.Projection = static_cast<Trinity::CameraProjection>(l_Projection);
 
         return l_Changed;
@@ -2156,7 +2581,7 @@ void PropertiesPanel::DrawCamera(Trinity::Entity entity)
     }
 
     Label("Primary");
-    EditField<Trinity::CameraComponent>(l_History, entity, "Primary", [](Trinity::CameraComponent& camera) { return ImGui::Checkbox("##Primary", &camera.Primary); });
+    EditField<Trinity::CameraComponent>(l_History, entity, "Primary", [](Trinity::CameraComponent& camera) { return MixedCheckbox("##Primary", &camera.Primary); });
 
     Label("Exposure");
     EditField<Trinity::CameraComponent>(l_History, entity, "ExposureEV100", [](Trinity::CameraComponent& camera) { return Trinity::Widgets::DragFloat("##Exposure", &camera.ExposureEV100, 0.05f, -10.0f, 24.0f, "%.2f EV100", ImGuiSliderFlags_AlwaysClamp); });
@@ -2168,11 +2593,11 @@ void PropertiesPanel::DrawCamera(Trinity::Entity entity)
 
         bool l_Changed = false;
         const auto a_Current = std::ranges::find(c_Tonemappers, camera.Tonemap, &std::pair<Trinity::Tonemapper, const char*>::first);
-        if (ImGui::BeginCombo("##Tonemapper", a_Current != c_Tonemappers.end() ? a_Current->second : "?"))
+        if (MixedBeginCombo("##Tonemapper", a_Current != c_Tonemappers.end() ? a_Current->second : "?"))
         {
             for (const auto& [it_Tonemapper, it_Name] : c_Tonemappers)
             {
-                if (ImGui::Selectable(it_Name, it_Tonemapper == camera.Tonemap) && it_Tonemapper != camera.Tonemap)
+                if (ImGui::Selectable(it_Name, it_Tonemapper == camera.Tonemap && !s_ComboMixed) && (it_Tonemapper != camera.Tonemap || s_ComboMixed))
                 {
                     camera.Tonemap = it_Tonemapper;
                     l_Changed = true;
@@ -2205,7 +2630,7 @@ void PropertiesPanel::DrawLight(Trinity::Entity entity)
     EditField<Trinity::LightComponent>(l_History, entity, "Type", [](Trinity::LightComponent& light)
     {
         int l_Type = static_cast<int>(light.Type);
-        const bool l_Changed = ImGui::Combo("##Type", &l_Type, "Directional\0Point\0Spot\0");
+        const bool l_Changed = MixedCombo("##Type", &l_Type, "Directional\0Point\0Spot\0");
         light.Type = static_cast<Trinity::LightType>(l_Type);
 
         return l_Changed;
@@ -2215,7 +2640,7 @@ void PropertiesPanel::DrawLight(Trinity::Entity entity)
     EditField<Trinity::LightComponent>(l_History, entity, "Color", [](Trinity::LightComponent& light)
     {
         glm::vec3 l_Color(Trinity::LinearToSrgb(light.Color.r), Trinity::LinearToSrgb(light.Color.g), Trinity::LinearToSrgb(light.Color.b));
-        const bool l_Changed = ImGui::ColorEdit3("##Color", &l_Color.x);
+        const bool l_Changed = MixedColorEdit3("##Color", &l_Color.x);
         light.Color = glm::vec3(Trinity::SrgbToLinear(l_Color.r), Trinity::SrgbToLinear(l_Color.g), Trinity::SrgbToLinear(l_Color.b));
 
         return l_Changed;
@@ -2229,7 +2654,7 @@ void PropertiesPanel::DrawLight(Trinity::Entity entity)
     if (l_Light.Type != Trinity::LightType::Point)
     {
         Label("Cast Shadows");
-        EditField<Trinity::LightComponent>(l_History, entity, "CastShadows", [](Trinity::LightComponent& light) { return ImGui::Checkbox("##CastShadows", &light.CastShadows); });
+        EditField<Trinity::LightComponent>(l_History, entity, "CastShadows", [](Trinity::LightComponent& light) { return MixedCheckbox("##CastShadows", &light.CastShadows); });
         if (ImGui::IsItemHovered() && l_Directional)
         {
             ImGui::SetTooltip("The first directional light that casts shadows is the sun, whose shadows reach %.0f m from the camera", static_cast<double>(Trinity::ShadowAtlas::c_Distance));
@@ -2314,15 +2739,15 @@ void PropertiesPanel::DrawSpriteRenderer(Trinity::Entity entity)
     DrawAssetSlot("Texture", c_TexturePickerPopup, Trinity::TextureAsset::c_AssetType, entity.Get<Trinity::SpriteRendererComponent>().Texture, [this, entity](Trinity::UUID texture) { SetTexture(entity, texture); }, "A texture in the project. Without one the sprite draws white, in its tint");
 
     Label("Tint");
-    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "Tint", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::ColorEdit4("##Tint", &sprite.Tint.x, ImGuiColorEditFlags_AlphaPreviewHalf); });
+    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "Tint", [](Trinity::SpriteRendererComponent& sprite) { return MixedColorEdit4("##Tint", &sprite.Tint.x, ImGuiColorEditFlags_AlphaPreviewHalf); });
 
     Label("Flip");
-    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "FlipX", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::Checkbox("X##FlipX", &sprite.FlipX); });
+    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "FlipX", [](Trinity::SpriteRendererComponent& sprite) { return MixedCheckbox("X##FlipX", &sprite.FlipX, 0); });
     ImGui::SameLine();
-    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "FlipY", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::Checkbox("Y##FlipY", &sprite.FlipY); });
+    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "FlipY", [](Trinity::SpriteRendererComponent& sprite) { return MixedCheckbox("Y##FlipY", &sprite.FlipY, 1); });
 
     Label("UV Rect");
-    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "UVRect", [](Trinity::SpriteRendererComponent& sprite) { return ImGui::DragFloat4("##UVRect", &sprite.UVRect.x, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::SpriteRendererComponent>(l_History, entity, "UVRect", [](Trinity::SpriteRendererComponent& sprite) { return MixedDragFloat4("##UVRect", &sprite.UVRect.x, 0.005f, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Sorting Layer");
     EditField<Trinity::SpriteRendererComponent>(l_History, entity, "SortingLayer", [](Trinity::SpriteRendererComponent& sprite) { return Trinity::Widgets::DragInt("##SortingLayer", &sprite.SortingLayer, 0.1f); });
@@ -2394,7 +2819,7 @@ void PropertiesPanel::DrawMeshRenderer(Trinity::Entity entity)
     }
 
     Label("Cast Shadows");
-    EditField<Trinity::MeshRendererComponent>(l_History, entity, "CastShadows", [](Trinity::MeshRendererComponent& meshRenderer) { return ImGui::Checkbox("##CastShadows", &meshRenderer.CastShadows); });
+    EditField<Trinity::MeshRendererComponent>(l_History, entity, "CastShadows", [](Trinity::MeshRendererComponent& meshRenderer) { return MixedCheckbox("##CastShadows", &meshRenderer.CastShadows); });
 }
 
 // A button naming the asset that opens a picker, takes a drop, and a cross that clears it
@@ -2404,10 +2829,11 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
     const SlotText l_Slot = DescribeAssetSlot(l_Registry, assetType, current);
 
     Label(label);
+    const bool l_Mixed = TakeMixed(true);
 
-    // A texture that is loaded goes before its name, as a material's maps do
+    // A texture that is loaded goes before its name, as a material's maps do, though not one of several the selected entities hold
     const float l_ClearWidth = ImGui::GetFrameHeight();
-    const Trinity::TextureAsset* l_Texture = FindLoadedTexture(current);
+    const Trinity::TextureAsset* l_Texture = l_Mixed ? nullptr : FindLoadedTexture(current);
     if (l_Texture != nullptr)
     {
         ImGui::Image(ImTextureRef(static_cast<ImTextureID>(Trinity::GetImGuiTextureID(*l_Texture))), ImVec2(l_ClearWidth, l_ClearWidth));
@@ -2415,16 +2841,17 @@ void PropertiesPanel::DrawAssetSlot(const char* label, const char* popup, std::s
     }
 
     const float l_Width = std::max(ImGui::GetContentRegionAvail().x - (l_ClearWidth + ImGui::GetStyle().ItemSpacing.x) * 2.0f - reserve, 1.0f);
-    PushSlotColor(l_Slot);
-    const bool l_Clicked = ImGui::Button(std::format("{}###{}", l_Slot.Text, label).c_str(), ImVec2(l_Width, 0.0f));
-    PopSlotColor(l_Slot);
+    const SlotText l_Shown = l_Mixed ? SlotText{ Trinity::Widgets::c_MixedText, "The selected entities hold different assets here",{} } : l_Slot;
+    PushSlotColor(l_Shown);
+    const bool l_Clicked = ImGui::Button(std::format("{}###{}", l_Shown.Text, label).c_str(), ImVec2(l_Width, 0.0f));
+    PopSlotColor(l_Shown);
     if (l_Clicked)
     {
         m_AssetFilter.clear();
         ImGui::OpenPopup(popup);
     }
 
-    DrawSlotTooltip(l_Slot, hint, l_Texture);
+    DrawSlotTooltip(l_Shown, hint, l_Texture);
 
     if (ImGui::BeginDragDropTarget())
     {
@@ -2655,7 +3082,7 @@ void PropertiesPanel::DrawRigidBody(Trinity::Entity entity)
     EditField<Trinity::RigidBodyComponent>(l_History, entity, "Motion", [](Trinity::RigidBodyComponent& body)
     {
         int l_Motion = static_cast<int>(body.Motion);
-        const bool l_Changed = ImGui::Combo("##Motion", &l_Motion, "Static\0Kinematic\0Dynamic\0");
+        const bool l_Changed = MixedCombo("##Motion", &l_Motion, "Static\0Kinematic\0Dynamic\0");
         body.Motion = static_cast<Trinity::BodyMotion>(l_Motion);
 
         return l_Changed;
@@ -2683,7 +3110,7 @@ void PropertiesPanel::DrawRigidBody(Trinity::Entity entity)
     EditField<Trinity::RigidBodyComponent>(l_History, entity, "GravityFactor", [](Trinity::RigidBodyComponent& body) { return Trinity::Widgets::DragFloat("##GravityFactor", &body.GravityFactor, 0.01f, -100.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Continuous");
-    EditField<Trinity::RigidBodyComponent>(l_History, entity, "ContinuousCollision", [](Trinity::RigidBodyComponent& body) { return ImGui::Checkbox("##ContinuousCollision", &body.ContinuousCollision); });
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "ContinuousCollision", [](Trinity::RigidBodyComponent& body) { return MixedCheckbox("##ContinuousCollision", &body.ContinuousCollision); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Sweeps the body along its motion each step, so a fast one cannot pass through a thin one");
@@ -2713,10 +3140,10 @@ void PropertiesPanel::DrawRigidBody(Trinity::Entity entity)
     });
 
     Label("Start Asleep");
-    EditField<Trinity::RigidBodyComponent>(l_History, entity, "StartAsleep", [](Trinity::RigidBodyComponent& body) { return ImGui::Checkbox("##StartAsleep", &body.StartAsleep); });
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "StartAsleep", [](Trinity::RigidBodyComponent& body) { return MixedCheckbox("##StartAsleep", &body.StartAsleep); });
 
     Label("Can Sleep");
-    EditField<Trinity::RigidBodyComponent>(l_History, entity, "CanSleep", [](Trinity::RigidBodyComponent& body) { return ImGui::Checkbox("##CanSleep", &body.CanSleep); });
+    EditField<Trinity::RigidBodyComponent>(l_History, entity, "CanSleep", [](Trinity::RigidBodyComponent& body) { return MixedCheckbox("##CanSleep", &body.CanSleep); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Whether it may fall asleep once nearly still for half a second. Untick it for a swinging lamp or a bobbing buoy");
@@ -2802,7 +3229,7 @@ void PropertiesPanel::DrawCharacterController(Trinity::Entity entity)
     EditField<Character>(l_History, entity, "Mode", [](Character& character)
     {
         int l_Mode = static_cast<int>(character.Mode);
-        const bool l_Changed = ImGui::Combo("##Mode", &l_Mode, "Kinematic\0Physical\0");
+        const bool l_Changed = MixedCombo("##Mode", &l_Mode, "Kinematic\0Physical\0");
         character.Mode = static_cast<Trinity::CharacterMode>(l_Mode);
 
         return l_Changed;
@@ -2897,7 +3324,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
     EditField<Joint>(l_History, entity, "Type", [](Joint& joint)
     {
         int l_Type = static_cast<int>(joint.Type);
-        const bool l_Changed = ImGui::Combo("##Type", &l_Type, "Fixed\0Hinge\0Slider\0Distance\0Point\0");
+        const bool l_Changed = MixedCombo("##Type", &l_Type, "Fixed\0Hinge\0Slider\0Distance\0Point\0");
         joint.Type = static_cast<Trinity::JointType>(l_Type);
 
         return l_Changed;
@@ -2955,7 +3382,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
     }
 
     Label("Collide Connected");
-    EditField<Joint>(l_History, entity, "CollideConnected", [](Joint& joint) { return ImGui::Checkbox("##CollideConnected", &joint.CollideConnected); });
+    EditField<Joint>(l_History, entity, "CollideConnected", [](Joint& joint) { return MixedCheckbox("##CollideConnected", &joint.CollideConnected); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Whether the two bodies still collide with each other");
@@ -2964,7 +3391,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
     if (l_Hinge || l_Slider)
     {
         Label("Limits");
-        EditField<Joint>(l_History, entity, "UseLimits", [](Joint& joint) { return ImGui::Checkbox("##UseLimits", &joint.UseLimits); });
+        EditField<Joint>(l_History, entity, "UseLimits", [](Joint& joint) { return MixedCheckbox("##UseLimits", &joint.UseLimits); });
         if (l_Joint.UseLimits && l_Hinge)
         {
             Label("Lower");
@@ -2997,7 +3424,7 @@ void PropertiesPanel::DrawJoint(Trinity::Entity entity)
         }
 
         Label("Motor");
-        EditField<Joint>(l_History, entity, "UseMotor", [](Joint& joint) { return ImGui::Checkbox("##UseMotor", &joint.UseMotor); });
+        EditField<Joint>(l_History, entity, "UseMotor", [](Joint& joint) { return MixedCheckbox("##UseMotor", &joint.UseMotor); });
         if (l_Joint.UseMotor)
         {
             Label("Speed");
@@ -3085,7 +3512,7 @@ void PropertiesPanel::DrawRigidBody2D(Trinity::Entity entity)
     EditField<Body>(l_History, entity, "Motion", [](Body& body)
     {
         int l_Motion = static_cast<int>(body.Motion);
-        const bool l_Changed = ImGui::Combo("##Motion", &l_Motion, "Static\0Kinematic\0Dynamic\0");
+        const bool l_Changed = MixedCombo("##Motion", &l_Motion, "Static\0Kinematic\0Dynamic\0");
         body.Motion = static_cast<Trinity::BodyMotion>(l_Motion);
 
         return l_Changed;
@@ -3113,14 +3540,14 @@ void PropertiesPanel::DrawRigidBody2D(Trinity::Entity entity)
     EditField<Body>(l_History, entity, "GravityFactor", [](Body& body) { return Trinity::Widgets::DragFloat("##GravityFactor", &body.GravityFactor, 0.01f, -100.0f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Continuous");
-    EditField<Body>(l_History, entity, "ContinuousCollision", [](Body& body) { return ImGui::Checkbox("##ContinuousCollision", &body.ContinuousCollision); });
+    EditField<Body>(l_History, entity, "ContinuousCollision", [](Body& body) { return MixedCheckbox("##ContinuousCollision", &body.ContinuousCollision); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Static bodies always stop a fast one. This sweeps it against other moving bodies too, at some cost");
     }
 
     Label("Lock Rotation");
-    EditField<Body>(l_History, entity, "LockRotation", [](Body& body) { return ImGui::Checkbox("##LockRotation", &body.LockRotation); });
+    EditField<Body>(l_History, entity, "LockRotation", [](Body& body) { return MixedCheckbox("##LockRotation", &body.LockRotation); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Keeps it from turning. A 2D body cannot be locked along X or Y");
@@ -3148,10 +3575,10 @@ void PropertiesPanel::DrawRigidBody2D(Trinity::Entity entity)
     }
 
     Label("Start Asleep");
-    EditField<Body>(l_History, entity, "StartAsleep", [](Body& body) { return ImGui::Checkbox("##StartAsleep", &body.StartAsleep); });
+    EditField<Body>(l_History, entity, "StartAsleep", [](Body& body) { return MixedCheckbox("##StartAsleep", &body.StartAsleep); });
 
     Label("Can Sleep");
-    EditField<Body>(l_History, entity, "CanSleep", [](Body& body) { return ImGui::Checkbox("##CanSleep", &body.CanSleep); });
+    EditField<Body>(l_History, entity, "CanSleep", [](Body& body) { return MixedCheckbox("##CanSleep", &body.CanSleep); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Whether it may fall asleep once nearly still for half a second. Untick it for something that must never stop");
@@ -3289,7 +3716,7 @@ void PropertiesPanel::DrawCharacterController2D(Trinity::Entity entity)
     EditField<Character>(l_History, entity, "Mode", [](Character& character)
     {
         int l_Mode = static_cast<int>(character.Mode);
-        const bool l_Changed = ImGui::Combo("##Mode", &l_Mode, "Kinematic\0Physical\0");
+        const bool l_Changed = MixedCombo("##Mode", &l_Mode, "Kinematic\0Physical\0");
         character.Mode = static_cast<Trinity::CharacterMode>(l_Mode);
 
         return l_Changed;
@@ -3387,7 +3814,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
     EditField<Joint>(l_History, entity, "Type", [](Joint& joint)
     {
         int l_Type = static_cast<int>(joint.Type);
-        const bool l_Changed = ImGui::Combo("##Type", &l_Type, "Revolute\0Prismatic\0Distance\0Weld\0Wheel\0");
+        const bool l_Changed = MixedCombo("##Type", &l_Type, "Revolute\0Prismatic\0Distance\0Weld\0Wheel\0");
         joint.Type = static_cast<Trinity::Joint2DType>(l_Type);
 
         return l_Changed;
@@ -3445,7 +3872,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
     }
 
     Label("Collide Connected");
-    EditField<Joint>(l_History, entity, "CollideConnected", [](Joint& joint) { return ImGui::Checkbox("##CollideConnected", &joint.CollideConnected); });
+    EditField<Joint>(l_History, entity, "CollideConnected", [](Joint& joint) { return MixedCheckbox("##CollideConnected", &joint.CollideConnected); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Whether the two bodies still collide with each other");
@@ -3454,7 +3881,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
     if (l_Revolute || l_Prismatic || l_Wheel)
     {
         Label("Limits");
-        EditField<Joint>(l_History, entity, "UseLimits", [](Joint& joint) { return ImGui::Checkbox("##UseLimits", &joint.UseLimits); });
+        EditField<Joint>(l_History, entity, "UseLimits", [](Joint& joint) { return MixedCheckbox("##UseLimits", &joint.UseLimits); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("%s", l_Revolute ? "How far it turns either way from where it started" : (l_Prismatic ? "How far it slides either way from where it started" : "How far the wheel's suspension travels either way from where it started"));
@@ -3492,7 +3919,7 @@ void PropertiesPanel::DrawJoint2D(Trinity::Entity entity)
         }
 
         Label("Motor");
-        EditField<Joint>(l_History, entity, "UseMotor", [](Joint& joint) { return ImGui::Checkbox("##UseMotor", &joint.UseMotor); });
+        EditField<Joint>(l_History, entity, "UseMotor", [](Joint& joint) { return MixedCheckbox("##UseMotor", &joint.UseMotor); });
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
         {
             ImGui::SetTooltip("%s", l_Prismatic ? "Drives it along its axis" : "Turns it about its anchor, counter-clockwise for a positive speed");
@@ -3828,14 +4255,14 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     }
 
     Label("Mute");
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Mute", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##Mute", &source.Mute); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Mute", [](Trinity::AudioSourceComponent& source) { return MixedCheckbox("##Mute", &source.Mute); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Plays on, silent, keeping its time");
     }
 
     Label("Play On Awake");
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "PlayOnAwake", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##PlayOnAwake", &source.PlayOnAwake); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "PlayOnAwake", [](Trinity::AudioSourceComponent& source) { return MixedCheckbox("##PlayOnAwake", &source.PlayOnAwake); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Plays as the scene starts, or as the source first appears while it runs");
@@ -3847,7 +4274,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     const bool l_PlaysEvent = l_ResourceRecord != nullptr && l_ResourceRecord->Importer == Trinity::SoundEventAsset::c_AssetType;
     Label("Loop");
     ImGui::BeginDisabled(l_PlaysEvent);
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Loop", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##Loop", &source.Loop); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Loop", [](Trinity::AudioSourceComponent& source) { return MixedCheckbox("##Loop", &source.Loop); });
     ImGui::EndDisabled();
     if (l_PlaysEvent && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
     {
@@ -3859,7 +4286,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     {
         int l_Priority = static_cast<int>(std::min(source.Priority, Trinity::AudioSourceComponent::c_LowestPriority));
         const char* l_Format = l_Priority == 0 ? "%d, the highest" : (l_Priority == static_cast<int>(Trinity::AudioSourceComponent::c_LowestPriority) ? "%d, the lowest" : "%d");
-        const bool l_Changed = ImGui::SliderInt("##Priority", &l_Priority, 0, static_cast<int>(Trinity::AudioSourceComponent::c_LowestPriority), l_Format, ImGuiSliderFlags_AlwaysClamp);
+        const bool l_Changed = MixedSliderInt("##Priority", &l_Priority, 0, static_cast<int>(Trinity::AudioSourceComponent::c_LowestPriority), l_Format, ImGuiSliderFlags_AlwaysClamp);
         source.Priority = static_cast<std::uint32_t>(l_Priority);
 
         return l_Changed;
@@ -3871,24 +4298,24 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     }
 
     Label("Volume");
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Volume", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##Volume", &source.Volume, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Volume", [](Trinity::AudioSourceComponent& source) { return MixedSliderFloat("##Volume", &source.Volume, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Pitch");
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Pitch", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##Pitch", &source.Pitch, 0.01f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Pitch", [](Trinity::AudioSourceComponent& source) { return MixedSliderFloat("##Pitch", &source.Pitch, 0.01f, 3.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("How fast it plays, which raises or lowers its pitch with it, as a tape played faster does");
     }
 
     Label("Stereo Pan");
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "StereoPan", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##StereoPan", &source.StereoPan, -1.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "StereoPan", [](Trinity::AudioSourceComponent& source) { return MixedSliderFloat("##StereoPan", &source.StereoPan, -1.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("From -1, full left, to 1, full right. The far side falls away and the near side stays whole");
     }
 
     Label("Spatialize");
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Spatialize", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##Spatialize", &source.Spatialize); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Spatialize", [](Trinity::AudioSourceComponent& source) { return MixedCheckbox("##Spatialize", &source.Spatialize); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Heard from the entity in 3D, through the scene's AudioListener, as Unity's Spatial Blend at 3D. Off, as at 2D");
@@ -3898,14 +4325,14 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     ImGui::BeginDisabled(!entity.Get<Trinity::AudioSourceComponent>().Spatialize);
 
     Label("Doppler Level");
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "DopplerLevel", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##DopplerLevel", &source.DopplerLevel, 0.0f, 5.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "DopplerLevel", [](Trinity::AudioSourceComponent& source) { return MixedSliderFloat("##DopplerLevel", &source.DopplerLevel, 0.0f, 5.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
     {
         ImGui::SetTooltip("How much its own and the listener's movement shifts its pitch, as a passing siren's falls");
     }
 
     Label("Spread");
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Spread", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##Spread", &source.Spread, 0.0f, 360.0f, "%.0f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Spread", [](Trinity::AudioSourceComponent& source) { return MixedSliderFloat("##Spread", &source.Spread, 0.0f, 360.0f, "%.0f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
     {
         ImGui::SetTooltip("How far it spreads around the listener: 0 pans it fully towards where it is, and 180 or more leaves it centred");
@@ -3915,7 +4342,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     EditField<Trinity::AudioSourceComponent>(l_History, entity, "Rolloff", [](Trinity::AudioSourceComponent& source)
     {
         int l_Rolloff = static_cast<int>(source.Rolloff);
-        const bool l_Changed = ImGui::Combo("##Rolloff", &l_Rolloff, "Logarithmic\0Linear\0Exponential\0");
+        const bool l_Changed = MixedCombo("##Rolloff", &l_Rolloff, "Logarithmic\0Linear\0Exponential\0");
         source.Rolloff = static_cast<Trinity::AudioRolloff>(l_Rolloff);
 
         return l_Changed;
@@ -3950,7 +4377,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     Label("Cone Inner Angle");
     EditField<Trinity::AudioSourceComponent>(l_History, entity, "ConeInnerAngle", [](Trinity::AudioSourceComponent& source)
     {
-        const bool l_Changed = ImGui::SliderFloat("##ConeInnerAngle", &source.ConeInnerAngle, 0.0f, 360.0f, "%.0f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+        const bool l_Changed = MixedSliderFloat("##ConeInnerAngle", &source.ConeInnerAngle, 0.0f, 360.0f, "%.0f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
         source.ConeOuterAngle = std::max(source.ConeOuterAngle, source.ConeInnerAngle);
 
         return l_Changed;
@@ -3964,7 +4391,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     Label("Cone Outer Angle");
     EditField<Trinity::AudioSourceComponent>(l_History, entity, "ConeOuterAngle", [](Trinity::AudioSourceComponent& source)
     {
-        const bool l_Changed = ImGui::SliderFloat("##ConeOuterAngle", &source.ConeOuterAngle, 0.0f, 360.0f, "%.0f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
+        const bool l_Changed = MixedSliderFloat("##ConeOuterAngle", &source.ConeOuterAngle, 0.0f, 360.0f, "%.0f\xC2\xB0", ImGuiSliderFlags_AlwaysClamp);
         source.ConeInnerAngle = std::min(source.ConeInnerAngle, source.ConeOuterAngle);
 
         return l_Changed;
@@ -3976,10 +4403,10 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
     }
 
     Label("Cone Outer Volume");
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "ConeOuterVolume", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##ConeOuterVolume", &source.ConeOuterVolume, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "ConeOuterVolume", [](Trinity::AudioSourceComponent& source) { return MixedSliderFloat("##ConeOuterVolume", &source.ConeOuterVolume, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
 
     Label("Occlusion");
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Occlusion", [](Trinity::AudioSourceComponent& source) { return ImGui::Checkbox("##Occlusion", &source.Occlusion); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "Occlusion", [](Trinity::AudioSourceComponent& source) { return MixedCheckbox("##Occlusion", &source.Occlusion); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
     {
         ImGui::SetTooltip("Muffled while the scene's physics, on the project's occlusion layers, stands between it and the listener");
@@ -3987,7 +4414,7 @@ void PropertiesPanel::DrawAudioSource(Trinity::Entity entity)
 
     ImGui::BeginDisabled(!entity.Get<Trinity::AudioSourceComponent>().Occlusion);
     Label("Occlusion Volume");
-    EditField<Trinity::AudioSourceComponent>(l_History, entity, "OcclusionVolume", [](Trinity::AudioSourceComponent& source) { return ImGui::SliderFloat("##OcclusionVolume", &source.OcclusionVolume, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+    EditField<Trinity::AudioSourceComponent>(l_History, entity, "OcclusionVolume", [](Trinity::AudioSourceComponent& source) { return MixedSliderFloat("##OcclusionVolume", &source.OcclusionVolume, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled))
     {
         ImGui::SetTooltip("Its volume behind something, from 0 to 1");
@@ -4057,7 +4484,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
     EditField<Trinity::UIDocumentComponent>(l_History, entity, "RenderMode", [](Trinity::UIDocumentComponent& document)
     {
         int l_Mode = static_cast<int>(document.RenderMode);
-        const bool l_Changed = ImGui::Combo("##RenderMode", &l_Mode, "Screen\0World\0");
+        const bool l_Changed = MixedCombo("##RenderMode", &l_Mode, "Screen\0World\0");
         document.RenderMode = static_cast<Trinity::UIRenderMode>(l_Mode);
 
         return l_Changed;
@@ -4077,7 +4504,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
     }
 
     Label("Visible");
-    EditField<Trinity::UIDocumentComponent>(l_History, entity, "Visible", [](Trinity::UIDocumentComponent& document) { return ImGui::Checkbox("##Visible", &document.Visible); });
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "Visible", [](Trinity::UIDocumentComponent& document) { return MixedCheckbox("##Visible", &document.Visible); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Shown and laid out. Hidden, it keeps its state and draws nothing");
@@ -4112,7 +4539,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
     EditField<Trinity::UIDocumentComponent>(l_History, entity, "ScaleMode", [](Trinity::UIDocumentComponent& document)
     {
         int l_Mode = static_cast<int>(document.Panel.ScaleMode);
-        const bool l_Changed = ImGui::Combo("##ScaleMode", &l_Mode, "Constant Pixel Size\0Scale With Screen Size\0Constant Physical Size\0");
+        const bool l_Changed = MixedCombo("##ScaleMode", &l_Mode, "Constant Pixel Size\0Scale With Screen Size\0Constant Physical Size\0");
         document.Panel.ScaleMode = static_cast<Trinity::UIScaleMode>(l_Mode);
 
         return l_Changed;
@@ -4142,7 +4569,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
             EditField<Trinity::UIDocumentComponent>(l_History, entity, "ReferenceResolution", [](Trinity::UIDocumentComponent& document)
             {
                 std::array<int, 2> l_Size{ static_cast<int>(document.Panel.ReferenceResolution.x), static_cast<int>(document.Panel.ReferenceResolution.y) };
-                const bool l_Changed = ImGui::DragInt2("##ReferenceResolution", l_Size.data(), 1.0f, 1, static_cast<int>(Trinity::UIPanelSettings::c_MaxReferenceSize), "%d", ImGuiSliderFlags_AlwaysClamp);
+                const bool l_Changed = MixedDragInt2("##ReferenceResolution", l_Size.data(), 1.0f, 1, static_cast<int>(Trinity::UIPanelSettings::c_MaxReferenceSize), "%d", ImGuiSliderFlags_AlwaysClamp);
                 document.Panel.ReferenceResolution = glm::uvec2(static_cast<std::uint32_t>(l_Size[0]), static_cast<std::uint32_t>(l_Size[1]));
 
                 return l_Changed;
@@ -4157,7 +4584,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
             EditField<Trinity::UIDocumentComponent>(l_History, entity, "ScreenMatchMode", [](Trinity::UIDocumentComponent& document)
             {
                 int l_Mode = static_cast<int>(document.Panel.ScreenMatchMode);
-                const bool l_Changed = ImGui::Combo("##ScreenMatchMode", &l_Mode, "Match Width Or Height\0Expand\0Shrink\0");
+                const bool l_Changed = MixedCombo("##ScreenMatchMode", &l_Mode, "Match Width Or Height\0Expand\0Shrink\0");
                 document.Panel.ScreenMatchMode = static_cast<Trinity::UIScreenMatchMode>(l_Mode);
 
                 return l_Changed;
@@ -4171,7 +4598,7 @@ void PropertiesPanel::DrawUIDocument(Trinity::Entity entity)
             if (entity.Get<Trinity::UIDocumentComponent>().Panel.ScreenMatchMode == Trinity::UIScreenMatchMode::MatchWidthOrHeight)
             {
                 Label("Match");
-                EditField<Trinity::UIDocumentComponent>(l_History, entity, "Match", [](Trinity::UIDocumentComponent& document) { return ImGui::SliderFloat("##Match", &document.Panel.Match, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
+                EditField<Trinity::UIDocumentComponent>(l_History, entity, "Match", [](Trinity::UIDocumentComponent& document) { return MixedSliderFloat("##Match", &document.Panel.Match, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp); });
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
                 {
                     ImGui::SetTooltip("From 0, the width alone, to 1, the height alone");
@@ -4203,7 +4630,7 @@ void PropertiesPanel::DrawUIWorldSettings(Trinity::Entity entity)
     EditField<Trinity::UIDocumentComponent>(l_History, entity, "WorldSorting", [](Trinity::UIDocumentComponent& document)
     {
         int l_Sorting = static_cast<int>(document.World.Sorting);
-        const bool l_Changed = ImGui::Combo("##WorldSorting", &l_Sorting, "Depth\0Sprites\0");
+        const bool l_Changed = MixedCombo("##WorldSorting", &l_Sorting, "Depth\0Sprites\0");
         document.World.Sorting = static_cast<Trinity::UIWorldSorting>(l_Sorting);
 
         return l_Changed;
@@ -4228,7 +4655,7 @@ void PropertiesPanel::DrawUIWorldSettings(Trinity::Entity entity)
     EditField<Trinity::UIDocumentComponent>(l_History, entity, "WorldSizeMode", [](Trinity::UIDocumentComponent& document)
     {
         int l_Mode = static_cast<int>(document.World.SizeMode);
-        const bool l_Changed = ImGui::Combo("##WorldSizeMode", &l_Mode, "Fixed\0Dynamic\0");
+        const bool l_Changed = MixedCombo("##WorldSizeMode", &l_Mode, "Fixed\0Dynamic\0");
         document.World.SizeMode = static_cast<Trinity::UIWorldSizeMode>(l_Mode);
 
         return l_Changed;
@@ -4245,7 +4672,7 @@ void PropertiesPanel::DrawUIWorldSettings(Trinity::Entity entity)
         EditField<Trinity::UIDocumentComponent>(l_History, entity, "WorldSize", [](Trinity::UIDocumentComponent& document)
         {
             std::array<int, 2> l_Size{ static_cast<int>(document.World.Size.x), static_cast<int>(document.World.Size.y) };
-            const bool l_Changed = ImGui::DragInt2("##WorldSize", l_Size.data(), 1.0f, 1, static_cast<int>(Trinity::UIWorldSettings::c_MaxSize), "%d", ImGuiSliderFlags_AlwaysClamp);
+            const bool l_Changed = MixedDragInt2("##WorldSize", l_Size.data(), 1.0f, 1, static_cast<int>(Trinity::UIWorldSettings::c_MaxSize), "%d", ImGuiSliderFlags_AlwaysClamp);
             document.World.Size = glm::uvec2(static_cast<std::uint32_t>(l_Size[0]), static_cast<std::uint32_t>(l_Size[1]));
 
             return l_Changed;
@@ -4272,7 +4699,7 @@ void PropertiesPanel::DrawUIWorldSettings(Trinity::Entity entity)
     }
 
     Label("Face Camera");
-    EditField<Trinity::UIDocumentComponent>(l_History, entity, "FaceCamera", [](Trinity::UIDocumentComponent& document) { return ImGui::Checkbox("##FaceCamera", &document.World.FaceCamera); });
+    EditField<Trinity::UIDocumentComponent>(l_History, entity, "FaceCamera", [](Trinity::UIDocumentComponent& document) { return MixedCheckbox("##FaceCamera", &document.World.FaceCamera); });
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Turned to face the camera that draws it, as a health bar does. Off, it faces its entity's +Z, as a sprite does");
@@ -4324,7 +4751,7 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
         const std::vector<PrefabOverride> l_Overrides = s_Marks != nullptr ? FindRowOverrides(*s_Marks, std::format("Scripts/{}", it_Index)) : std::vector<PrefabOverride>();
         const float l_Top = ImGui::GetCursorScreenPos().y;
         ImGui::PushID(static_cast<int>(it_Index));
-        if (ImGui::Checkbox("##Enabled", &l_Entry.Enabled))
+        if (MixedCheckbox("##Enabled", &l_Entry.Enabled))
         {
             l_Change = std::format("{} Enabled", l_Label);
         }
@@ -4442,10 +4869,20 @@ void PropertiesPanel::DrawScripts(Trinity::Entity entity)
                 s_Marks->Prefix = std::format("Scripts/{}/Fields/", it_Index);
             }
 
+            if (s_Mixed != nullptr)
+            {
+                s_Mixed->Prefix = std::format("Scripts/{}/Fields/", it_Index);
+            }
+
             DrawScriptFields(l_Entry, l_Change);
             if (s_Marks != nullptr)
             {
                 s_Marks->Prefix.clear();
+            }
+
+            if (s_Mixed != nullptr)
+            {
+                s_Mixed->Prefix.clear();
             }
 
             ImGui::TreePop();
@@ -4598,7 +5035,7 @@ bool PropertiesPanel::DrawFieldValue(const Trinity::ScriptFieldDescription& fiel
     {
         case Trinity::ScriptFieldType::Bool:
         {
-            return ImGui::Checkbox("##Value", &value.Get<bool>());
+            return MixedCheckbox("##Value", &value.Get<bool>());
         }
         case Trinity::ScriptFieldType::Int32:
         {
@@ -4653,7 +5090,7 @@ bool PropertiesPanel::DrawFieldValue(const Trinity::ScriptFieldDescription& fiel
         {
             glm::vec4& l_Color = value.Get<glm::vec4>();
             glm::vec4 l_Srgb(Trinity::LinearToSrgb(l_Color.r), Trinity::LinearToSrgb(l_Color.g), Trinity::LinearToSrgb(l_Color.b), l_Color.a);
-            if (!ImGui::ColorEdit4("##Value", &l_Srgb.x, ImGuiColorEditFlags_AlphaPreviewHalf | ImGuiColorEditFlags_AlphaBar))
+            if (!MixedColorEdit4("##Value", &l_Srgb.x, ImGuiColorEditFlags_AlphaPreviewHalf | ImGuiColorEditFlags_AlphaBar))
             {
                 return false;
             }
@@ -4665,7 +5102,7 @@ bool PropertiesPanel::DrawFieldValue(const Trinity::ScriptFieldDescription& fiel
         case Trinity::ScriptFieldType::String:
         {
             std::string l_Text(std::string_view(value.Get<Trinity::ScriptString>()));
-            if (!ImGui::InputText("##Value", &l_Text))
+            if (!MixedInputText("##Value", &l_Text))
             {
                 return false;
             }
@@ -4681,12 +5118,12 @@ bool PropertiesPanel::DrawFieldValue(const Trinity::ScriptFieldDescription& fiel
             const std::string l_Preview = a_Found != field.EnumValues.end() ? std::string(std::string_view(a_Found->Name)) : std::format("{}", l_Current);
 
             bool l_Changed = false;
-            if (ImGui::BeginCombo("##Value", l_Preview.c_str()))
+            if (MixedBeginCombo("##Value", l_Preview.c_str()))
             {
                 for (std::size_t it_Index = 0; it_Index < field.EnumValues.size(); ++it_Index)
                 {
                     const Trinity::ScriptEnumValue& l_Option = field.EnumValues[it_Index];
-                    const bool l_Selected = l_Option.Value == l_Current;
+                    const bool l_Selected = l_Option.Value == l_Current && !s_ComboMixed;
                     ImGui::PushID(static_cast<int>(it_Index));
                     if (ImGui::Selectable(l_Option.Name.c_str(), l_Selected) && !l_Selected)
                     {
@@ -4898,7 +5335,7 @@ bool PropertiesPanel::DrawInputActionSlot(Trinity::ScriptString& path)
 
     std::optional<std::string> l_Picked;
     PushSlotColor(l_Slot);
-    const bool l_Open = ImGui::BeginCombo("##Value", l_Slot.Text.c_str(), ImGuiComboFlags_HeightLarge);
+    const bool l_Open = MixedBeginCombo("##Value", l_Slot.Text.c_str(), ImGuiComboFlags_HeightLarge);
     PopSlotColor(l_Slot);
     if (!l_Open && !l_Slot.Tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
@@ -4930,7 +5367,7 @@ bool PropertiesPanel::DrawInputActionSlot(Trinity::ScriptString& path)
 
         ImGui::SetNextItemWidth(-FLT_MIN);
         Trinity::Widgets::SearchField("##Filter", "Search actions", m_ActionFilter);
-        if (ImGui::Selectable("None", path.empty()) && !path.empty())
+        if (ImGui::Selectable("None", path.empty() && !s_ComboMixed) && (!path.empty() || s_ComboMixed))
         {
             l_Picked = std::string();
         }
@@ -4964,7 +5401,7 @@ bool PropertiesPanel::DrawInputActionSlot(Trinity::ScriptString& path)
                     }
 
                     l_Shown = true;
-                    const bool l_Selected = l_Current == std::pair(it_Map, it_Action);
+                    const bool l_Selected = l_Current == std::pair(it_Map, it_Action) && !s_ComboMixed;
                     ImGui::PushID(l_Path.c_str());
                     if (ImGui::Selectable(l_Action.Name.c_str(), l_Selected) && !l_Selected)
                     {
@@ -5116,25 +5553,25 @@ void PropertiesPanel::DrawTextureSettings(const Trinity::AssetRecord& record)
 
     Label("sRGB");
     ImGui::BeginDisabled(m_TextureSettings.NormalMap);
-    ImGui::Checkbox("##Srgb", &m_TextureSettings.Srgb);
+    MixedCheckbox("##Srgb", &m_TextureSettings.Srgb);
     ImGui::EndDisabled();
 
     Label("Normal Map");
-    ImGui::Checkbox("##NormalMap", &m_TextureSettings.NormalMap);
+    MixedCheckbox("##NormalMap", &m_TextureSettings.NormalMap);
 
     Label("Generate Mips");
-    ImGui::Checkbox("##GenerateMips", &m_TextureSettings.GenerateMips);
+    MixedCheckbox("##GenerateMips", &m_TextureSettings.GenerateMips);
 
     Label("UASTC Level");
     int l_Level = static_cast<int>(m_TextureSettings.UastcLevel);
-    if (ImGui::SliderInt("##UastcLevel", &l_Level, 0, static_cast<int>(TextureImporter::c_MaxUastcLevel), "%d", ImGuiSliderFlags_AlwaysClamp))
+    if (MixedSliderInt("##UastcLevel", &l_Level, 0, static_cast<int>(TextureImporter::c_MaxUastcLevel), "%d", ImGuiSliderFlags_AlwaysClamp))
     {
         m_TextureSettings.UastcLevel = static_cast<std::uint32_t>(l_Level);
     }
 
     Label("Filter");
     int l_Filter = m_TextureSettings.Filter == Trinity::RHI::Filter::Nearest ? 1 : 0;
-    if (ImGui::Combo("##Filter", &l_Filter, "Linear\0Nearest\0"))
+    if (MixedCombo("##Filter", &l_Filter, "Linear\0Nearest\0"))
     {
         m_TextureSettings.Filter = l_Filter == 1 ? Trinity::RHI::Filter::Nearest : Trinity::RHI::Filter::Linear;
     }
@@ -5179,7 +5616,7 @@ void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
 
     Label("Auto Unit Scale");
     bool l_AutoScale = !m_ModelSettings.UnitScale.has_value();
-    if (ImGui::Checkbox("##AutoUnitScale", &l_AutoScale))
+    if (MixedCheckbox("##AutoUnitScale", &l_AutoScale))
     {
         m_ModelSettings.UnitScale = l_AutoScale ? std::nullopt : std::optional<float>(1.0f);
     }
@@ -5192,14 +5629,14 @@ void PropertiesPanel::DrawModelSettings(const Trinity::AssetRecord& record)
 
     Label("Up Axis");
     int l_Axis = static_cast<int>(m_ModelSettings.UpAxis);
-    if (ImGui::Combo("##UpAxis", &l_Axis, "Auto\0Y\0Z\0"))
+    if (MixedCombo("##UpAxis", &l_Axis, "Auto\0Y\0Z\0"))
     {
         m_ModelSettings.UpAxis = static_cast<ModelUpAxis>(l_Axis);
     }
 
     Label("Collision");
     int l_Collision = static_cast<int>(m_ModelSettings.Collision);
-    if (ImGui::Combo("##Collision", &l_Collision, "None\0Convex Hulls\0Triangle Meshes\0Both\0"))
+    if (MixedCombo("##Collision", &l_Collision, "None\0Convex Hulls\0Triangle Meshes\0Both\0"))
     {
         m_ModelSettings.Collision = static_cast<ModelCollision>(l_Collision);
     }
@@ -5291,7 +5728,7 @@ void PropertiesPanel::DrawAudioClipSettings(const Trinity::AssetRecord& record)
 
     Label("Load Type");
     int l_LoadType = static_cast<int>(m_AudioClipSettings.LoadType);
-    if (ImGui::Combo("##LoadType", &l_LoadType, "Decompress On Load\0Compressed In Memory\0Streaming\0"))
+    if (MixedCombo("##LoadType", &l_LoadType, "Decompress On Load\0Compressed In Memory\0Streaming\0"))
     {
         m_AudioClipSettings.LoadType = static_cast<Trinity::AudioLoadType>(l_LoadType);
     }
@@ -5302,7 +5739,7 @@ void PropertiesPanel::DrawAudioClipSettings(const Trinity::AssetRecord& record)
     }
 
     Label("Preload");
-    ImGui::Checkbox("##Preload", &m_AudioClipSettings.Preload);
+    MixedCheckbox("##Preload", &m_AudioClipSettings.Preload);
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
     {
         ImGui::SetTooltip("Whether a scene waits for the clip's samples before it starts. Without it they load in the background");
@@ -5488,23 +5925,23 @@ void PropertiesPanel::DrawMaterial(const Trinity::AssetRecord& record)
     a_Edit("Base Color", [&](Trinity::MaterialData& material)
     {
         glm::vec4 l_Color(a_ToSrgb(glm::vec3(material.BaseColorFactor)), material.BaseColorFactor.a);
-        const bool l_Changed = ImGui::ColorEdit4("##BaseColor", &l_Color.x, ImGuiColorEditFlags_AlphaPreviewHalf | ImGuiColorEditFlags_AlphaBar);
+        const bool l_Changed = MixedColorEdit4("##BaseColor", &l_Color.x, ImGuiColorEditFlags_AlphaPreviewHalf | ImGuiColorEditFlags_AlphaBar);
         material.BaseColorFactor = glm::vec4(a_ToLinear(glm::vec3(l_Color)), l_Color.a);
 
         return l_Changed;
     });
 
     a_Label("Metallic", { "MetallicFactor" });
-    a_Edit("Metallic", [](Trinity::MaterialData& material) { return ImGui::SliderFloat("##Metallic", &material.MetallicFactor, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    a_Edit("Metallic", [](Trinity::MaterialData& material) { return MixedSliderFloat("##Metallic", &material.MetallicFactor, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     a_Label("Roughness", { "RoughnessFactor" });
-    a_Edit("Roughness", [](Trinity::MaterialData& material) { return ImGui::SliderFloat("##Roughness", &material.RoughnessFactor, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    a_Edit("Roughness", [](Trinity::MaterialData& material) { return MixedSliderFloat("##Roughness", &material.RoughnessFactor, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     a_Label("Emissive", { "EmissiveFactor" });
     a_Edit("Emissive", [&](Trinity::MaterialData& material)
     {
         glm::vec3 l_Color = a_ToSrgb(material.EmissiveFactor);
-        const bool l_Changed = ImGui::ColorEdit3("##Emissive", &l_Color.x);
+        const bool l_Changed = MixedColorEdit3("##Emissive", &l_Color.x);
         material.EmissiveFactor = a_ToLinear(l_Color);
 
         return l_Changed;
@@ -5517,13 +5954,13 @@ void PropertiesPanel::DrawMaterial(const Trinity::AssetRecord& record)
     a_Edit("Normal Scale", [](Trinity::MaterialData& material) { return Trinity::Widgets::DragFloat("##NormalScale", &material.NormalScale, 0.01f, 0.0f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     a_Label("Occlusion Strength", { "OcclusionStrength" });
-    a_Edit("Occlusion Strength", [](Trinity::MaterialData& material) { return ImGui::SliderFloat("##OcclusionStrength", &material.OcclusionStrength, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    a_Edit("Occlusion Strength", [](Trinity::MaterialData& material) { return MixedSliderFloat("##OcclusionStrength", &material.OcclusionStrength, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
 
     a_Label("Alpha Mode", { "AlphaMode" });
     a_Edit("Alpha Mode", [](Trinity::MaterialData& material)
     {
         int l_Mode = static_cast<int>(material.AlphaMode);
-        const bool l_Changed = ImGui::Combo("##AlphaMode", &l_Mode, "Opaque\0Mask\0Blend\0");
+        const bool l_Changed = MixedCombo("##AlphaMode", &l_Mode, "Opaque\0Mask\0Blend\0");
         material.AlphaMode = static_cast<Trinity::MaterialAlphaMode>(l_Mode);
 
         return l_Changed;
@@ -5531,11 +5968,11 @@ void PropertiesPanel::DrawMaterial(const Trinity::AssetRecord& record)
 
     a_Label("Alpha Cutoff", { "AlphaCutoff" });
     ImGui::BeginDisabled(l_Current.AlphaMode != Trinity::MaterialAlphaMode::Mask);
-    a_Edit("Alpha Cutoff", [](Trinity::MaterialData& material) { return ImGui::SliderFloat("##AlphaCutoff", &material.AlphaCutoff, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
+    a_Edit("Alpha Cutoff", [](Trinity::MaterialData& material) { return MixedSliderFloat("##AlphaCutoff", &material.AlphaCutoff, 0.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp); });
     ImGui::EndDisabled();
 
     a_Label("Double Sided", { "DoubleSided" });
-    a_Edit("Double Sided", [](Trinity::MaterialData& material) { return ImGui::Checkbox("##DoubleSided", &material.DoubleSided); });
+    a_Edit("Double Sided", [](Trinity::MaterialData& material) { return MixedCheckbox("##DoubleSided", &material.DoubleSided); });
 
     DrawMaterialTextures(record, l_Current, a_Label);
 
@@ -5635,7 +6072,7 @@ void PropertiesPanel::DrawMaterialTextures(const Trinity::AssetRecord& record, c
         ImGui::SameLine();
         ImGui::SetNextItemWidth(l_UVWidth);
         int l_TexCoord = static_cast<int>(l_Slot.TexCoord);
-        if (ImGui::Combo("##UV", &l_TexCoord, "UV 0\0UV 1\0"))
+        if (MixedCombo("##UV", &l_TexCoord, "UV 0\0UV 1\0"))
         {
             a_Set({ l_Slot.Texture, static_cast<std::uint32_t>(l_TexCoord) });
         }
@@ -5656,9 +6093,21 @@ bool PropertiesPanel::BeginComponent(Trinity::Entity entity, std::string_view na
         std::ranges::copy_if(s_Marks->Overrides, std::back_inserter(l_Overrides), [entity, name](const PrefabOverride& change) { return (change.Type == PrefabOverride::Kind::Value || change.Type == PrefabOverride::Kind::AddedComponent) && change.Entity == entity.GetUUID() && change.Component == name && !IsDefaultOverride(s_Marks->Root, change); });
     }
 
+    // With several selected, the rows where they differ show the dash, and a component not all of them have says how many do
+    std::string l_Note;
+    if (s_Mixed != nullptr)
+    {
+        const MixedComponent& l_Mixed = FindMixed(entity, name);
+        s_Mixed->Component = name;
+        s_Mixed->Prefix.clear();
+        s_Mixed->Paths = l_Mixed.Paths;
+        const std::size_t l_Count = m_Session.GetSelected().GetCount();
+        l_Note = l_Mixed.Having < l_Count ? std::format("  ({} of {})", l_Mixed.Having, l_Count) : std::string();
+    }
+
     const bool l_Added = std::ranges::any_of(l_Overrides, [](const PrefabOverride& change) { return change.Type == PrefabOverride::Kind::AddedComponent; });
     const float l_Top = ImGui::GetCursorScreenPos().y;
-    const bool l_Open = BeginSection(name, l_Added ? std::format("{}{}", Trinity::Icons::c_Plus, icon).c_str() : icon, ImGuiTreeNodeFlags_AllowOverlap);
+    const bool l_Open = BeginSection(name, l_Added ? std::format("{}{}", Trinity::Icons::c_Plus, icon).c_str() : icon, ImGuiTreeNodeFlags_AllowOverlap, l_Note);
     const bool l_Editable = (ImGui::GetItemFlags() & ImGuiItemFlags_Disabled) == 0;
     if (l_Added)
     {

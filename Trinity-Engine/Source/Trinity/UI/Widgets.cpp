@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <utility>
 
 namespace Trinity
@@ -83,6 +84,15 @@ namespace Trinity
         };
 
         ScrubLabel s_ScrubLabel;
+        // What SetNextMixed asked of the next drag field
+        std::uint32_t s_NextMixed = 0;
+
+        // The field's own format while it is typed into, so what is typed reads as a number
+        const char* GetMixedFormat(ImGuiID id, bool mixed, const char* format)
+        {
+            return mixed && !ImGui::TempInputIsActive(id) ? Widgets::c_MixedText : format;
+        }
+
         // The field whose drag began on its label or its letter, which keeps the cursor for as long as the drag lasts
         ImGuiID s_Scrubbed = 0;
 
@@ -166,6 +176,7 @@ namespace Trinity
 
             // The row's label is no one field's to be dragged from
             s_ScrubLabel = ScrubLabel();
+            const std::uint32_t l_Mixed = Widgets::TakeNextMixed();
 
             bool l_Changed = false;
             ImGui::BeginGroup();
@@ -217,7 +228,7 @@ namespace Trinity
 
                 ImGui::SameLine(0.0f, 0.0f);
                 ImGui::SetNextItemWidth(std::max(1.0f, l_Width - l_Letter));
-                l_Changed |= ImGui::DragScalar("", ImGuiDataType_Float, &values[it_Axis], speed, &minimum, &maximum, format, flags);
+                l_Changed |= ImGui::DragScalar("", ImGuiDataType_Float, &values[it_Axis], speed, &minimum, &maximum, GetMixedFormat(l_Field, (l_Mixed & (1u << it_Axis)) != 0, format), flags);
                 DrawScrubCursor(l_Field);
                 ImGui::PopID();
                 ImGui::PopItemWidth();
@@ -374,11 +385,21 @@ namespace Trinity
             s_ScrubLabel = ScrubLabel{ l_Context.CurrentWindow->ID, l_Context.FrameCount, l_Context.LastItemData.Rect, l_Context.CurrentWindow->ClipRect };
         }
 
+        void SetNextMixed(std::uint32_t axes)
+        {
+            s_NextMixed = axes;
+        }
+
+        std::uint32_t TakeNextMixed()
+        {
+            return std::exchange(s_NextMixed, 0u);
+        }
+
         bool DragScalar(const char* label, ImGuiDataType type, void* value, float speed, const void* minimum, const void* maximum, const char* format, ImGuiSliderFlags flags)
         {
             const ImGuiID l_ID = ImGui::GetID(label);
             ScrubFromLabel(l_ID);
-            const bool l_Changed = ImGui::DragScalar(label, type, value, speed, minimum, maximum, format, flags);
+            const bool l_Changed = ImGui::DragScalar(label, type, value, speed, minimum, maximum, GetMixedFormat(l_ID, TakeNextMixed() != 0, format), flags);
             DrawScrubCursor(l_ID);
 
             return l_Changed;

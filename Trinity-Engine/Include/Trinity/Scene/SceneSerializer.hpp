@@ -210,6 +210,8 @@ namespace Trinity
         [[nodiscard]] TRINITY_API std::string MergeComponentText(std::string_view before, std::string_view after, std::string_view target);
         // The keys of a component's text that hold other than a base's of its kind does at them, which a new component's text is. A key the base is without is none of them
         [[nodiscard]] TRINITY_API std::vector<std::string> GetChangedComponentKeys(std::string_view base, std::string_view text);
+        // The paths at which any of the texts holds other than the base does, as several entities' components differ: Key, Key/Sub in a map, and Key/1 for an element of a list as long as the base's. A key the base is without is none of them
+        [[nodiscard]] TRINITY_API std::vector<std::string> GetDifferingComponentPaths(std::string_view base, std::span<const std::string> texts);
         // A component's text with what the base holds at each of the keys, a key the base is without left as it is. The text's own where nothing differs
         [[nodiscard]] TRINITY_API std::string CopyComponentKeys(std::string_view base, std::string_view text, std::span<const std::string> keys);
 
